@@ -64,3 +64,15 @@ def test_model_edits_source_and_emits_change() -> None:
     assert source.edits == {(9, 3): "edited"}
     assert model.data(index, Qt.ItemDataRole.DisplayRole) == "edited"
     assert changed.count() == 1
+
+
+def test_model_can_be_read_only() -> None:
+    from hyacinth.grid.model import WorkbookTableModel
+
+    source = FakeGridSource()
+    model = WorkbookTableModel(source, editable=False)
+    index = model.index(0, 0)
+
+    assert not model.flags(index) & Qt.ItemFlag.ItemIsEditable
+    assert model.setData(index, "blocked", Qt.ItemDataRole.EditRole) is False
+    assert source.edits == {}

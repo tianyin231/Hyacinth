@@ -17,6 +17,7 @@ from hyacinth.library.import_task import ImportedWorkbook
 
 class FileLibraryWidget(QFrame):
     import_requested = Signal()
+    workbook_selected = Signal(object)
 
     def __init__(
         self,
@@ -50,6 +51,7 @@ class FileLibraryWidget(QFrame):
         self._file_list.setObjectName("library-file-list")
         self._file_list.setAccessibleName("已上传文件列表")
         self._file_list.setAlternatingRowColors(False)
+        self._file_list.currentItemChanged.connect(self._emit_selected_workbook)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -114,8 +116,27 @@ class FileLibraryWidget(QFrame):
     def add_workbook(self, record: ImportedWorkbook) -> None:
         item = QListWidgetItem(record.display_name)
         item.setData(Qt.ItemDataRole.UserRole, record.file_id)
+        item.setData(int(Qt.ItemDataRole.UserRole) + 1, record)
         item.setToolTip(record.display_name)
         item.setSizeHint(QSize(0, 40))
         self._file_list.insertItem(0, item)
         self._file_list.setCurrentItem(item)
         self._empty_label.setVisible(False)
+
+    def current_workbook(self) -> ImportedWorkbook | None:
+        item = self._file_list.currentItem()
+        if item is None:
+            return None
+        record = item.data(int(Qt.ItemDataRole.UserRole) + 1)
+        return record if isinstance(record, ImportedWorkbook) else None
+
+    def _emit_selected_workbook(
+        self,
+        current: QListWidgetItem | None,
+        _previous: QListWidgetItem | None,
+    ) -> None:
+        if current is None:
+            return
+        record = current.data(int(Qt.ItemDataRole.UserRole) + 1)
+        if isinstance(record, ImportedWorkbook):
+            self.workbook_selected.emit(record)

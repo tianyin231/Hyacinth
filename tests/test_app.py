@@ -1,15 +1,26 @@
 import os
 import subprocess
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
+from openpyxl import Workbook
 from PySide6.QtCore import QObject, Qt
-from PySide6.QtWidgets import QLabel, QListWidget, QMainWindow, QPushButton
+from PySide6.QtWidgets import (
+    QLabel,
+    QListWidget,
+    QMainWindow,
+    QPushButton,
+    QTabBar,
+    QTableView,
+)
 from pytestqt.qtbot import QtBot
 
 from hyacinth.excel.contracts import EngineName
 from hyacinth.library import IMPORT_WORKBOOK_OPERATION, ImportedWorkbook
+from hyacinth.preview import BUILD_PREVIEW_INDEX_OPERATION, run_preview_index_task
 from hyacinth.tasks import TaskEvent, TaskRequest, TaskState, TaskStatusWidget
 
 
@@ -44,6 +55,21 @@ class FakeApplicationTaskQueue:
     def shutdown(self, timeout: float = 1.0) -> bool:
         self.shutdown_called = True
         return True
+
+
+class PreviewTaskContext:
+    def report_progress(self, progress: float | None, message: str = "") -> None:
+        return
+
+    def check_cancelled(self) -> None:
+        return
+
+    def commit(self) -> None:
+        return
+
+    @contextmanager
+    def critical_section(self, message: str = "") -> Iterator[None]:
+        yield
 
 
 def test_create_main_window_uses_product_identity(qtbot: QtBot) -> None:
@@ -211,3 +237,107 @@ def test_failed_import_shows_reason_and_keeps_import_available(
     qtbot.mouseClick(button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
 
     assert len(task_queue.submitted) == 2
+
+
+def test_existing_file_loads_working_copy_and_renders_selected_sheet(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    directory = library_root / "files" / "file-1"
+    original = directory / "original" / "销售.xlsx"
+    working = directory / "working" / "current.xlsx"
+    original.parent.mkdir(parents=True)
+    working.parent.mkdir(parents=True)
+    original.write_bytes(b"original")
+    workbook = Workbook()
+    sales = workbook.active
+    assert sales is not None
+    sales.title = "销售"
+    sales["A1"] = "一月"
+    workbook.create_sheet("库存")["B2"] = 42
+    workbook.save(working)
+    workbook.close()
+    task_queue = FakeApplicationTaskQueue([])
+
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+
+    assert len(task_queue.submitted) == 1
+    request = task_queue.submitted[0]
+    assert request.operation == BUILD_PREVIEW_INDEX_OPERATION
+    assert request.payload["working_path"] == str(working)
+    preview = run_preview_index_task(request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            task_id=request.task_id,
+            state=TaskState.SUCCEEDED,
+            name=request.name,
+            file_id=request.file_id,
+            engine=None,
+            result=preview,
+        )
+    )
+    table = _child(window, QTableView, "preview-table")
+    tabs = _child(window, QTabBar, "preview-sheet-tabs")
+    qtbot.waitUntil(lambda: table.model() is not None, timeout=500)
+
+    assert [tabs.tabText(index) for index in range(tabs.count())] == ["销售", "库存"]
+    assert table.model().data(table.model().index(0, 0)) == "一月"
+    window.close()
+    preview.index_path.unlink()
+
+    assert not preview.index_path.exists()
+
+
+def test_switching_files_cancels_old_preview_and_ignores_its_result(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    records: list[ImportedWorkbook] = []
+    for file_id, name in (("file-1", "一.xlsx"), ("file-2", "二.xlsx")):
+        directory = library_root / "files" / file_id
+        original = directory / "original" / name
+        working = directory / "working" / "current.xlsx"
+        original.parent.mkdir(parents=True)
+        working.parent.mkdir(parents=True)
+        original.write_bytes(b"original")
+        workbook = Workbook()
+        sheet = workbook.active
+        assert sheet is not None
+        sheet["A1"] = name
+        workbook.save(working)
+        workbook.close()
+        records.append(ImportedWorkbook(file_id, name, original, working))
+    task_queue = FakeApplicationTaskQueue([])
+
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    first_request = task_queue.submitted[0]
+    stale_preview = run_preview_index_task(first_request, PreviewTaskContext())
+    file_list = _child(window, QListWidget, "library-file-list")
+    file_list.setCurrentRow(1)
+
+    assert len(task_queue.submitted) == 2
+    assert task_queue.cancelled == [first_request.task_id]
+    task_queue.push_event(
+        TaskEvent(
+            task_id=first_request.task_id,
+            state=TaskState.SUCCEEDED,
+            name=first_request.name,
+            file_id=first_request.file_id,
+            engine=None,
+            result=stale_preview,
+        )
+    )
+    state = _child(window, QLabel, "preview-state")
+    qtbot.wait(100)
+
+    assert "正在加载" in state.text()

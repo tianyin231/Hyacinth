@@ -15,6 +15,13 @@ from hyacinth.library import (
     discover_imported_workbooks,
     import_task_handlers,
 )
+from hyacinth.preview import (
+    BUILD_PREVIEW_INDEX_OPERATION,
+    WorkbookPreview,
+    WorkbookPreviewWidget,
+    preview_index_path,
+    preview_task_handlers,
+)
 from hyacinth.tasks import (
     TaskEvent,
     TaskQueue,
@@ -54,23 +61,27 @@ class HyacinthMainWindow(QMainWindow):
         self._library_root = library_root
         self._file_picker = file_picker
         self._error_presenter = error_presenter
+        self._task_queue = task_queue
         self._import_task_ids: set[str] = set()
+        self._preview_task_id: str | None = None
         self._file_library = FileLibraryWidget(
             discover_imported_workbooks(library_root),
             workspace,
         )
         self._file_library.import_requested.connect(self._choose_import_file)
+        self._file_library.workbook_selected.connect(self._select_workbook)
+        self._workbook_preview = WorkbookPreviewWidget(workspace)
         workspace_layout = QHBoxLayout(workspace)
         workspace_layout.setContentsMargins(0, 0, 0, 0)
         workspace_layout.setSpacing(0)
         workspace_layout.addWidget(self._file_library)
-        workspace_layout.addStretch(1)
+        workspace_layout.addWidget(self._workbook_preview, 1)
 
-        self._task_queue = task_queue
         self._task_bridge = TaskQueueBridge(task_queue, parent=self)
         self._task_status = TaskStatusWidget(self)
         self._task_bridge.event_received.connect(self._task_status.apply_event)
         self._task_bridge.event_received.connect(self._apply_import_event)
+        self._task_bridge.event_received.connect(self._apply_preview_event)
         self._task_status.cancel_requested.connect(self._task_bridge.cancel)
 
         status_bar = self.statusBar()
@@ -79,6 +90,9 @@ class HyacinthMainWindow(QMainWindow):
         status_bar.setContentsMargins(0, 0, 0, 0)
         status_bar.addWidget(self._task_status, 1)
         self._task_bridge.start()
+        current_workbook = self._file_library.current_workbook()
+        if current_workbook is not None:
+            self._select_workbook(current_workbook)
 
     def _choose_import_file(self) -> None:
         source = self._file_picker(self)
@@ -116,6 +130,39 @@ class HyacinthMainWindow(QMainWindow):
         elif event.state is TaskState.CANCELLED:
             self._import_task_ids.discard(event.task_id)
 
+    def _select_workbook(self, workbook: ImportedWorkbook) -> None:
+        if self._preview_task_id is not None:
+            self._task_queue.cancel(self._preview_task_id)
+        task_id = uuid4().hex
+        self._preview_task_id = task_id
+        self._workbook_preview.set_loading(workbook.display_name)
+        self._task_queue.submit(
+            TaskRequest(
+                task_id=task_id,
+                name=f"加载 {workbook.display_name}",
+                file_id=workbook.file_id,
+                engine=None,
+                operation=BUILD_PREVIEW_INDEX_OPERATION,
+                payload={
+                    "working_path": str(workbook.working_path),
+                    "index_path": str(preview_index_path(workbook.working_path)),
+                },
+            )
+        )
+
+    def _apply_preview_event(self, event: TaskEvent) -> None:
+        if event.task_id != self._preview_task_id:
+            return
+        if event.state is TaskState.SUCCEEDED and isinstance(event.result, WorkbookPreview):
+            self._workbook_preview.show_preview(event.result)
+            self._preview_task_id = None
+        elif event.state is TaskState.FAILED:
+            self._workbook_preview.set_error(event.message or "工作簿无法打开")
+            self._preview_task_id = None
+        elif event.state is TaskState.CANCELLED:
+            self._workbook_preview.set_error("加载已取消，可重新选择文件")
+            self._preview_task_id = None
+
     def submit_conversion(
         self,
         source: Path,
@@ -141,6 +188,7 @@ class HyacinthMainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._task_bridge.shutdown(timeout=1.0):
+            self._workbook_preview.close()
             event.accept()
         else:
             event.ignore()
@@ -155,6 +203,7 @@ def create_main_window(
 ) -> HyacinthMainWindow:
     handlers = conversion_task_handlers()
     handlers.update(import_task_handlers())
+    handlers.update(preview_task_handlers())
     return HyacinthMainWindow(
         task_queue or TaskQueue(handlers),
         library_root or default_library_root(),

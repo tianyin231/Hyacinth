@@ -19,9 +19,16 @@ def excel_column_name(column: int) -> str:
 
 
 class WorkbookTableModel(QAbstractTableModel):
-    def __init__(self, source: GridDataSource, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        source: GridDataSource,
+        parent: QObject | None = None,
+        *,
+        editable: bool = True,
+    ) -> None:
         super().__init__(parent)
         self._source = source
+        self._editable = editable
 
     def rowCount(
         self,
@@ -56,7 +63,7 @@ class WorkbookTableModel(QAbstractTableModel):
         value: object,
         role: int = Qt.ItemDataRole.EditRole,
     ) -> bool:
-        if not index.isValid() or role != Qt.ItemDataRole.EditRole:
+        if not self._editable or not index.isValid() or role != Qt.ItemDataRole.EditRole:
             return False
         self._source.set_value(index.row(), index.column(), value)
         self.dataChanged.emit(
@@ -67,7 +74,10 @@ class WorkbookTableModel(QAbstractTableModel):
         return True
 
     def flags(self, index: QModelIndex | QPersistentModelIndex) -> Qt.ItemFlag:
-        return super().flags(index) | Qt.ItemFlag.ItemIsEditable
+        flags = super().flags(index)
+        if self._editable:
+            flags |= Qt.ItemFlag.ItemIsEditable
+        return flags
 
     def headerData(
         self,

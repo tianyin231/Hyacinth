@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtTest import QSignalSpy
 from PySide6.QtWidgets import QListWidget, QPushButton
 from pytestqt.qtbot import QtBot
 
@@ -33,9 +34,13 @@ def test_file_library_widget_requests_import_and_selects_newest_file(
         qtbot.mouseClick(button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
 
     widget.add_workbook(_record("file-1", "库存.xlsx", tmp_path))
+    selected = QSignalSpy(widget.workbook_selected)
     widget.add_workbook(_record("file-2", "销售.xls", tmp_path))
 
     assert file_list.count() == 2
     assert file_list.item(0).text() == "销售.xls"
     assert file_list.item(0).data(Qt.ItemDataRole.UserRole) == "file-2"
     assert file_list.currentRow() == 0
+    assert widget.current_workbook() == _record("file-2", "销售.xls", tmp_path)
+    assert selected.count() == 1
+    assert selected.at(0)[0] == widget.current_workbook()
