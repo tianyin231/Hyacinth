@@ -9,7 +9,12 @@ def discover_imported_workbooks(library_root: Path) -> tuple[ImportedWorkbook, .
         return ()
 
     records: list[ImportedWorkbook] = []
-    for directory in sorted(files_root.iterdir()):
+    directories = sorted(
+        files_root.iterdir(),
+        key=lambda path: path.stat().st_mtime_ns,
+        reverse=True,
+    )
+    for directory in directories:
         original_directory = directory / "original"
         working = directory / "working" / "current.xlsx"
         if not directory.is_dir() or not original_directory.is_dir() or not working.is_file():

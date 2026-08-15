@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from hyacinth.library.catalog import discover_imported_workbooks
@@ -23,3 +24,20 @@ def test_discovery_returns_only_complete_published_workbooks(tmp_path: Path) -> 
     assert records[0].display_name == "销售报表.xlsx"
     assert records[0].original_path == original
     assert records[0].working_path == working
+
+
+def test_discovery_orders_newest_published_directory_first(tmp_path: Path) -> None:
+    library_root = tmp_path / "library"
+    for file_id, timestamp in (("a-old", 1), ("z-new", 2)):
+        directory = library_root / "files" / file_id
+        original = directory / "original" / f"{file_id}.xlsx"
+        working = directory / "working" / "current.xlsx"
+        original.parent.mkdir(parents=True)
+        working.parent.mkdir(parents=True)
+        original.write_bytes(b"original")
+        working.write_bytes(b"working")
+        os.utime(directory, (timestamp, timestamp))
+
+    records = discover_imported_workbooks(library_root)
+
+    assert [record.file_id for record in records] == ["z-new", "a-old"]

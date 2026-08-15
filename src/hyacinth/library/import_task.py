@@ -16,6 +16,7 @@ from hyacinth.tasks import TaskRequest
 from hyacinth.tasks.worker import TaskContext, TaskHandler
 
 IMPORT_WORKBOOK_OPERATION = "import-workbook"
+COPY_CHUNK_SIZE = 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +58,7 @@ def run_import_task(
         original.parent.mkdir(parents=True)
         working.parent.mkdir(parents=True)
         context.report_progress(None, "正在复制原始文件")
-        shutil.copy2(source, original)
+        _copy_file(source, original, context)
         context.check_cancelled()
         if source.suffix.lower() == ".xls":
             run_conversion_task(
@@ -72,7 +73,7 @@ def run_import_task(
                 select_engine=select_engine,
             )
         else:
-            shutil.copy2(original, working)
+            _copy_file(original, working, context)
         context.check_cancelled()
         context.report_progress(None, "正在校验工作副本")
         workbook = load_workbook(working, read_only=True)
@@ -99,6 +100,15 @@ def import_workbook_task(request: TaskRequest, context: TaskContext) -> object:
 
 def import_task_handlers() -> dict[str, TaskHandler]:
     return {IMPORT_WORKBOOK_OPERATION: import_workbook_task}
+
+
+def _copy_file(source: Path, destination: Path, context: ImportTaskContext) -> None:
+    with source.open("rb") as source_file, destination.open("wb") as destination_file:
+        while chunk := source_file.read(COPY_CHUNK_SIZE):
+            context.check_cancelled()
+            destination_file.write(chunk)
+    context.check_cancelled()
+    shutil.copystat(source, destination)
 
 
 def _payload_path(request: TaskRequest, key: str) -> Path:

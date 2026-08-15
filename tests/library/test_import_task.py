@@ -6,7 +6,7 @@ import pytest
 from openpyxl import Workbook, load_workbook
 
 from hyacinth.excel.contracts import ConversionProgress, ConversionResult, EngineName
-from hyacinth.library.import_task import run_import_task
+from hyacinth.library.import_task import _copy_file, run_import_task
 from hyacinth.tasks import TaskRequest
 from hyacinth.tasks.worker import TaskCancelled
 
@@ -170,3 +170,26 @@ def test_xls_import_converts_copied_original_to_working_xlsx(tmp_path: Path) -> 
     assert original.read_bytes() == source.read_bytes()
     assert _read_a1(result.working_path) == "已转换"
     assert context.engine is EngineName.PYTHON
+
+
+def test_file_copy_checks_cancellation_between_chunks(tmp_path: Path) -> None:
+    source = tmp_path / "large.xlsx"
+    destination = tmp_path / "copied.xlsx"
+    source.write_bytes(b"x" * (3 * 1024 * 1024))
+
+    class CancelDuringCopy(RecordingContext):
+        def __init__(self) -> None:
+            super().__init__()
+            self.checks = 0
+
+        def check_cancelled(self) -> None:
+            self.checks += 1
+            if self.checks == 2:
+                raise TaskCancelled
+
+    context = CancelDuringCopy()
+
+    with pytest.raises(TaskCancelled):
+        _copy_file(source, destination, context)
+
+    assert 0 < destination.stat().st_size < source.stat().st_size
