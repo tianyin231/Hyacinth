@@ -13,6 +13,9 @@ from hyacinth.excel.task_handler import (
     run_conversion_task,
 )
 from hyacinth.tasks import TaskRequest
+from hyacinth.tasks.worker import TaskContext, TaskHandler
+
+IMPORT_WORKBOOK_OPERATION = "import-workbook"
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +91,14 @@ def run_import_task(
         original_path=final_original,
         working_path=final_working,
     )
+
+
+def import_workbook_task(request: TaskRequest, context: TaskContext) -> object:
+    return run_import_task(request, context)
+
+
+def import_task_handlers() -> dict[str, TaskHandler]:
+    return {IMPORT_WORKBOOK_OPERATION: import_workbook_task}
 
 
 def _payload_path(request: TaskRequest, key: str) -> Path:

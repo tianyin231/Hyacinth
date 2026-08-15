@@ -16,6 +16,10 @@ class CancelFlag(Protocol):
     def set(self) -> None: ...
 
 
+class EventSender(Protocol):
+    def send(self, value: object) -> None: ...
+
+
 class TaskCancelled(Exception):
     pass
 
@@ -33,6 +37,7 @@ class TaskContext:
         self._send_event = send_event
         self._cancel_flag = cancel_flag
         self._started_at = started_at
+        self._committed = False
 
     def report_progress(self, progress: float | None, message: str = "") -> None:
         self._send_event(self._event(TaskState.RUNNING, progress=progress, message=message))
@@ -44,8 +49,12 @@ class TaskContext:
         return self._cancel_flag.is_set()
 
     def check_cancelled(self) -> None:
-        if self.cancel_requested():
+        if not self._committed and self.cancel_requested():
             raise TaskCancelled
+
+    def commit(self) -> None:
+        self.check_cancelled()
+        self._committed = True
 
     @contextmanager
     def critical_section(self, message: str = "正在安全收尾") -> Iterator[None]:
@@ -101,7 +110,7 @@ def run_task_worker(
 
 def _execute(
     request: TaskRequest,
-    event_connection: Connection,
+    event_connection: EventSender,
     cancel_flag: CancelFlag,
     handlers: Mapping[str, TaskHandler],
 ) -> None:
