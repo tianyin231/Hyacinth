@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T20:12:55.4655380+08:00"
+updated_at: "2026-08-15T20:19:58.5919787+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -36,7 +36,7 @@ delivery:
 
 current_task:
   id: "STAGE-1-CONDITION-FILTER-001"
-  status: "hidden-row-preview-base-completed-filter-core-pending"
+  status: "filter-preview-core-completed-ui-and-apply-pending"
   goal: "实现最多两个原生可表达条件的应用筛选、可见隐藏行预览、匹配统计、精确应用、子版本和 HEAD 闭环"
   owner: "codex-sol"
 
@@ -170,6 +170,10 @@ last_completed:
   - "完成隐藏行感知的 SQLite 预览索引：从工作表 XML 流式读取 hidden 行，并为有隐藏行的工作表建立稀疏可见行映射"
   - "Qt 数据源通过可见行映射只展示表头与未隐藏行；无隐藏行工作表继续使用零额外映射的直接索引，百万行逻辑网格保持不变"
   - "隐藏行预览基础定向测试通过：12 项预览测试、Ruff 和 Mypy strict"
+  - "完成条件筛选后台预览核心：文本/数字/日期类型，等于、不等于、包含、不包含、大于、小于、介于、为空和不为空"
+  - "筛选预览同时写入原生 AutoFilter CustomFilters 与 row.hidden，返回匹配数、总数、比例和隐藏原始行号"
+  - "安全边界拒绝跨列 OR、已有筛选或隐藏行、Excel 表格、合并区域和条件列公式；同列介于条件不再叠加第二条件"
+  - "条件筛选核心通过真实常驻 Worker、15 项定向测试和 145 项完整质量门"
 
 next_actions:
   - "实现隐藏行感知的 SQLite 预览索引与 Qt 表格映射，确保筛选预览只显示匹配行和表头"
@@ -300,14 +304,21 @@ recent_decisions:
     impact: "双引擎任务 handler、取消语义、Qt 事件桥、状态栏组件和测试"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
-  - "需求讨论记录.md"
-  - "src/hyacinth/preview/index_task.py"
-  - "src/hyacinth/preview/data_source.py"
-  - "tests/preview/test_index_task.py"
+  - "src/hyacinth/processing/__init__.py"
+  - "src/hyacinth/processing/filter_preview.py"
+  - "tests/processing/test_filter_preview.py"
 
 verification:
   status: "condition-filter-fidelity-researched-proposal-pending"
   commands:
+    - "uv run pytest --override-ini addopts='' tests/processing/test_filter_preview.py -q"
+    - "uv run pytest --override-ini addopts='' -q"
+    - "uv run ruff check ."
+    - "uv run ruff format --check ."
+    - "uv run mypy"
+    - "uv lock --check"
+    - "uv build"
+    - "git diff --check"
     - "uv run pytest --override-ini addopts='' tests/preview -q"
     - "uv run ruff check src/hyacinth/preview tests/preview/test_index_task.py"
     - "uv run mypy"
@@ -371,6 +382,9 @@ verification:
     - "OpenCode DeepSeek session ses_ffb779869ffetPKJvDGwsXSdcX 导出并核验 provider/model/finish/files changed"
     - "OpenCode DeepSeek session ses_ffb6eb165ffeExum72T3S31KLf 导出并核验 provider/model/finish 与实际写入范围"
   evidence:
+    - "条件筛选后台核心定向测试：15 passed in 1.27s"
+    - "定向覆盖同列 OR、跨列 AND、文本包含、数字比较、日期介于、空值、危险结构拒绝、取消清理和真实 TaskQueue"
+    - "当前完整质量门：145 passed in 30.16s；Ruff check/format、Mypy strict、uv lock、uv build 和 git diff --check 全部通过"
     - "隐藏行预览定向回归：12 passed in 1.08s；Ruff 和 Mypy strict 通过"
     - "新增回归确认源第 3 行 hidden 后，数据源依次显示表头、源第 2 行、源第 4 行，下一逻辑行为空"
     - "AutoFilter.add_filter_column 只写筛选条件 XML，不会计算或隐藏行；row.hidden 可单独往返保存"
@@ -540,4 +554,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "条件筛选的隐藏行感知预览基础已经完成并通过定向验证；下一步实现条件解析、类型比较、原生 AutoFilter 元数据和 row.hidden 原子预览核心"
+  last_result: "条件筛选后台预览核心已经完成并通过完整质量门；下一步接入通用预览应用事务、FunctionPanel 两条件表单、匹配统计和真实 Qt 端到端闭环"
