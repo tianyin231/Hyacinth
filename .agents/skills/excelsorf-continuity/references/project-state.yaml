@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T17:38:08.7026137+08:00"
+updated_at: "2026-08-15T18:11:05.3449723+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 默认启动界面视觉校正方案确认"
-  next_milestone: "用户确认后实施空状态与 Fluent 壳层精修，并建立可复现的默认/有数据双场景截图验收"
+  current_phase: "阶段 1 默认启动界面视觉校正准备"
+  next_milestone: "确认默认窗口目标尺寸后实施空状态与 Fluent 壳层精修，并建立可复现的默认/有数据双场景截图验收"
 
 current_task:
-  id: "UI-RUNTIME-VISUAL-COMPARISON-001"
-  status: "plan-proposed-awaiting-user-approval"
-  goal: "查明受控验收截图与用户本地正常启动界面的差异，并以可复现的真实启动截图重新验收"
+  id: "UI-FLUENT-EMPTY-STATE-001"
+  status: "awaiting-window-size-confirmation"
+  goal: "精修默认空状态与 Fluent 主界面壳层，提高初始窗口尺寸，并以可复现的真实启动截图重新验收"
   owner: "codex-sol"
 
 last_completed:
@@ -124,9 +124,11 @@ last_completed:
   - "确认用户截图与当前代码壳层一致，不存在样式表未加载或异常 DPI 缩放；与受控排序图的主要差异是空文件库、系统标题栏和客户区宽度"
   - "确认当前四区位置和 260/340/剩余编辑区比例基本正确，但空状态、控件细节、统一矢量图标、局部 Fluent 材质和 Excel 网格主角感仍未达到批准稿"
   - "ui-ux-pro-max 复核强调空状态必须提供清晰引导和可执行动作，不能只留下大面积空白；其通用配色/字体建议因与已确认 Segoe UI/Fluent 蓝方向冲突未采纳"
+  - "用户确认暂停新增处理功能，先实施不伪造数据的空状态、统一矢量图标、控件状态和轻量 Fluent 层级校正"
+  - "用户确认当前 1280x760 初始窗口偏小，需要提高默认尺寸；推荐 1440x900 并按屏幕可用区域约 90% 自动收敛，等待最终确认"
 
 next_actions:
-  - "等待用户确认推荐的默认启动视觉校正范围：不伪造示例数据，精修空状态、控件、图标和轻量 Fluent 层级"
+  - "等待用户确认默认窗口采用 1440x900 目标尺寸并按屏幕可用区域约 90% 自动收敛"
   - "默认空状态在 Excel 编辑区提供明确导入入口与低干扰网格/壁纸占位，版本树和文件区提供紧凑引导，空排序表单不再成为视觉主角"
   - "统一工具栏和面板的矢量图标、控件高度、内边距、圆角、悬停/按下/焦点/禁用状态，并保留已确认 Segoe UI 与 Fluent 蓝强调色"
   - "增加可复现的 1280x760 默认空状态和有数据处理状态截图流程，后续视觉结论必须同时核对两种状态"
@@ -146,8 +148,11 @@ blockers:
     status: "no-current-data-preserve-fallback"
     summary: "默认 Documents\\Hyacinth 当前不存在，无需本轮迁移真实旧记录；catalog 仍保留无清单旧目录的只读发现，不静默丢失"
   - id: "UI-FIDELITY-001"
-    status: "confirmed-partial-implementation-plan-awaiting-approval"
-    summary: "四区结构和比例基本正确，但真实默认启动截图仍呈现大面积无引导空白、原生 Qt 控件感、图标与 Fluent 层级不足；已提出不伪造数据的空状态与壳层精修方案"
+    status: "approved-for-correction"
+    summary: "四区结构和比例基本正确，但真实默认启动截图仍呈现大面积无引导空白、原生 Qt 控件感、图标与 Fluent 层级不足；用户已确认先执行空状态与壳层精修"
+  - id: "UI-DEFAULT-WINDOW-SIZE-001"
+    status: "awaiting-exact-size-confirmation"
+    summary: "用户确认 1280x760 偏小；推荐目标 1440x900，并限制为屏幕可用区域约 90%，避免 1080p、小屏和高 DPI 下超出桌面"
   - id: "PREVIEW-DATA-ACCESS-001"
     status: "resolved-and-implemented"
     summary: "后台单次流式建立可再生 SQLite 稀疏索引，Qt 虚拟模型通过行缓存按需查询；性能和真实 Worker 已验证"
@@ -171,6 +176,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260815-018"
+    date: "2026-08-15"
+    status: "approved-with-size-pending"
+    summary: "在继续新增处理功能前先校正默认空状态和 Fluent 壳层，不伪造示例数据，并提高当前 1280x760 初始窗口尺寸"
+    source: "用户查看真实默认启动截图后明确确认校正方案，并补充初始窗口偏小"
+    supersedes: "none"
+    impact: "默认空状态、工具栏/面板图标与控件视觉、轻量 Fluent 层级、默认窗口尺寸和双场景截图验收"
   - id: "DEC-20260815-017"
     date: "2026-08-15"
     status: "approved"
@@ -234,18 +246,12 @@ recent_decisions:
     source: "用户当前会话明确确认"
     supersedes: "none"
     impact: "表格模型边界、性能测试数据规模与暂定验收阈值"
-  - id: "DEC-20260815-008"
-    date: "2026-08-15"
-    status: "approved"
-    summary: "阶段 1 首个风险原型采用可复用的最小双引擎骨架方案 A"
-    source: "用户当前会话明确确认"
-    supersedes: "none"
-    impact: "引擎接口、COM/Python 转换实现与格式保真测试范围"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
+  - "需求讨论记录.md"
 
 verification:
-  status: "runtime-visual-gap-confirmed-plan-awaiting-approval"
+  status: "visual-correction-approved-window-size-pending"
   commands:
     - "uv lock --check"
     - "$env:PYTHONPATH='src'; ..\\..\\.venv\\Scripts\\python.exe -m pytest --override-ini addopts='' -q"
@@ -266,6 +272,8 @@ verification:
     - "并排目视核对用户默认启动截图、visual-direction-fluent-final.png 和 sort-child-version-slice.png"
     - "ui-ux-pro-max design-system 与 empty-state UX 搜索"
     - "只读核对需求讨论记录视觉方向、空状态、四区交换与原始前端框架设计"
+    - "只读搜索现有窗口尺寸、窗口状态持久化需求和 1080p 自适应约束"
+    - "ui-ux-pro-max Windows desktop adaptive workspace design-system 与 UX 搜索"
     - "100000 行 x 5 列真实 xlsx 后台索引与第 100000 行末端查询计时"
     - "Windows 原生 Qt grab 保存 output/playwright/preview-slice.png"
     - "并排目视核对 output/playwright/visual-direction-fluent-final.png 与 output/playwright/preview-slice.png"
@@ -318,6 +326,7 @@ verification:
     - "实际启动与受控排序图使用同一当前壳层；受控图中的文件、表格和版本节点来自测试夹具，不能作为默认空状态视觉证据"
     - "实际启动与批准稿的剩余差距已确认：空状态缺少导入动作和低干扰视觉承托、组合框/按钮仍偏原生 Qt、图标体系不统一、标题/工具栏/侧栏缺少轻量材质层级"
     - "符合需求的部分：四区持续可见、左右宽度约 260/340/剩余、Segoe UI、蓝色强调、禁用状态和高对比数据区方向"
+    - "用户已批准视觉校正范围并补充窗口尺寸要求；现有实现仅在 app.py 固定 resize(1280, 760)，需求记录此前没有默认目标尺寸"
   worker_sessions:
     STAGE-1-SORT-PREVIEW-CORE-001:
       session_id: "ses_ffb6eb165ffeExum72T3S31KLf"
@@ -397,4 +406,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "用户实际默认启动截图已完成三图对照：当前壳层运行正常但只部分达到批准稿；已形成不伪造数据的空状态与 Fluent 壳层精修方案，等待用户确认后实施"
+  last_result: "用户已批准不伪造数据的空状态与 Fluent 壳层精修；当前只待确认推荐的 1440x900 目标和屏幕可用区域 90% 自适应上限后开始实现"
