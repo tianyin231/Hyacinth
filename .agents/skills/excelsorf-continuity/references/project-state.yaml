@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T11:05:32.2779722+08:00"
+updated_at: "2026-08-15T11:15:05.9209683+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-1-grid-performance-prototype"
+  implementation: "stage-1-task-queue-design"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 大表格模型与交互性能风险原型已完成"
+  current_phase: "阶段 1 后台任务队列与取消风险原型实施中"
   next_milestone: "阶段 1 后台任务队列与取消风险原型"
 
 current_task:
-  id: "STAGE-1-GRID-PERFORMANCE-001"
-  status: "completed"
-  goal: "已验证 QAbstractTableModel 在大规模逻辑数据下的按需访问、内存和滚动性能"
+  id: "STAGE-1-TASK-QUEUE-001"
+  status: "in-progress"
+  goal: "验证独立后台进程中的全局单任务 FIFO 队列、结构化进度、取消与崩溃恢复边界"
   owner: "codex-sol"
 
 last_completed:
@@ -59,9 +59,11 @@ last_completed:
   - "完成 GridDataSource 协议、稀疏编辑覆盖层和可编辑 WorkbookTableModel"
   - "完成 1048576x256 逻辑网格的首屏、末端跳转、访问次数和 Python 内存性能验证"
   - "大表格性能原型已快进合并到本地 main，临时 worktree 与分支已清理"
+  - "使用 opencode-go/deepseek-v4-flash Worker 完成后台任务队列只读调研，Codex/Sol 已复核并否决其不符合独立进程要求的 QThread 执行方案"
 
 next_actions:
-  - "确认阶段 1 后台单任务队列、进度与取消风险原型方案"
+  - "在隔离 worktree 中按 TDD 实现并验证独立后台进程、FIFO、事件、取消和崩溃恢复"
+  - "核心风险原型暂不制作可见任务面板，UI 集成留到后续垂直切片"
   - "每完成一个可独立验收的关键开发节点提交本地 Git"
   - "后续普通更改默认不推送远端，用户明确要求时再推送"
 
@@ -80,6 +82,13 @@ blockers:
     summary: "需求讨论记录第 43 节中的项目仍需在后续与客户复核"
 
 recent_decisions:
+  - id: "DEC-20260815-010"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "后台队列原型采用常驻独立 Worker 进程、UI 侧 FIFO 调度、结构化 IPC、协作取消和非关键阶段超时重建；本节点只做核心原型"
+    source: "用户当前会话明确确认方案 1"
+    supersedes: "none"
+    impact: "阶段 1 任务队列架构、取消语义、崩溃恢复与测试范围"
   - id: "DEC-20260815-009"
     date: "2026-08-15"
     status: "approved"
@@ -145,6 +154,7 @@ recent_decisions:
     impact: "开发顺序和里程碑"
 
 changed_files:
+  - "需求讨论记录.md"
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
 
 verification:
@@ -164,5 +174,11 @@ verification:
     - "1920x1080 首屏 40.8ms、末端跳转 30.1ms，两次底层读取均为 665 个单元格"
     - "稀疏覆盖层只保存编辑坐标，命中编辑时不访问基础数据源"
     - "合并到 main 后复验：21 passed，首屏 37.4ms、末端跳转 22.9ms、读取次数均为 665"
-  worker_sessions: {}
-  last_result: "阶段 1 大表格性能原型已合并到本地 main，全部质量门和性能阈值通过"
+  worker_sessions:
+    STAGE-1-TASK-QUEUE-RESEARCH-001:
+      session_id: "ses_ffc9b4161ffe7561dWNGTOr8H5"
+      provider: "opencode-go"
+      model: "deepseek-v4-flash"
+      finish: "stop"
+      result: "只读调研完成；建议的 QThread 执行方案因不满足独立后台进程要求被 Codex/Sol 否决，其状态机、取消风险和测试清单作为设计输入保留"
+  last_result: "用户已确认常驻独立 Worker 进程方案，准备在隔离 worktree 中按 TDD 实现核心风险原型"
