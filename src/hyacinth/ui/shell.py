@@ -120,15 +120,19 @@ QComboBox[class="field-control"]:disabled, QLineEdit[class="field-control"]:disa
 QComboBox[class="field-control"]:focus, QLineEdit[class="field-control"]:focus {
     border: 2px solid #0f6cbd;
 }
-QListWidget#deduplicate-key-columns {
+QListWidget#deduplicate-key-columns, QListWidget#blank-rows-key-columns {
     color: #343a45;
     background: #ffffff;
     border: 1px solid #bdc6d2;
     border-radius: 6px;
     outline: none;
 }
-QListWidget#deduplicate-key-columns::item { min-height: 25px; padding: 0 6px; }
-QListWidget#deduplicate-key-columns::item:selected {
+QListWidget#deduplicate-key-columns::item, QListWidget#blank-rows-key-columns::item {
+    min-height: 25px;
+    padding: 0 6px;
+}
+QListWidget#deduplicate-key-columns::item:selected,
+QListWidget#blank-rows-key-columns::item:selected {
     color: #0b5a9d;
     background: #e5f2fb;
 }
@@ -402,6 +406,7 @@ class CommandBar(QFrame):
 class FunctionPanel(QFrame):
     preview_requested = Signal(str, object)
     deduplicate_preview_requested = Signal(str, object)
+    delete_blank_rows_preview_requested = Signal(str, object)
     cancel_requested = Signal()
     apply_requested = Signal()
 
@@ -440,6 +445,7 @@ class FunctionPanel(QFrame):
         self._operation = self._field(body_layout, "处理功能", "processing-operation")
         self._operation.addItem("多列排序", "sort")
         self._operation.addItem("删除重复行", "deduplicate")
+        self._operation.addItem("删除空白行", "delete_blank_rows")
         self._operation.currentIndexChanged.connect(self._switch_operation)
         self._sheet = self._field(body_layout, "处理工作表", "sort-sheet")
         self._sheet.currentTextChanged.connect(self._refresh_columns)
@@ -502,10 +508,45 @@ class FunctionPanel(QFrame):
         deduplicate_layout.addWidget(self._deduplicate_details)
         deduplicate_layout.addStretch()
 
+        blank_rows_page = QWidget(body)
+        blank_rows_layout = QVBoxLayout(blank_rows_page)
+        blank_rows_layout.setContentsMargins(0, 0, 0, 0)
+        blank_rows_layout.setSpacing(5)
+        blank_rows_label = QLabel("判断空白的关键列", blank_rows_page)
+        blank_rows_label.setProperty("class", "form-label")
+        self._blank_rows_columns = QListWidget(blank_rows_page)
+        self._blank_rows_columns.setObjectName("blank-rows-key-columns")
+        self._blank_rows_columns.setAccessibleName("判断空白的关键列")
+        self._blank_rows_columns.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        self._blank_rows_columns.setMaximumHeight(92)
+        self._blank_rows_allow_unsafe = QCheckBox(
+            "发现公式等结构时生成兼容预览",
+            blank_rows_page,
+        )
+        self._blank_rows_allow_unsafe.setObjectName("blank-rows-allow-unsafe")
+        blank_rows_note = QLabel(
+            "未选择关键列时按整行判断 · 空白文本视为空 · 首行表头不会删除",
+            blank_rows_page,
+        )
+        blank_rows_note.setObjectName("blank-rows-note")
+        blank_rows_note.setWordWrap(True)
+        self._blank_rows_details = QPushButton("查看将删除的原始行号", blank_rows_page)
+        self._blank_rows_details.setObjectName("blank-rows-details-button")
+        self._blank_rows_details.setProperty("class", "tool-button")
+        self._blank_rows_details.setEnabled(False)
+        self._blank_rows_details.clicked.connect(self._show_blank_rows_details)
+        blank_rows_layout.addWidget(blank_rows_label)
+        blank_rows_layout.addWidget(self._blank_rows_columns)
+        blank_rows_layout.addWidget(self._blank_rows_allow_unsafe)
+        blank_rows_layout.addWidget(blank_rows_note)
+        blank_rows_layout.addWidget(self._blank_rows_details)
+        blank_rows_layout.addStretch()
+
         self._parameter_stack = QStackedWidget(body)
         self._parameter_stack.setObjectName("processing-parameter-stack")
         self._parameter_stack.addWidget(sort_page)
         self._parameter_stack.addWidget(deduplicate_page)
+        self._parameter_stack.addWidget(blank_rows_page)
         body_layout.addWidget(self._parameter_stack, 1)
 
         self._state = QLabel("选择文件后可配置处理功能", body)
@@ -514,6 +555,7 @@ class FunctionPanel(QFrame):
         self._state.setAccessibleName("处理状态")
         body_layout.addWidget(self._state)
         self._duplicate_mapping: tuple[tuple[int, tuple[int, ...]], ...] = ()
+        self._deleted_blank_row_numbers: tuple[int, ...] = ()
 
         self._footer = QFrame(self)
         self._footer.setObjectName("function-footer")
@@ -561,6 +603,8 @@ class FunctionPanel(QFrame):
             self._deduplicate_keep,
             self._deduplicate_ignore_case,
             self._deduplicate_trim,
+            self._blank_rows_columns,
+            self._blank_rows_allow_unsafe,
         )
         self.clear_workbook()
 
@@ -587,8 +631,11 @@ class FunctionPanel(QFrame):
         self._primary.clear()
         self._secondary.clear()
         self._deduplicate_columns.clear()
+        self._blank_rows_columns.clear()
         self._duplicate_mapping = ()
+        self._deleted_blank_row_numbers = ()
         self._deduplicate_details.setEnabled(False)
+        self._blank_rows_details.setEnabled(False)
         self._set_config_enabled(False)
         self._body_stack.setCurrentIndex(0)
         self._footer.setVisible(False)
@@ -624,11 +671,27 @@ class FunctionPanel(QFrame):
         )
         self._deduplicate_details.setEnabled(bool(mapping))
 
+    def set_delete_blank_rows_preview_ready(
+        self,
+        deleted_row_numbers: tuple[int, ...],
+        compatibility_warning: bool,
+        message: str | None = None,
+    ) -> None:
+        self._deleted_blank_row_numbers = deleted_row_numbers
+        summary = f"将删除 {len(deleted_row_numbers)} 行"
+        if compatibility_warning:
+            summary += " · 兼容预览可能影响公式等结构"
+        self.set_preview_ready(
+            f"{message} · {summary}" if message else f"临时结果已就绪 · {summary}"
+        )
+        self._blank_rows_details.setEnabled(bool(deleted_row_numbers))
+
     def set_error(self, message: str) -> None:
         self._set_config_enabled(bool(self._headers_by_sheet))
         self._cancel.setEnabled(False)
         self._apply.setEnabled(False)
         self._deduplicate_details.setEnabled(False)
+        self._blank_rows_details.setEnabled(False)
         self._state.setText(message)
         self._set_state_error(True)
 
@@ -660,12 +723,15 @@ class FunctionPanel(QFrame):
         self._secondary.clear()
         self._secondary.addItem("不使用", None)
         self._deduplicate_columns.clear()
+        self._blank_rows_columns.clear()
         for index, header in enumerate(headers):
             label = header or f"第 {index + 1} 列"
             self._primary.addItem(label, index)
             self._secondary.addItem(label, index)
             self._deduplicate_columns.addItem(label)
             self._deduplicate_columns.item(index).setData(Qt.ItemDataRole.UserRole, index)
+            self._blank_rows_columns.addItem(label)
+            self._blank_rows_columns.item(index).setData(Qt.ItemDataRole.UserRole, index)
         self._set_config_enabled(bool(self._headers_by_sheet))
 
     def _reset_fields(self) -> None:
@@ -677,6 +743,8 @@ class FunctionPanel(QFrame):
         self._deduplicate_keep.setCurrentIndex(0)
         self._deduplicate_ignore_case.setChecked(False)
         self._deduplicate_trim.setChecked(False)
+        self._blank_rows_columns.clearSelection()
+        self._blank_rows_allow_unsafe.setChecked(False)
         self._state.setText("已重置处理条件")
 
     def _set_config_enabled(self, enabled: bool) -> None:
@@ -687,10 +755,17 @@ class FunctionPanel(QFrame):
         self._deduplicate_details.setEnabled(
             enabled and bool(self._duplicate_mapping) and self._apply.isEnabled()
         )
+        self._blank_rows_details.setEnabled(
+            enabled and bool(self._deleted_blank_row_numbers) and self._apply.isEnabled()
+        )
 
     def _emit_preview(self) -> None:
-        if self._operation.currentData() == "deduplicate":
+        operation = self._operation.currentData()
+        if operation == "deduplicate":
             self._emit_deduplicate_preview()
+            return
+        if operation == "delete_blank_rows":
+            self._emit_delete_blank_rows_preview()
             return
         primary = self._primary.currentData()
         if not isinstance(primary, int):
@@ -727,16 +802,36 @@ class FunctionPanel(QFrame):
             },
         )
 
+    def _emit_delete_blank_rows_preview(self) -> None:
+        key_columns = [
+            item.data(Qt.ItemDataRole.UserRole) for item in self._blank_rows_columns.selectedItems()
+        ]
+        self.delete_blank_rows_preview_requested.emit(
+            self._sheet.currentText(),
+            {
+                "key_columns": key_columns,
+                "allow_unsafe": self._blank_rows_allow_unsafe.isChecked(),
+            },
+        )
+
     def _switch_operation(self, _index: int = -1) -> None:
-        deduplicate = self._operation.currentData() == "deduplicate"
-        self._parameter_stack.setCurrentIndex(1 if deduplicate else 0)
+        operation = self._operation.currentData()
+        page_index = {"sort": 0, "deduplicate": 1, "delete_blank_rows": 2}.get(operation, 0)
+        self._parameter_stack.setCurrentIndex(page_index)
         if self._headers_by_sheet:
             self._state.setText(self._ready_message())
-        self._preview.setAccessibleName("预览删除重复行结果" if deduplicate else "预览排序结果")
+        accessible_names = {
+            "sort": "预览排序结果",
+            "deduplicate": "预览删除重复行结果",
+            "delete_blank_rows": "预览删除空白行结果",
+        }
+        self._preview.setAccessibleName(accessible_names.get(operation, "预览处理结果"))
 
     def _ready_message(self) -> str:
         if self._operation.currentData() == "deduplicate":
             return "选择关键列后预览；未选择时按整行判断"
+        if self._operation.currentData() == "delete_blank_rows":
+            return "选择关键列后预览；未选择时删除整行均为空的行"
         return "配置排序条件后预览完整数据行"
 
     def _show_duplicate_details(self) -> None:
@@ -746,6 +841,22 @@ class FunctionPanel(QFrame):
         table = QTableView(dialog)
         table.setObjectName("deduplicate-mapping-table")
         table.setModel(DuplicateMappingModel(self._duplicate_mapping, table))
+        table.horizontalHeader().setStretchLastSection(True)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dialog)
+        buttons.rejected.connect(dialog.reject)
+        buttons.accepted.connect(dialog.accept)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(table)
+        layout.addWidget(buttons)
+        dialog.exec()
+
+    def _show_blank_rows_details(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("将删除的空白行")
+        dialog.resize(360, 420)
+        table = QTableView(dialog)
+        table.setObjectName("blank-rows-details-table")
+        table.setModel(DeletedRowsModel(self._deleted_blank_row_numbers, table))
         table.horizontalHeader().setStretchLastSection(True)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dialog)
         buttons.rejected.connect(dialog.reject)
@@ -798,6 +909,43 @@ class DuplicateMappingModel(QAbstractTableModel):
         if orientation is not Qt.Orientation.Horizontal or role != Qt.ItemDataRole.DisplayRole:
             return None
         return ("保留行", "删除行")[section]
+
+
+class DeletedRowsModel(QAbstractTableModel):
+    def __init__(self, row_numbers: tuple[int, ...], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._row_numbers = row_numbers
+
+    def rowCount(
+        self,
+        parent: QModelIndex | QPersistentModelIndex = QModelIndex(),
+    ) -> int:
+        return 0 if parent.isValid() else len(self._row_numbers)
+
+    def columnCount(
+        self,
+        parent: QModelIndex | QPersistentModelIndex = QModelIndex(),
+    ) -> int:
+        return 0 if parent.isValid() else 1
+
+    def data(
+        self,
+        index: QModelIndex | QPersistentModelIndex,
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> object | None:
+        if not index.isValid() or role != Qt.ItemDataRole.DisplayRole:
+            return None
+        return f"第 {self._row_numbers[index.row()]} 行"
+
+    def headerData(
+        self,
+        section: int,
+        orientation: Qt.Orientation,
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> object | None:
+        if orientation is not Qt.Orientation.Horizontal or role != Qt.ItemDataRole.DisplayRole:
+            return None
+        return "原始行号" if section == 0 else None
 
 
 class VersionTreePanel(QFrame):

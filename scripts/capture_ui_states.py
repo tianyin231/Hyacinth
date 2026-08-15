@@ -100,7 +100,7 @@ def _wait(milliseconds: int) -> None:
     loop.exec()
 
 
-def capture_ui_states(output_directory: Path) -> tuple[Path, Path, Path]:
+def capture_ui_states(output_directory: Path) -> tuple[Path, Path, Path, Path]:
     app = QApplication.instance() or QApplication([])
     output_directory.mkdir(parents=True, exist_ok=True)
     with (
@@ -152,12 +152,17 @@ def capture_ui_states(output_directory: Path) -> tuple[Path, Path, Path]:
         deduplicate_path = output_directory / "deduplicate-configured.png"
         if not populated_window.grab().save(str(deduplicate_path)):
             raise RuntimeError("无法保存删除重复行配置截图")
+        operation.setCurrentIndex(operation.findData("delete_blank_rows"))
+        app.processEvents()
+        blank_rows_path = output_directory / "delete-blank-rows-configured.png"
+        if not populated_window.grab().save(str(blank_rows_path)):
+            raise RuntimeError("无法保存删除空白行配置截图")
         populated_window.close()
-    return empty_path, populated_path, deduplicate_path
+    return empty_path, populated_path, deduplicate_path, blank_rows_path
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="抓取风信子默认、有数据与去重配置界面状态")
+    parser = argparse.ArgumentParser(description="抓取风信子默认、有数据与处理配置界面状态")
     parser.add_argument(
         "--output",
         type=Path,

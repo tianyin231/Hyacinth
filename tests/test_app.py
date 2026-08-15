@@ -32,12 +32,16 @@ from hyacinth.library import IMPORT_WORKBOOK_OPERATION, ImportedWorkbook
 from hyacinth.preview import BUILD_PREVIEW_INDEX_OPERATION, run_preview_index_task
 from hyacinth.processing import (
     APPLY_DEDUPLICATE_PREVIEW_OPERATION,
+    APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION,
     APPLY_SORT_PREVIEW_OPERATION,
     DEDUPLICATE_PREVIEW_OPERATION,
+    DELETE_BLANK_ROWS_PREVIEW_OPERATION,
     SORT_PREVIEW_OPERATION,
     run_apply_deduplicate_preview_task,
+    run_apply_delete_blank_rows_preview_task,
     run_apply_sort_preview_task,
     run_deduplicate_preview_task,
+    run_delete_blank_rows_preview_task,
     run_sort_preview_task,
 )
 from hyacinth.tasks import TaskEvent, TaskRequest, TaskState, TaskStatusWidget
@@ -668,6 +672,111 @@ def test_deduplicate_preview_apply_creates_child_and_shows_statistics(
     proxies = [item for item in tree.scene().items() if isinstance(item, QGraphicsProxyWidget)]
 
     assert head is not None and head.operation == "delete-duplicates"
+    assert head.parent_version_id == "version-1"
+    assert len(proxies) == 2
+    assert not result.preview_path.parent.exists()
+
+
+def test_delete_blank_rows_preview_apply_creates_child_and_shows_original_rows(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(
+        library_root,
+        [
+            ["名称", "类别"],
+            ["apple", "水果"],
+            [None, None],
+            ["banana", "水果"],
+        ],
+    )
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    initial_request = task_queue.submitted[0]
+    base_preview = run_preview_index_task(initial_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            initial_request.task_id,
+            TaskState.SUCCEEDED,
+            initial_request.name,
+            initial_request.file_id,
+            None,
+            result=base_preview,
+        )
+    )
+    preview_button = _child(window, QPushButton, "function-preview-button")
+    qtbot.waitUntil(preview_button.isEnabled, timeout=500)
+    operation = _child(window, QComboBox, "processing-operation")
+    operation.setCurrentIndex(operation.findData("delete_blank_rows"))
+    columns = _child(window, QListWidget, "blank-rows-key-columns")
+    columns.item(0).setSelected(True)
+    qtbot.mouseClick(preview_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    delete_request = task_queue.submitted[-1]
+    assert delete_request.operation == DELETE_BLANK_ROWS_PREVIEW_OPERATION
+    assert delete_request.payload["key_columns"] == [0]
+    assert delete_request.payload["allow_unsafe"] is False
+    parent = record.head_version
+    assert parent is not None
+    assert delete_request.payload["source_path"] == str(parent.snapshot_path)
+    result = run_delete_blank_rows_preview_task(delete_request, PreviewTaskContext())
+    assert result.deleted_row_numbers == (3,)
+    task_queue.push_event(
+        TaskEvent(
+            delete_request.task_id,
+            TaskState.SUCCEEDED,
+            delete_request.name,
+            delete_request.file_id,
+            EngineName.PYTHON,
+            result=result,
+        )
+    )
+    qtbot.waitUntil(lambda: len(task_queue.submitted) == 3, timeout=500)
+    temporary_index_request = task_queue.submitted[-1]
+    temporary_preview = run_preview_index_task(temporary_index_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            temporary_index_request.task_id,
+            TaskState.SUCCEEDED,
+            temporary_index_request.name,
+            temporary_index_request.file_id,
+            None,
+            result=temporary_preview,
+        )
+    )
+    apply_button = _child(window, QPushButton, "function-apply-button")
+    state = _child(window, QLabel, "sort-state")
+    details = _child(window, QPushButton, "blank-rows-details-button")
+    qtbot.waitUntil(apply_button.isEnabled, timeout=500)
+    assert "删除 1 行" in state.text()
+    assert details.isEnabled()
+    qtbot.mouseClick(apply_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    apply_request = task_queue.submitted[-1]
+    assert apply_request.operation == APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION
+    assert apply_request.payload["deleted_row_numbers"] == [3]
+    applied = run_apply_delete_blank_rows_preview_task(apply_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            apply_request.task_id,
+            TaskState.SUCCEEDED,
+            apply_request.name,
+            apply_request.file_id,
+            EngineName.PYTHON,
+            result=applied,
+        )
+    )
+    qtbot.waitUntil(lambda: len(task_queue.submitted) == 5, timeout=500)
+    head = MetadataStore(library_root).get_workbook("file-1").head_version
+    tree = _child(window, QGraphicsView, "version-tree-view")
+    proxies = [item for item in tree.scene().items() if isinstance(item, QGraphicsProxyWidget)]
+
+    assert head is not None and head.operation == "delete-blank-rows"
     assert head.parent_version_id == "version-1"
     assert len(proxies) == 2
     assert not result.preview_path.parent.exists()

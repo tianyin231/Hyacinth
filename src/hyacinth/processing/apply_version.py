@@ -22,6 +22,7 @@ from hyacinth.versioning import (
 
 APPLY_SORT_PREVIEW_OPERATION = "apply-sort-preview"
 APPLY_DEDUPLICATE_PREVIEW_OPERATION = "apply-deduplicate-preview"
+APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION = "apply-delete-blank-rows-preview"
 COPY_CHUNK_SIZE = 1024 * 1024
 
 
@@ -107,6 +108,46 @@ def run_apply_deduplicate_preview_task(
             "trim_whitespace": trim_whitespace,
             "duplicate_groups": duplicate_groups,
             "deleted_rows": deleted_rows,
+        },
+    )
+
+
+def run_apply_delete_blank_rows_preview_task(
+    request: TaskRequest,
+    context: ApplyVersionTaskContext,
+    *,
+    metadata_store_factory: MetadataStoreFactory = MetadataStore,
+) -> ImportedWorkbook:
+    sheet_name = _payload_string(request, "sheet_name")
+    key_columns = request.payload.get("key_columns")
+    allow_unsafe = request.payload.get("allow_unsafe")
+    compatibility_warning = request.payload.get("compatibility_warning")
+    deleted_row_numbers = request.payload.get("deleted_row_numbers")
+    if not isinstance(key_columns, list):
+        raise ValueError("任务参数缺少空白行关键列：key_columns")
+    if not isinstance(allow_unsafe, bool):
+        raise ValueError("任务参数 allow_unsafe 必须是布尔值")
+    if not isinstance(compatibility_warning, bool):
+        raise ValueError("任务参数 compatibility_warning 必须是布尔值")
+    if (
+        not isinstance(deleted_row_numbers, list)
+        or not deleted_row_numbers
+        or any(not isinstance(row, int) or isinstance(row, bool) for row in deleted_row_numbers)
+    ):
+        raise ValueError("任务参数 deleted_row_numbers 必须是非空整数列表")
+    return _run_apply_preview_task(
+        request,
+        context,
+        metadata_store_factory=metadata_store_factory,
+        version_name="删除空白行",
+        operation="delete-blank-rows",
+        parameters={
+            "sheet_name": sheet_name,
+            "key_columns": key_columns,
+            "allow_unsafe": allow_unsafe,
+            "compatibility_warning": compatibility_warning,
+            "deleted_row_numbers": deleted_row_numbers,
+            "deleted_rows": len(deleted_row_numbers),
         },
     )
 
@@ -206,10 +247,15 @@ def apply_deduplicate_preview_task(request: TaskRequest, context: TaskContext) -
     return run_apply_deduplicate_preview_task(request, context)
 
 
+def apply_delete_blank_rows_preview_task(request: TaskRequest, context: TaskContext) -> object:
+    return run_apply_delete_blank_rows_preview_task(request, context)
+
+
 def apply_version_handlers() -> dict[str, TaskHandler]:
     return {
         APPLY_SORT_PREVIEW_OPERATION: apply_sort_preview_task,
         APPLY_DEDUPLICATE_PREVIEW_OPERATION: apply_deduplicate_preview_task,
+        APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION: apply_delete_blank_rows_preview_task,
     }
 
 

@@ -204,3 +204,50 @@ def test_function_panel_emits_deduplicate_parameters_and_shows_mapping(
     assert model.rowCount() == 1
     assert model.data(model.index(0, 0)) == "第 4 行"
     assert model.data(model.index(0, 1)) == "第 2 行、第 3 行"
+
+
+def test_function_panel_emits_delete_blank_rows_parameters_and_shows_rows(
+    qtbot: QtBot,
+) -> None:
+    from hyacinth.ui import FunctionPanel
+    from hyacinth.ui.shell import DeletedRowsModel
+
+    panel = FunctionPanel()
+    qtbot.addWidget(panel)
+    panel.set_workbook({"销售": ("A · 名称", "B · 数量")})
+    operation = panel.findChild(QComboBox, "processing-operation")
+    parameter_stack = panel.findChild(QStackedWidget, "processing-parameter-stack")
+    columns = panel.findChild(QListWidget, "blank-rows-key-columns")
+    allow_unsafe = panel.findChild(QCheckBox, "blank-rows-allow-unsafe")
+    preview = panel.findChild(QPushButton, "function-preview-button")
+    details = panel.findChild(QPushButton, "blank-rows-details-button")
+    state = panel.findChild(QLabel, "sort-state")
+    assert operation is not None
+    assert parameter_stack is not None
+    assert columns is not None
+    assert allow_unsafe is not None
+    assert preview is not None
+    assert details is not None
+    assert state is not None
+    operation.setCurrentIndex(operation.findData("delete_blank_rows"))
+    assert parameter_stack.currentIndex() == 2
+    assert preview.accessibleName() == "预览删除空白行结果"
+    columns.item(0).setSelected(True)
+    allow_unsafe.setChecked(True)
+
+    with qtbot.waitSignal(panel.delete_blank_rows_preview_requested) as signal:
+        qtbot.mouseClick(preview, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    assert signal.args == [
+        "销售",
+        {"key_columns": [0], "allow_unsafe": True},
+    ]
+    panel.set_delete_blank_rows_preview_ready((3, 7), True)
+    assert "删除 2 行" in state.text()
+    assert "兼容预览" in state.text()
+    assert details.isEnabled()
+
+    model = DeletedRowsModel((3, 7))
+    assert model.rowCount() == 2
+    assert model.data(model.index(0, 0)) == "第 3 行"
+    assert model.data(model.index(1, 0)) == "第 7 行"

@@ -34,13 +34,17 @@ from hyacinth.preview import (
 )
 from hyacinth.processing import (
     APPLY_DEDUPLICATE_PREVIEW_OPERATION,
+    APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION,
     APPLY_SORT_PREVIEW_OPERATION,
     DEDUPLICATE_PREVIEW_OPERATION,
+    DELETE_BLANK_ROWS_PREVIEW_OPERATION,
     SORT_PREVIEW_OPERATION,
     DeduplicatePreviewResult,
+    DeleteBlankRowsPreviewResult,
     SortPreviewResult,
     apply_version_handlers,
     deduplicate_preview_handlers,
+    delete_blank_rows_preview_handlers,
     sort_preview_handlers,
 )
 from hyacinth.tasks import (
@@ -119,7 +123,9 @@ class HyacinthMainWindow(QMainWindow):
         self._preview_is_temporary = False
         self._current_workbook: ImportedWorkbook | None = None
         self._processing_task_id: str | None = None
-        self._processing_result: SortPreviewResult | DeduplicatePreviewResult | None = None
+        self._processing_result: (
+            SortPreviewResult | DeduplicatePreviewResult | DeleteBlankRowsPreviewResult | None
+        ) = None
         self._temporary_preview: WorkbookPreview | None = None
         self._apply_task_id: str | None = None
         self._apply_version_id: str | None = None
@@ -130,6 +136,9 @@ class HyacinthMainWindow(QMainWindow):
         self._function_panel = FunctionPanel(workspace_root)
         self._function_panel.preview_requested.connect(self._submit_sort_preview)
         self._function_panel.deduplicate_preview_requested.connect(self._submit_deduplicate_preview)
+        self._function_panel.delete_blank_rows_preview_requested.connect(
+            self._submit_delete_blank_rows_preview
+        )
         self._function_panel.cancel_requested.connect(self._cancel_processing_workflow)
         self._function_panel.apply_requested.connect(self._submit_apply_processing_preview)
         self._file_library = FileLibraryWidget(
@@ -329,6 +338,22 @@ class HyacinthMainWindow(QMainWindow):
             parameters=parameters,
         )
 
+    def _submit_delete_blank_rows_preview(
+        self,
+        sheet_name: str,
+        parameters: object,
+    ) -> None:
+        if not isinstance(parameters, dict):
+            self._function_panel.set_error("删除空白行参数无效，请重新选择")
+            return
+        self._submit_processing_preview(
+            operation=DELETE_BLANK_ROWS_PREVIEW_OPERATION,
+            task_name="生成删除空白行预览",
+            busy_message="正在检查并删除临时结果中的空白行…",
+            sheet_name=sheet_name,
+            parameters=parameters,
+        )
+
     def _submit_processing_preview(
         self,
         *,
@@ -374,7 +399,7 @@ class HyacinthMainWindow(QMainWindow):
             return
         if event.state is TaskState.SUCCEEDED and isinstance(
             event.result,
-            (SortPreviewResult, DeduplicatePreviewResult),
+            (SortPreviewResult, DeduplicatePreviewResult, DeleteBlankRowsPreviewResult),
         ):
             self._processing_result = event.result
             self._processing_task_id = None
@@ -416,7 +441,7 @@ class HyacinthMainWindow(QMainWindow):
                     for key in result.sort_keys
                 ]
             }
-        else:
+        elif isinstance(result, DeduplicatePreviewResult):
             operation = APPLY_DEDUPLICATE_PREVIEW_OPERATION
             task_name = "应用删除重复行结果"
             parameters = {
@@ -426,6 +451,15 @@ class HyacinthMainWindow(QMainWindow):
                 "trim_whitespace": result.trim_whitespace,
                 "duplicate_groups": len(result.duplicate_groups),
                 "deleted_rows": result.deleted_rows,
+            }
+        else:
+            operation = APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION
+            task_name = "应用删除空白行结果"
+            parameters = {
+                "key_columns": list(result.key_columns),
+                "allow_unsafe": result.allow_unsafe,
+                "compatibility_warning": result.compatibility_warning,
+                "deleted_row_numbers": list(result.deleted_row_numbers),
             }
         self._task_queue.submit(
             TaskRequest(
@@ -508,6 +542,13 @@ class HyacinthMainWindow(QMainWindow):
                 len(result.duplicate_groups),
                 result.deleted_rows,
                 mapping,
+                message,
+            )
+            return
+        if isinstance(result, DeleteBlankRowsPreviewResult):
+            self._function_panel.set_delete_blank_rows_preview_ready(
+                result.deleted_row_numbers,
+                result.compatibility_warning,
                 message,
             )
             return
@@ -608,6 +649,7 @@ def create_main_window(
     handlers.update(preview_task_handlers())
     handlers.update(sort_preview_handlers())
     handlers.update(deduplicate_preview_handlers())
+    handlers.update(delete_blank_rows_preview_handlers())
     handlers.update(apply_version_handlers())
     return HyacinthMainWindow(
         task_queue or TaskQueue(handlers),

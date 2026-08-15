@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T19:30:37.0113297+08:00"
+updated_at: "2026-08-15T19:37:28.7677616+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-1-delete-duplicates-completed"
+  implementation: "stage-1-delete-blank-rows-completed"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -32,11 +32,11 @@ delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
   current_phase: "阶段 1 删除空白行垂直切片"
-  next_milestone: "删除空白行两阶段版本闭环（用户已确认）"
+  next_milestone: "评估条件筛选的 Excel AutoFilter 保真方案"
 
 current_task:
   id: "STAGE-1-DELETE-BLANK-ROWS-001"
-  status: "preview-core-completed-ui-and-apply-pending"
+  status: "completed"
   goal: "按已确认需求贯通删除空白行的整行/关键列规则、原始行号预览、精确应用、子版本和 HEAD 闭环"
   owner: "codex-sol"
 
@@ -156,11 +156,14 @@ last_completed:
   - "完成删除空白行后台预览核心：整行或关键列判空、空白文本处理、原始删除行号、兼容模式提示和原子临时结果"
   - "结构性删除默认拒绝公式、表格、图表和命名区域，显式兼容模式可生成带风险提示的预览；跨删除行的合并单元格始终拒绝"
   - "删除空白行预览核心通过真实常驻 Worker、10 项定向测试和 126 项全量质量门"
+  - "删除空白行预览核心已提交本地 main：c65941d"
+  - "完成删除空白行 FunctionPanel 参数页、关键列多选、兼容模式开关、删除原始行号摘要与虚拟化明细"
+  - "完成删除空白行精确应用：临时预览直接升级不可变子快照，SQLite 子版本、HEAD、工作副本和恢复清单保持既有事务语义"
+  - "真实 Qt 端到端贯通删除空白行预览、临时索引、精确应用、双节点版本树和临时目录清理"
+  - "原生 1440x900 截图确认删除空白行配置页与 Fluent 四区壳层一致，无重叠或截断"
+  - "删除空白行完整质量门通过：129 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
 
 next_actions:
-  - "实现删除空白行后台预览核心，复用删除重复行的结构安全检查、原子临时输出和整行样式移动"
-  - "接入处理功能选择器、关键列多选、删除行号明细和通用版本应用骨架"
-  - "完成真实 Qt 端到端、原生截图和完整质量门后提交本地 Git，不推送"
   - "删除空白行之后评估条件筛选的 Excel AutoFilter 保真方案"
   - "后续实现窗口状态持久化时，正常启动优先恢复用户上次位置、尺寸和最大化状态，1440x900 仅作为无保存状态时的默认值"
   - "后续将 COM 子进程扩展为结构化阶段事件，把安全关键范围从整段转换收窄到 SaveAs"
@@ -284,13 +287,22 @@ recent_decisions:
     impact: "阶段 1 下一切片的代码边界、UI 范围和测试范围"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
+  - "output/playwright/delete-blank-rows-configured.png"
+  - "scripts/capture_ui_states.py"
+  - "src/hyacinth/app.py"
   - "src/hyacinth/processing/__init__.py"
-  - "src/hyacinth/processing/blank_rows_preview.py"
-  - "tests/processing/test_blank_rows_preview.py"
+  - "src/hyacinth/processing/apply_version.py"
+  - "src/hyacinth/ui/shell.py"
+  - "tests/processing/test_apply_version.py"
+  - "tests/test_app.py"
+  - "tests/versioning/test_widget.py"
 
 verification:
-  status: "delete-blank-rows-preview-core-verified"
+  status: "delete-blank-rows-slice-complete"
   commands:
+    - "uv run pytest --override-ini addopts='' tests/processing/test_blank_rows_preview.py tests/processing/test_apply_version.py tests/versioning/test_widget.py tests/test_app.py -q"
+    - "uv run python scripts/capture_ui_states.py"
+    - "原图目视检查 output/playwright/delete-blank-rows-configured.png"
     - "uv run pytest --override-ini addopts='' tests/processing/test_blank_rows_preview.py -q"
     - "uv run pytest --override-ini addopts='' -q"
     - "uv run ruff check ."
@@ -344,6 +356,10 @@ verification:
     - "OpenCode DeepSeek session ses_ffb779869ffetPKJvDGwsXSdcX 导出并核验 provider/model/finish/files changed"
     - "OpenCode DeepSeek session ses_ffb6eb165ffeExum72T3S31KLf 导出并核验 provider/model/finish 与实际写入范围"
   evidence:
+    - "删除空白行核心、应用、控件和主窗口定向回归：35 passed in 4.78s"
+    - "主窗口端到端确认原始第 3 行被删除，应用 operation 为 delete-blank-rows，新 HEAD 指向子版本且临时目录清理"
+    - "delete-blank-rows-configured.png：1440x900，关键列多选、兼容模式、规则说明、行号明细和操作栏完整可见"
+    - "最终全量复验：129 passed in 27.11s；Ruff check/format、Mypy strict、uv lock、uv build 和 git diff --check 全部通过"
     - "删除空白行预览核心定向测试：10 passed in 0.98s"
     - "删除空白行结果覆盖整行/关键列、空白文本、0/False 保留、公式非空、危险结构兼容提示、合并区域拒绝和样式尾行"
     - "当前全量复验：126 passed in 27.49s；Ruff check/format、Mypy strict、uv lock、uv build 和 git diff --check 全部通过"
@@ -495,4 +511,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "删除空白行后台预览核心已经完成并通过完整质量门；下一步接入精确应用事务、FunctionPanel 参数表单和真实 Qt 端到端闭环"
+  last_result: "删除空白行两阶段版本闭环已完成：整行/关键列规则、原始行号预览、兼容提示、精确应用、子版本、HEAD、截图和完整质量门全部通过；等待提交本地 main，不推送"
