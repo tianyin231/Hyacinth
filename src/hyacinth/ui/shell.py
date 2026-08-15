@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import (
     QComboBox,
@@ -18,33 +18,33 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from hyacinth.ui.icons import fluent_icon
 from hyacinth.versioning import VersionRecord
 
 APP_STYLESHEET = """
 QMainWindow#main-window, QWidget#workspace-root {
-    background: #eef1f5;
+    background: #edf1f6;
     color: #20242b;
     font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI";
-    font-size: 12px;
+    font-size: 13px;
 }
 QFrame#application-header {
-    background: #f7f8fa;
-    border-bottom: 1px solid #d8dde5;
+    background: #f5f8fb;
+    border-bottom: 1px solid #d5dbe4;
 }
-QLabel#brand-mark { color: #0f6cbd; font-size: 17px; }
-QLabel#app-brand { color: #20242b; font-size: 13px; font-weight: 700; }
-QLabel#document-title { color: #596270; font-size: 12px; }
-QLabel#document-state { color: #68717e; font-size: 11px; }
+QLabel#app-brand { color: #20242b; font-size: 14px; font-weight: 700; }
+QLabel#document-title { color: #4f5967; font-size: 12px; }
+QLabel#document-state { color: #5f6977; font-size: 12px; }
 QFrame#top-toolbar {
-    background: #fbfcfd;
-    border-bottom: 1px solid #d8dde5;
+    background: #f9fbfd;
+    border-bottom: 1px solid #d5dbe4;
 }
 QPushButton[class="tool-button"] {
-    min-height: 30px;
-    padding: 0 10px;
+    min-height: 32px;
+    padding: 0 11px;
     color: #343a45;
-    background: #ffffff;
-    border: 1px solid #cfd5de;
+    background: #fbfcfe;
+    border: 1px solid #c6ced9;
     border-radius: 6px;
 }
 QPushButton[class="tool-button"]:hover { background: #f5f8fb; border-color: #aeb7c4; }
@@ -75,11 +75,11 @@ QSplitter::handle:hover { background: #0f6cbd; }
 QSplitter#main-workspace-splitter::handle { width: 1px; }
 QSplitter#left-workspace-splitter::handle { height: 1px; }
 QFrame#function-panel, QFrame#file-library, QFrame#version-tree-panel {
-    background: #f7f8fa;
+    background: #f7f9fc;
 }
 QFrame#panel-header {
-    background: #fafbfc;
-    border-bottom: 1px solid #dfe3e8;
+    background: #fbfcfe;
+    border-bottom: 1px solid #d9dfe7;
 }
 QLabel[class="panel-title"] { color: #343a45; font-weight: 650; }
 QLabel#development-badge {
@@ -89,23 +89,36 @@ QLabel#development-badge {
     padding: 2px 6px;
     font-size: 10px;
 }
-QLabel#sort-state { color: #5d6673; padding: 4px 0; }
+QLabel#sort-state { color: #566170; padding: 5px 0; }
 QLabel#sort-state[error="true"] { color: #a4262c; }
-QLabel[class="form-label"] { color: #68717e; font-size: 11px; }
+QLabel[class="form-label"] { color: #5e6876; font-size: 12px; }
 QComboBox[class="field-control"], QLineEdit[class="field-control"] {
-    min-height: 29px;
+    min-height: 31px;
     color: #343a45;
     background: #ffffff;
-    border: 1px solid #cfd5de;
-    border-radius: 5px;
+    border: 1px solid #bdc6d2;
+    border-radius: 6px;
     padding: 0 8px;
+}
+QComboBox[class="field-control"]:disabled, QLineEdit[class="field-control"]:disabled {
+    color: #9099a5;
+    background: #f2f4f7;
+    border-color: #d8dde5;
 }
 QComboBox[class="field-control"]:focus, QLineEdit[class="field-control"]:focus {
     border: 2px solid #0f6cbd;
 }
 QFrame#function-footer { background: #fafbfc; border-top: 1px solid #dfe3e8; }
-QLabel#tree-empty-title { color: #343a45; font-size: 13px; font-weight: 600; }
-QLabel#tree-empty-detail { color: #68717e; font-size: 11px; }
+QLabel#function-empty-title, QLabel#tree-empty-title {
+    color: #303844;
+    font-size: 14px;
+    font-weight: 600;
+}
+QLabel#function-empty-detail, QLabel#tree-empty-detail {
+    color: #647080;
+    font-size: 12px;
+}
+QLabel#function-empty-icon, QLabel#tree-empty-icon { background: #eaf3fb; border-radius: 22px; }
 QFrame#root-version-card {
     background: #ffffff;
     border: 1px solid #cfd5de;
@@ -145,7 +158,7 @@ QPushButton#function-apply-button:disabled {
     background: #f5f6f8;
     border-color: #cfd5de;
 }
-QGraphicsView#version-tree-view { background: #fbfcfd; border: 0; }
+QGraphicsView#version-tree-view { background: #fbfcfe; border: 0; }
 QFrame#editor-frame { background: #ffffff; }
 QFrame#formula-bar, QFrame#format-bar {
     background: #fafbfc;
@@ -161,7 +174,33 @@ QLabel#formula-name, QLabel#formula-value, QLabel#font-family-control {
 QLabel#formula-fx { color: #0f6cbd; font-family: Georgia; font-style: italic; }
 QLabel[class="format-control"] { color: #4d5663; padding: 4px 7px; }
 QFrame#workbook-preview { background: #ffffff; }
-QLabel#preview-state { color: #5d6673; background: #ffffff; padding: 24px; }
+QFrame#preview-empty-card {
+    min-width: 330px;
+    max-width: 430px;
+    background: rgba(255, 255, 255, 238);
+    border: 1px solid #cfd7e2;
+    border-radius: 10px;
+}
+QLabel#preview-empty-icon { background: #e6f2fb; border-radius: 27px; }
+QLabel#preview-state {
+    color: #27313d;
+    background: transparent;
+    font-size: 18px;
+    font-weight: 650;
+}
+QLabel#preview-state-detail { color: #5e6978; background: transparent; font-size: 12px; }
+QPushButton#preview-import-button {
+    min-height: 34px;
+    padding: 0 16px;
+    color: #ffffff;
+    background: #0f6cbd;
+    border: 1px solid #0f6cbd;
+    border-radius: 6px;
+    font-weight: 600;
+}
+QPushButton#preview-import-button:hover { background: #115ea3; }
+QPushButton#preview-import-button:pressed { background: #0c3b5e; }
+QPushButton#preview-import-button:focus { border: 2px solid #ffffff; }
 QTableView#preview-table {
     color: #20242b;
     background: #ffffff;
@@ -194,7 +233,12 @@ QTabBar#preview-sheet-tabs::tab:selected {
     border-top: 2px solid #0f6cbd;
 }
 QTabBar#preview-sheet-tabs:focus { border: 2px solid #0f6cbd; }
-QLabel#library-empty-state { color: #68717e; padding: 24px 12px; }
+QLabel#library-empty-state {
+    color: #647080;
+    background: #f7f9fc;
+    padding: 24px 12px;
+    line-height: 1.5;
+}
 QListWidget#library-file-list {
     color: #343a45;
     background: transparent;
@@ -230,11 +274,23 @@ def _panel_header(title: str, *, badge: str | None = None) -> QFrame:
     return header
 
 
-def _tool_button(text: str, name: str, parent: QWidget, *, enabled: bool = True) -> QPushButton:
+def _tool_button(
+    text: str,
+    name: str,
+    parent: QWidget,
+    *,
+    enabled: bool = True,
+    icon: str | None = None,
+) -> QPushButton:
     button = QPushButton(text, parent)
     button.setObjectName(name)
     button.setProperty("class", "tool-button")
-    button.setMinimumHeight(30)
+    button.setMinimumHeight(32)
+    if icon is not None:
+        button.setIcon(
+            fluent_icon(icon, color="#ffffff" if name == "toolbar-import-button" else "#4d5663")
+        )
+        button.setIconSize(QSize(17, 17))
     button.setEnabled(enabled)
     return button
 
@@ -245,8 +301,10 @@ class ApplicationHeader(QFrame):
         self.setObjectName("application-header")
         self.setFixedHeight(42)
 
-        mark = QLabel("◆", self)
+        mark = QLabel(self)
         mark.setObjectName("brand-mark")
+        mark.setPixmap(fluent_icon("brand", color="#0f6cbd", size=20).pixmap(20, 20))
+        mark.setFixedSize(20, 20)
         brand = QLabel("风信子", self)
         brand.setObjectName("app-brand")
         self._document = QLabel("未选择文件", self)
@@ -276,17 +334,23 @@ class CommandBar(QFrame):
         self.setObjectName("top-toolbar")
         self.setFixedHeight(44)
 
-        import_button = _tool_button("＋  导入文件", "toolbar-import-button", self)
+        import_button = _tool_button("导入文件", "toolbar-import-button", self, icon="plus")
         import_button.setAccessibleName("导入 Excel 文件")
         import_button.clicked.connect(self.import_requested)
         save_button = _tool_button(
-            "保存为新版本", "toolbar-save-version-button", self, enabled=False
+            "保存为新版本", "toolbar-save-version-button", self, enabled=False, icon="save"
         )
-        undo_button = _tool_button("撤销", "toolbar-undo-button", self, enabled=False)
-        redo_button = _tool_button("重做", "toolbar-redo-button", self, enabled=False)
-        compare_button = _tool_button("对比版本", "toolbar-compare-button", self, enabled=False)
-        recycle_button = _tool_button("回收站", "toolbar-recycle-button", self, enabled=False)
-        settings_button = _tool_button("设置", "toolbar-settings-button", self, enabled=False)
+        undo_button = _tool_button("撤销", "toolbar-undo-button", self, enabled=False, icon="undo")
+        redo_button = _tool_button("重做", "toolbar-redo-button", self, enabled=False, icon="redo")
+        compare_button = _tool_button(
+            "对比版本", "toolbar-compare-button", self, enabled=False, icon="compare"
+        )
+        recycle_button = _tool_button(
+            "回收站", "toolbar-recycle-button", self, enabled=False, icon="trash"
+        )
+        settings_button = _tool_button(
+            "设置", "toolbar-settings-button", self, enabled=False, icon="settings"
+        )
 
         divider = QFrame(self)
         divider.setObjectName("toolbar-divider")
@@ -319,6 +383,28 @@ class FunctionPanel(QFrame):
         self.setObjectName("function-panel")
         self.setMinimumSize(230, 240)
 
+        empty_body = QWidget(self)
+        empty_layout = QVBoxLayout(empty_body)
+        empty_layout.setContentsMargins(24, 24, 24, 24)
+        empty_layout.setSpacing(8)
+        empty_layout.addStretch()
+        empty_icon = QLabel(empty_body)
+        empty_icon.setObjectName("function-empty-icon")
+        empty_icon.setPixmap(fluent_icon("sort", color="#0f6cbd", size=22).pixmap(22, 22))
+        empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_icon.setFixedSize(44, 44)
+        empty_title = QLabel("先导入一个 Excel 文件", empty_body)
+        empty_title.setObjectName("function-empty-title")
+        empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_detail = QLabel("导入后即可配置排序条件\n并在应用前预览完整结果", empty_body)
+        empty_detail.setObjectName("function-empty-detail")
+        empty_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_detail.setWordWrap(True)
+        empty_layout.addWidget(empty_icon, 0, Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addWidget(empty_title)
+        empty_layout.addWidget(empty_detail)
+        empty_layout.addStretch()
+
         body = QWidget(self)
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(11, 10, 11, 10)
@@ -347,22 +433,22 @@ class FunctionPanel(QFrame):
         body_layout.addWidget(self._state)
         body_layout.addStretch()
 
-        footer = QFrame(self)
-        footer.setObjectName("function-footer")
-        footer.setFixedHeight(43)
-        footer_layout = QHBoxLayout(footer)
+        self._footer = QFrame(self)
+        self._footer.setObjectName("function-footer")
+        self._footer.setFixedHeight(45)
+        footer_layout = QHBoxLayout(self._footer)
         footer_layout.setContentsMargins(10, 0, 10, 0)
         footer_layout.setSpacing(7)
-        self._cancel = _tool_button("取消", "function-cancel-button", footer, enabled=False)
+        self._cancel = _tool_button("取消", "function-cancel-button", self._footer, enabled=False)
         self._cancel.setAccessibleName("取消临时预览")
-        self._reset = _tool_button("重置", "function-reset-button", footer, enabled=False)
+        self._reset = _tool_button("重置", "function-reset-button", self._footer, enabled=False)
         self._cancel.clicked.connect(self.cancel_requested)
         self._reset.clicked.connect(self._reset_fields)
         footer_layout.addWidget(self._cancel)
         footer_layout.addWidget(self._reset)
         footer_layout.addStretch()
-        self._preview = _tool_button("预览", "function-preview-button", footer, enabled=False)
-        self._apply = _tool_button("应用", "function-apply-button", footer, enabled=False)
+        self._preview = _tool_button("预览", "function-preview-button", self._footer, enabled=False)
+        self._apply = _tool_button("应用", "function-apply-button", self._footer, enabled=False)
         self._preview.setAccessibleName("预览排序结果")
         self._apply.setAccessibleName("应用临时结果为新版本")
         self._preview.clicked.connect(self._emit_preview)
@@ -370,12 +456,17 @@ class FunctionPanel(QFrame):
         footer_layout.addWidget(self._preview)
         footer_layout.addWidget(self._apply)
 
+        self._body_stack = QStackedWidget(self)
+        self._body_stack.setObjectName("function-body-stack")
+        self._body_stack.addWidget(empty_body)
+        self._body_stack.addWidget(body)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(_panel_header("多列排序", badge="Python 安全模式"))
-        layout.addWidget(body, 1)
-        layout.addWidget(footer)
+        layout.addWidget(self._body_stack, 1)
+        layout.addWidget(self._footer)
 
         self._controls = (
             self._sheet,
@@ -384,7 +475,7 @@ class FunctionPanel(QFrame):
             self._secondary,
             self._secondary_direction,
         )
-        self._set_config_enabled(False)
+        self.clear_workbook()
 
     def set_workbook(self, headers_by_sheet: dict[str, tuple[str, ...]]) -> None:
         self._headers_by_sheet = headers_by_sheet
@@ -394,6 +485,8 @@ class FunctionPanel(QFrame):
         self._sheet.blockSignals(False)
         self._refresh_columns(self._sheet.currentText())
         enabled = bool(headers_by_sheet)
+        self._body_stack.setCurrentIndex(1 if enabled else 0)
+        self._footer.setVisible(enabled)
         self._set_config_enabled(enabled)
         self._state.setText("配置排序条件后预览完整数据行")
         self._state.setProperty("error", False)
@@ -406,6 +499,8 @@ class FunctionPanel(QFrame):
         self._primary.clear()
         self._secondary.clear()
         self._set_config_enabled(False)
+        self._body_stack.setCurrentIndex(0)
+        self._footer.setVisible(False)
         self._state.setText("选择文件后可配置排序")
 
     def set_busy(self, message: str) -> None:
@@ -519,13 +614,21 @@ class VersionTreePanel(QFrame):
         empty = QWidget(self)
         empty_layout = QVBoxLayout(empty)
         empty_layout.setContentsMargins(22, 22, 22, 22)
+        empty_layout.setSpacing(8)
         empty_layout.addStretch()
+        empty_icon = QLabel(empty)
+        empty_icon.setObjectName("tree-empty-icon")
+        empty_icon.setPixmap(fluent_icon("tree", color="#0f6cbd", size=22).pixmap(22, 22))
+        empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_icon.setFixedSize(44, 44)
         self._empty_title = QLabel("选择文件查看版本演化树", empty)
         self._empty_title.setObjectName("tree-empty-title")
         self._empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_detail = QLabel("根版本会在文件导入完成后显示", empty)
+        self._empty_detail = QLabel("导入后将从根版本开始记录每次处理", empty)
         self._empty_detail.setObjectName("tree-empty-detail")
         self._empty_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_detail.setWordWrap(True)
+        empty_layout.addWidget(empty_icon, 0, Qt.AlignmentFlag.AlignCenter)
         empty_layout.addWidget(self._empty_title)
         empty_layout.addWidget(self._empty_detail)
         empty_layout.addStretch()

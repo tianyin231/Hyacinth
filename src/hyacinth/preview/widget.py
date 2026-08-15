@@ -1,9 +1,10 @@
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QCloseEvent, QColor, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
     QLabel,
+    QPushButton,
     QStackedWidget,
     QTabBar,
     QTableView,
@@ -14,9 +15,26 @@ from PySide6.QtWidgets import (
 from hyacinth.grid.model import WorkbookTableModel
 from hyacinth.preview.data_source import SqliteGridDataSource
 from hyacinth.preview.index_task import WorkbookPreview
+from hyacinth.ui.icons import fluent_icon
+
+
+class EmptyWorkbookCanvas(QFrame):
+    def paintEvent(self, event: QPaintEvent) -> None:
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("#fbfcfe"))
+        painter.setPen(QPen(QColor("#edf0f4"), 1))
+        for x in range(0, self.width(), 72):
+            painter.drawLine(x, 0, x, self.height())
+        for y in range(0, self.height(), 28):
+            painter.drawLine(0, y, self.width(), y)
+        painter.fillRect(0, 0, self.width(), 28, QColor("#f3f6f9"))
+        painter.end()
 
 
 class WorkbookPreviewWidget(QFrame):
+    import_requested = Signal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("workbook-preview")
@@ -24,10 +42,45 @@ class WorkbookPreviewWidget(QFrame):
         self._preview: WorkbookPreview | None = None
         self._source: SqliteGridDataSource | None = None
 
-        self._state = QLabel("选择一个文件查看工作表", self)
+        empty_canvas = EmptyWorkbookCanvas(self)
+        empty_canvas.setObjectName("preview-empty-canvas")
+        state_card = QFrame(empty_canvas)
+        state_card.setObjectName("preview-empty-card")
+        state_layout = QVBoxLayout(state_card)
+        state_layout.setContentsMargins(30, 26, 30, 26)
+        state_layout.setSpacing(8)
+        state_icon = QLabel(state_card)
+        state_icon.setObjectName("preview-empty-icon")
+        state_icon.setPixmap(fluent_icon("sheet", color="#0f6cbd", size=28).pixmap(28, 28))
+        state_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        state_icon.setFixedSize(54, 54)
+        self._state = QLabel("从 Excel 文件开始", state_card)
         self._state.setObjectName("preview-state")
         self._state.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._state.setWordWrap(True)
+        self._state_detail = QLabel(
+            "导入 XLSX 或 XLS，预览工作表并建立可追溯的根版本",
+            state_card,
+        )
+        self._state_detail.setObjectName("preview-state-detail")
+        self._state_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._state_detail.setWordWrap(True)
+        self._import_button = QPushButton("导入 Excel 文件", state_card)
+        self._import_button.setObjectName("preview-import-button")
+        self._import_button.setAccessibleName("从空状态导入 Excel 文件")
+        self._import_button.setIcon(fluent_icon("plus", color="#ffffff"))
+        self._import_button.clicked.connect(self.import_requested)
+        state_layout.addWidget(state_icon, 0, Qt.AlignmentFlag.AlignCenter)
+        state_layout.addWidget(self._state)
+        state_layout.addWidget(self._state_detail)
+        state_layout.addSpacing(4)
+        state_layout.addWidget(self._import_button, 0, Qt.AlignmentFlag.AlignCenter)
+
+        empty_layout = QVBoxLayout(empty_canvas)
+        empty_layout.setContentsMargins(32, 32, 32, 32)
+        empty_layout.addStretch()
+        empty_layout.addWidget(state_card, 0, Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addStretch()
 
         self._table = QTableView(self)
         self._table.setObjectName("preview-table")
@@ -59,7 +112,7 @@ class WorkbookPreviewWidget(QFrame):
         content_layout.addWidget(self._tabs)
 
         self._stack = QStackedWidget(self)
-        self._stack.addWidget(self._state)
+        self._stack.addWidget(empty_canvas)
         self._stack.addWidget(content)
 
         layout = QVBoxLayout(self)
@@ -70,12 +123,17 @@ class WorkbookPreviewWidget(QFrame):
         self._close_source()
         self._preview = None
         self._state.setText(f"正在加载 {display_name}…")
+        self._state_detail.setText("正在建立高效预览索引，请稍候")
+        self._import_button.setVisible(False)
         self._stack.setCurrentIndex(0)
 
     def set_error(self, message: str) -> None:
         self._close_source()
         self._preview = None
         self._state.setText(f"无法加载预览\n{message}")
+        self._state_detail.setText("可以重新选择文件，原文件不会被修改")
+        self._import_button.setText("选择其他文件")
+        self._import_button.setVisible(True)
         self._stack.setCurrentIndex(0)
 
     def show_preview(self, preview: WorkbookPreview) -> None:
@@ -94,7 +152,15 @@ class WorkbookPreviewWidget(QFrame):
     def clear_preview(self, message: str = "选择一个文件查看工作表") -> None:
         self._close_source()
         self._preview = None
-        self._state.setText(message)
+        if message == "选择一个文件查看工作表":
+            self._state.setText("从 Excel 文件开始")
+            self._state_detail.setText("导入 XLSX 或 XLS，预览工作表并建立可追溯的根版本")
+            self._import_button.setText("导入 Excel 文件")
+            self._import_button.setVisible(True)
+        else:
+            self._state.setText(message)
+            self._state_detail.setText("请稍候")
+            self._import_button.setVisible(False)
         self._stack.setCurrentIndex(0)
 
     def _show_sheet(self, index: int) -> None:

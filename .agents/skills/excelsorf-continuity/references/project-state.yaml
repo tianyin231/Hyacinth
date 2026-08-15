@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T18:11:05.3449723+08:00"
+updated_at: "2026-08-15T18:25:35.7096714+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-1-sort-preview-child-version-completed"
+  implementation: "stage-1-fluent-empty-state-completed"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -31,12 +31,12 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 默认启动界面视觉校正准备"
-  next_milestone: "确认默认窗口目标尺寸后实施空状态与 Fluent 壳层精修，并建立可复现的默认/有数据双场景截图验收"
+  current_phase: "阶段 1 默认空状态与 Fluent 壳层精修完成"
+  next_milestone: "从已确认需求中选择下一项处理功能垂直切片"
 
 current_task:
   id: "UI-FLUENT-EMPTY-STATE-001"
-  status: "awaiting-window-size-confirmation"
+  status: "completed"
   goal: "精修默认空状态与 Fluent 主界面壳层，提高初始窗口尺寸，并以可复现的真实启动截图重新验收"
   owner: "codex-sol"
 
@@ -126,13 +126,19 @@ last_completed:
   - "ui-ux-pro-max 复核强调空状态必须提供清晰引导和可执行动作，不能只留下大面积空白；其通用配色/字体建议因与已确认 Segoe UI/Fluent 蓝方向冲突未采纳"
   - "用户确认暂停新增处理功能，先实施不伪造数据的空状态、统一矢量图标、控件状态和轻量 Fluent 层级校正"
   - "用户确认当前 1280x760 初始窗口偏小，需要提高默认尺寸；推荐 1440x900 并按屏幕可用区域约 90% 自动收敛，等待最终确认"
+  - "用户确认首次启动目标 1440x900、可用区域约 90% 自适应上限、1024x640 最小尺寸和居中显示"
+  - "完成自适应初始窗口几何：1920x1040 可用区域使用 1440x900，1366x728 收敛为 1229x655"
+  - "默认 Excel 编辑区改为低干扰网格画布、明确导入入口和格式说明；加载、错误与重试继续复用同一状态组件"
+  - "未选择文件时收起空排序表单和操作栏，功能区、版本树及文件列表改为紧凑引导，不伪造示例数据"
+  - "工具栏和空状态使用统一 QPainter 线性图标，精修 Segoe UI 字阶、控件高度、描边、圆角及悬停、按下、焦点和禁用状态"
+  - "小工作表继续使用 SQLite 稀疏数据源，但视图扩展为 1048576x256 逻辑空白网格，保持 Excel 网格主角感且不物化空单元格"
+  - "新增 scripts/capture_ui_states.py，可重复生成 1440x900 默认空状态和有数据状态原生 Qt 截图"
+  - "原生截图目视确认空状态、有数据网格、组合框箭头、版本根节点、文件选择和状态栏无重叠或截断"
+  - "默认界面视觉校正完整质量门通过：101 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
 
 next_actions:
-  - "等待用户确认默认窗口采用 1440x900 目标尺寸并按屏幕可用区域约 90% 自动收敛"
-  - "默认空状态在 Excel 编辑区提供明确导入入口与低干扰网格/壁纸占位，版本树和文件区提供紧凑引导，空排序表单不再成为视觉主角"
-  - "统一工具栏和面板的矢量图标、控件高度、内边距、圆角、悬停/按下/焦点/禁用状态，并保留已确认 Segoe UI 与 Fluent 蓝强调色"
-  - "增加可复现的 1280x760 默认空状态和有数据处理状态截图流程，后续视觉结论必须同时核对两种状态"
   - "根据需求讨论记录选择下一个处理功能垂直切片，并在实现前向用户展示范围和方案"
+  - "后续实现窗口状态持久化时，正常启动优先恢复用户上次位置、尺寸和最大化状态，1440x900 仅作为无保存状态时的默认值"
   - "后续将 COM 子进程扩展为结构化阶段事件，把安全关键范围从整段转换收窄到 SaveAs"
   - "每完成一个可独立验收的关键开发节点提交本地 Git"
   - "后续普通更改默认不推送远端，用户明确要求时再推送"
@@ -148,11 +154,11 @@ blockers:
     status: "no-current-data-preserve-fallback"
     summary: "默认 Documents\\Hyacinth 当前不存在，无需本轮迁移真实旧记录；catalog 仍保留无清单旧目录的只读发现，不静默丢失"
   - id: "UI-FIDELITY-001"
-    status: "approved-for-correction"
-    summary: "四区结构和比例基本正确，但真实默认启动截图仍呈现大面积无引导空白、原生 Qt 控件感、图标与 Fluent 层级不足；用户已确认先执行空状态与壳层精修"
+    status: "current-milestone-resolved"
+    summary: "默认空状态、统一线性图标、控件层级和 Excel 逻辑网格已按批准范围精修并通过空/有数据双场景截图；区域交换、设置材质和主题仍按后续独立功能推进"
   - id: "UI-DEFAULT-WINDOW-SIZE-001"
-    status: "awaiting-exact-size-confirmation"
-    summary: "用户确认 1280x760 偏小；推荐目标 1440x900，并限制为屏幕可用区域约 90%，避免 1080p、小屏和高 DPI 下超出桌面"
+    status: "resolved-and-tested"
+    summary: "首次启动目标 1440x900 并居中，宽高按屏幕可用区域约 90% 收敛，最小 1024x640；纯函数和真实 1440x900 截图已验证"
   - id: "PREVIEW-DATA-ACCESS-001"
     status: "resolved-and-implemented"
     summary: "后台单次流式建立可再生 SQLite 稀疏索引，Qt 虚拟模型通过行缓存按需查询；性能和真实 Worker 已验证"
@@ -178,8 +184,8 @@ blockers:
 recent_decisions:
   - id: "DEC-20260815-018"
     date: "2026-08-15"
-    status: "approved-with-size-pending"
-    summary: "在继续新增处理功能前先校正默认空状态和 Fluent 壳层，不伪造示例数据，并提高当前 1280x760 初始窗口尺寸"
+    status: "approved-and-implemented"
+    summary: "在继续新增处理功能前先校正默认空状态和 Fluent 壳层，不伪造示例数据；首次启动目标改为 1440x900，并按屏幕可用区域约 90% 自适应"
     source: "用户查看真实默认启动截图后明确确认校正方案，并补充初始窗口偏小"
     supersedes: "none"
     impact: "默认空状态、工具栏/面板图标与控件视觉、轻量 Fluent 层级、默认窗口尺寸和双场景截图验收"
@@ -248,10 +254,23 @@ recent_decisions:
     impact: "表格模型边界、性能测试数据规模与暂定验收阈值"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
+  - "output/playwright/default-empty-state.png"
+  - "output/playwright/fluent-shell-populated.png"
+  - "scripts/capture_ui_states.py"
+  - "src/hyacinth/app.py"
+  - "src/hyacinth/library/widget.py"
+  - "src/hyacinth/preview/data_source.py"
+  - "src/hyacinth/preview/widget.py"
+  - "src/hyacinth/ui/icons.py"
+  - "src/hyacinth/ui/shell.py"
+  - "tests/preview/test_data_source.py"
+  - "tests/preview/test_widget.py"
+  - "tests/test_app.py"
+  - "tests/versioning/test_widget.py"
   - "需求讨论记录.md"
 
 verification:
-  status: "visual-correction-approved-window-size-pending"
+  status: "fluent-empty-state-and-window-sizing-passing"
   commands:
     - "uv lock --check"
     - "$env:PYTHONPATH='src'; ..\\..\\.venv\\Scripts\\python.exe -m pytest --override-ini addopts='' -q"
@@ -274,6 +293,11 @@ verification:
     - "只读核对需求讨论记录视觉方向、空状态、四区交换与原始前端框架设计"
     - "只读搜索现有窗口尺寸、窗口状态持久化需求和 1080p 自适应约束"
     - "ui-ux-pro-max Windows desktop adaptive workspace design-system 与 UX 搜索"
+    - "uv run python scripts/capture_ui_states.py"
+    - "uv run pytest --override-ini addopts='' tests/test_app.py tests/preview tests/versioning/test_widget.py -q"
+    - "uv run pytest --override-ini addopts='' tests/preview/test_performance.py -q"
+    - "原图目视检查 output/playwright/default-empty-state.png"
+    - "原图目视检查 output/playwright/fluent-shell-populated.png"
     - "100000 行 x 5 列真实 xlsx 后台索引与第 100000 行末端查询计时"
     - "Windows 原生 Qt grab 保存 output/playwright/preview-slice.png"
     - "并排目视核对 output/playwright/visual-direction-fluent-final.png 与 output/playwright/preview-slice.png"
@@ -327,6 +351,14 @@ verification:
     - "实际启动与批准稿的剩余差距已确认：空状态缺少导入动作和低干扰视觉承托、组合框/按钮仍偏原生 Qt、图标体系不统一、标题/工具栏/侧栏缺少轻量材质层级"
     - "符合需求的部分：四区持续可见、左右宽度约 260/340/剩余、Segoe UI、蓝色强调、禁用状态和高对比数据区方向"
     - "用户已批准视觉校正范围并补充窗口尺寸要求；现有实现仅在 app.py 固定 resize(1280, 760)，需求记录此前没有默认目标尺寸"
+    - "窗口尺寸纯函数回归覆盖 1440x900 目标、1366x728 可用区域收敛和 1024x640 最小尺寸"
+    - "空状态导入按钮复用现有导入流程；加载时隐藏操作，错误时提供重新选择文件且不影响原文件"
+    - "小工作表逻辑网格回归确认 1048576x256 只读维度、稀疏空查询和真实数据查询；极限跳转性能 1 passed in 0.43s"
+    - "双场景截图脚本实际输出 default-empty-state.png 与 fluent-shell-populated.png，两个窗口客户区均为 1440x900"
+    - "默认空状态截图：功能表单已收起，版本/文件区保持紧凑引导，编辑区显示低干扰网格和直接导入按钮"
+    - "有数据截图：组合框下拉箭头、根版本、文件选中态、1048576x256 逻辑网格、工作表标签和任务状态栏完整可见"
+    - "最终全量复验：101 passed in 25.36s；Ruff check/format、Mypy strict、uv lock、uv build 和 git diff --check 全部通过"
+    - "用户未跟踪的 追加需求.txt 未读取、未修改、未纳入提交；本次不推送"
   worker_sessions:
     STAGE-1-SORT-PREVIEW-CORE-001:
       session_id: "ses_ffb6eb165ffeExum72T3S31KLf"
@@ -406,4 +438,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "用户已批准不伪造数据的空状态与 Fluent 壳层精修；当前只待确认推荐的 1440x900 目标和屏幕可用区域 90% 自适应上限后开始实现"
+  last_result: "默认空状态、Fluent 控件与统一线性图标、1440x900 自适应窗口和 Excel 逻辑网格已实现并通过 101 项测试与双场景截图验收，等待本地关键节点提交"

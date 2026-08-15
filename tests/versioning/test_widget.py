@@ -4,11 +4,13 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
+    QFrame,
     QGraphicsLineItem,
     QGraphicsProxyWidget,
     QGraphicsView,
     QLabel,
     QPushButton,
+    QStackedWidget,
 )
 from pytestqt.qtbot import QtBot
 
@@ -117,7 +119,12 @@ def test_function_panel_emits_accessible_sort_parameters(qtbot: QtBot) -> None:
 
     panel = FunctionPanel()
     qtbot.addWidget(panel)
+    stack = panel.findChild(QStackedWidget, "function-body-stack")
+    footer = panel.findChild(QFrame, "function-footer")
+    assert stack is not None and stack.currentIndex() == 0
+    assert footer is not None and footer.isHidden()
     panel.set_workbook({"销售": ("A · 名称", "B · 数量")})
+    assert stack.currentIndex() == 1
     primary = panel.findChild(QComboBox, "sort-primary-column")
     secondary = panel.findChild(QComboBox, "sort-secondary-column")
     preview = panel.findChild(QPushButton, "function-preview-button")

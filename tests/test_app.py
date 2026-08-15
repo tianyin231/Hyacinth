@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from openpyxl import Workbook
-from PySide6.QtCore import QObject, Qt
+from PySide6.QtCore import QObject, QSize, Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QSplitter,
+    QStackedWidget,
     QTabBar,
     QTableView,
 )
@@ -135,6 +136,14 @@ def test_create_main_window_uses_product_identity(qtbot: QtBot) -> None:
     assert window.objectName() == "main-window"
 
 
+def test_initial_window_size_prefers_1440x900_and_adapts_to_available_screen() -> None:
+    from hyacinth.app import initial_window_size
+
+    assert initial_window_size(QSize(1920, 1040)) == QSize(1440, 900)
+    assert initial_window_size(QSize(1366, 728)) == QSize(1229, 655)
+    assert initial_window_size(QSize(900, 600)) == QSize(1024, 640)
+
+
 def test_main_window_matches_approved_workspace_shell(qtbot: QtBot) -> None:
     from hyacinth.app import create_main_window
 
@@ -144,7 +153,9 @@ def test_main_window_matches_approved_workspace_shell(qtbot: QtBot) -> None:
     main_splitter = _child(window, QSplitter, "main-workspace-splitter")
     left_splitter = _child(window, QSplitter, "left-workspace-splitter")
     import_button = _child(window, QPushButton, "toolbar-import-button")
+    empty_import_button = _child(window, QPushButton, "preview-import-button")
     import_button_parent = import_button.parent()
+    function_stack = _child(window, QStackedWidget, "function-body-stack")
 
     assert _child(window, QLabel, "app-brand").text() == "风信子"
     assert _child(window, QLabel, "document-title").text() == "未选择文件"
@@ -158,7 +169,36 @@ def test_main_window_matches_approved_workspace_shell(qtbot: QtBot) -> None:
     assert import_button_parent is not None
     assert import_button_parent.objectName() == "top-toolbar"
     assert import_button.minimumHeight() >= 30
+    assert not import_button.icon().isNull()
+    assert not empty_import_button.isHidden()
+    assert function_stack.currentIndex() == 0
+    assert _child(window, QFrame, "function-footer").isHidden()
     assert not _child(window, QPushButton, "toolbar-save-version-button").isEnabled()
+
+
+def test_empty_preview_import_button_uses_normal_import_flow(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "空状态导入.xlsx"
+    source.write_bytes(b"source")
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(
+        task_queue=task_queue,
+        library_root=tmp_path / "library",
+        file_picker=lambda _parent: source,
+    )
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        _child(window, QPushButton, "preview-import-button"),
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert len(task_queue.submitted) == 1
+    assert task_queue.submitted[0].operation == IMPORT_WORKBOOK_OPERATION
 
 
 def test_main_runs_qt_event_loop() -> None:

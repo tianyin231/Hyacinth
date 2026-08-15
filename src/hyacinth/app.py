@@ -5,8 +5,8 @@ from typing import Protocol
 from uuid import uuid4
 
 from openpyxl.utils import get_column_letter
-from PySide6.QtCore import QStandardPaths, Qt
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtCore import QPoint, QSize, QStandardPaths, Qt
+from PySide6.QtGui import QCloseEvent, QGuiApplication
 from PySide6.QtWidgets import (
     QFileDialog,
     QMainWindow,
@@ -66,6 +66,26 @@ class ApplicationTaskQueue(TaskQueuePort, Protocol):
 FilePicker = Callable[[QWidget], Path | None]
 ErrorPresenter = Callable[[QWidget, str], None]
 
+DEFAULT_WINDOW_SIZE = QSize(1440, 900)
+MINIMUM_WINDOW_SIZE = QSize(1024, 640)
+AVAILABLE_SCREEN_RATIO = 0.9
+
+
+def initial_window_size(available_size: QSize) -> QSize:
+    return QSize(
+        min(
+            DEFAULT_WINDOW_SIZE.width(),
+            max(MINIMUM_WINDOW_SIZE.width(), int(available_size.width() * AVAILABLE_SCREEN_RATIO)),
+        ),
+        min(
+            DEFAULT_WINDOW_SIZE.height(),
+            max(
+                MINIMUM_WINDOW_SIZE.height(),
+                int(available_size.height() * AVAILABLE_SCREEN_RATIO),
+            ),
+        ),
+    )
+
 
 class HyacinthMainWindow(QMainWindow):
     def __init__(
@@ -78,8 +98,8 @@ class HyacinthMainWindow(QMainWindow):
         super().__init__()
         self.setObjectName("main-window")
         self.setWindowTitle("风信子")
-        self.resize(1280, 760)
-        self.setMinimumSize(1024, 640)
+        self.setMinimumSize(MINIMUM_WINDOW_SIZE)
+        self._apply_initial_window_geometry()
         self.setStyleSheet(APP_STYLESHEET)
 
         workspace_root = QWidget(self)
@@ -114,6 +134,7 @@ class HyacinthMainWindow(QMainWindow):
         self._file_library.workbook_selected.connect(self._select_workbook)
         self._version_tree = VersionTreePanel(workspace_root)
         self._workbook_preview = WorkbookPreviewWidget(workspace_root)
+        self._workbook_preview.import_requested.connect(self._choose_import_file)
         self._editor = WorkbookEditorFrame(self._workbook_preview, workspace_root)
 
         left_splitter = QSplitter(Qt.Orientation.Vertical, workspace_root)
@@ -159,6 +180,17 @@ class HyacinthMainWindow(QMainWindow):
         current_workbook = self._file_library.current_workbook()
         if current_workbook is not None:
             self._select_workbook(current_workbook)
+
+    def _apply_initial_window_geometry(self) -> None:
+        screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            self.resize(DEFAULT_WINDOW_SIZE)
+            return
+        available = screen.availableGeometry()
+        target = initial_window_size(available.size())
+        self.resize(target)
+        top_left = available.center() - QPoint(target.width() // 2, target.height() // 2)
+        self.move(max(available.left(), top_left.x()), max(available.top(), top_left.y()))
 
     def _choose_import_file(self) -> None:
         source = self._file_picker(self)

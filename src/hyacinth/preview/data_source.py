@@ -4,6 +4,9 @@ from pathlib import Path
 
 from hyacinth.preview.index_task import SheetPreview
 
+LOGICAL_PREVIEW_ROWS = 1_048_576
+LOGICAL_PREVIEW_COLUMNS = 256
+
 
 class SqliteGridDataSource:
     def __init__(
@@ -13,8 +16,8 @@ class SqliteGridDataSource:
         *,
         row_cache_size: int = 128,
     ) -> None:
-        self.row_count = sheet.row_count
-        self.column_count = sheet.column_count
+        self.row_count = max(sheet.row_count, LOGICAL_PREVIEW_ROWS)
+        self.column_count = max(sheet.column_count, LOGICAL_PREVIEW_COLUMNS)
         self._sheet_index = sheet.index
         self._row_cache_size = row_cache_size
         self._rows: OrderedDict[int, dict[int, str]] = OrderedDict()

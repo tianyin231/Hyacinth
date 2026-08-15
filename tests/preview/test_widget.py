@@ -4,7 +4,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QTabBar, QTableView
+from PySide6.QtWidgets import QLabel, QPushButton, QTabBar, QTableView
 from pytestqt.qtbot import QtBot
 
 from hyacinth.tasks import TaskRequest
@@ -87,10 +87,17 @@ def test_preview_widget_has_stable_loading_and_error_states(qtbot: QtBot) -> Non
     widget = WorkbookPreviewWidget()
     qtbot.addWidget(widget)
     state = widget.findChild(QLabel, "preview-state")
+    import_button = widget.findChild(QPushButton, "preview-import-button")
     assert state is not None
+    assert import_button is not None
+
+    with qtbot.waitSignal(widget.import_requested):
+        qtbot.mouseClick(import_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
 
     widget.set_loading("销售.xlsx")
     assert state.text() == "正在加载 销售.xlsx…"
+    assert import_button.isHidden()
 
     widget.set_error("工作簿损坏")
     assert state.text() == "无法加载预览\n工作簿损坏"
+    assert not import_button.isHidden()

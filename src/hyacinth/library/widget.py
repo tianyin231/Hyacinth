@@ -34,9 +34,10 @@ class FileLibraryWidget(QFrame):
         title.setProperty("class", "panel-title")
         header_layout.addWidget(title)
 
-        self._empty_label = QLabel("还没有导入文件", self)
+        self._empty_label = QLabel("暂无文件\n从上方“导入文件”开始\n支持 XLSX 和 XLS", self)
         self._empty_label.setObjectName("library-empty-state")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_label.setWordWrap(True)
 
         self._file_list = QListWidget(self)
         self._file_list.setObjectName("library-file-list")
