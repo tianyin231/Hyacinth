@@ -2,6 +2,7 @@ import sqlite3
 from collections import OrderedDict
 from pathlib import Path
 
+from hyacinth.preview.edit_session import EditSession
 from hyacinth.preview.index_task import SheetPreview
 
 LOGICAL_PREVIEW_ROWS = 1_048_576
@@ -21,7 +22,7 @@ class SqliteGridDataSource:
         self._sheet_index = sheet.index
         self._visible_row_count = sheet.visible_row_count
         self._row_cache_size = row_cache_size
-        self._rows: OrderedDict[int, dict[int, str]] = OrderedDict()
+        self._rows: OrderedDict[int, dict[int, tuple[str, str | None]]] = OrderedDict()
         self._connection = sqlite3.connect(
             f"{index_path.resolve().as_uri()}?mode=ro",
             uri=True,
@@ -34,9 +35,9 @@ class SqliteGridDataSource:
             if source_row is None:
                 return ""
             values = {
-                cell_column: value
-                for cell_column, value in self._connection.execute(
-                    "SELECT column_index, display_value FROM cells "
+                cell_column: (display_value, formula)
+                for cell_column, display_value, formula in self._connection.execute(
+                    "SELECT column_index, display_value, formula FROM cells "
                     "WHERE sheet_index = ? AND row_index = ?",
                     (self._sheet_index, source_row),
                 )
@@ -46,7 +47,16 @@ class SqliteGridDataSource:
                 self._rows.popitem(last=False)
         else:
             self._rows.move_to_end(row)
-        return values.get(column, "")
+        cell = values.get(column)
+        return cell[0] if cell is not None else ""
+
+    def edit_value_at(self, row: int, column: int) -> object:
+        self.value_at(row, column)
+        cell = self._rows.get(row, {}).get(column)
+        if cell is None:
+            return ""
+        display_value, formula = cell
+        return formula or display_value
 
     def _source_row(self, visible_row: int) -> int | None:
         if self._visible_row_count is None:
@@ -66,3 +76,43 @@ class SqliteGridDataSource:
     def close(self) -> None:
         self._connection.close()
         self._rows.clear()
+
+
+class EditableGridDataSource:
+    def __init__(
+        self,
+        source: SqliteGridDataSource,
+        session: EditSession,
+        sheet_name: str,
+    ) -> None:
+        self.row_count = source.row_count
+        self.column_count = source.column_count
+        self._source = source
+        self._session = session
+        self._sheet_name = sheet_name
+
+    def value_at(self, row: int, column: int) -> object:
+        return self._session.value_at(
+            self._sheet_name,
+            row,
+            column,
+            self._source.value_at(row, column),
+        )
+
+    def edit_value_at(self, row: int, column: int) -> object:
+        return self._session.value_at(
+            self._sheet_name,
+            row,
+            column,
+            self._source.edit_value_at(row, column),
+        )
+
+    def set_value(self, row: int, column: int, value: object) -> None:
+        self._session.set_value(
+            self._sheet_name,
+            row,
+            column,
+            base_value=self._source.edit_value_at(row, column),
+            current_value=self.edit_value_at(row, column),
+            new_value=value,
+        )

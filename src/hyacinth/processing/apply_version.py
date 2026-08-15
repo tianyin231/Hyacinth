@@ -1,9 +1,10 @@
 import json
 import os
+import re
 import shutil
 from collections.abc import Callable
 from contextlib import AbstractContextManager
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Protocol
@@ -24,6 +25,7 @@ APPLY_SORT_PREVIEW_OPERATION = "apply-sort-preview"
 APPLY_DEDUPLICATE_PREVIEW_OPERATION = "apply-deduplicate-preview"
 APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION = "apply-delete-blank-rows-preview"
 APPLY_FILTER_PREVIEW_OPERATION = "apply-filter-preview"
+SAVE_MANUAL_EDITS_OPERATION = "save-manual-edits"
 COPY_CHUNK_SIZE = 1024 * 1024
 
 
@@ -193,6 +195,74 @@ def run_apply_filter_preview_task(
     )
 
 
+def run_save_manual_edits_task(
+    request: TaskRequest,
+    context: ApplyVersionTaskContext,
+    *,
+    metadata_store_factory: MetadataStoreFactory = MetadataStore,
+) -> ImportedWorkbook:
+    library_root = _payload_path(request, "library_root")
+    parent_version_id = _payload_string(request, "parent_version_id")
+    version_id = _payload_string(request, "version_id")
+    edits = _manual_edits(request.payload.get("edits"))
+    context.set_engine(EngineName.PYTHON)
+    context.check_cancelled()
+    workbook_record = metadata_store_factory(library_root).get_workbook(request.file_id)
+    parent = workbook_record.head_version
+    if parent is None or parent.version_id != parent_version_id:
+        raise ValueError("当前 HEAD 已变化，请重新编辑")
+
+    temporary_directory = library_root / ".staging" / f"{request.file_id}-{request.task_id}-manual"
+    temporary_path = temporary_directory / "edited.xlsx"
+    try:
+        context.report_progress(0.1, "正在应用单元格修改")
+        temporary_directory.mkdir(parents=True, exist_ok=True)
+        workbook = load_workbook(parent.snapshot_path, data_only=False)
+        try:
+            for index, edit in enumerate(edits):
+                context.check_cancelled()
+                sheet_name, row, column, value = edit
+                if sheet_name not in workbook.sheetnames:
+                    raise ValueError(f"找不到工作表：{sheet_name}")
+                cell = workbook[sheet_name].cell(row=row + 1, column=column + 1)
+                cell.value = _excel_edit_value(value)  # type: ignore[assignment]
+                context.report_progress(
+                    0.1 + 0.35 * ((index + 1) / len(edits)),
+                    f"正在修改 {sheet_name}!{row + 1}",
+                )
+            workbook.calculation.fullCalcOnLoad = True
+            workbook.calculation.forceFullCalc = True
+            workbook.calculation.calcMode = "auto"
+            workbook.save(temporary_path)
+        finally:
+            workbook.close()
+        preview_hash = _file_hash(temporary_path, context)
+        derived_request = TaskRequest(
+            task_id=request.task_id,
+            name=request.name,
+            file_id=request.file_id,
+            engine=request.engine,
+            operation=request.operation,
+            payload={
+                "library_root": str(library_root),
+                "preview_path": str(temporary_path),
+                "preview_hash": preview_hash,
+                "parent_version_id": parent_version_id,
+                "version_id": version_id,
+            },
+        )
+        return _run_apply_preview_task(
+            derived_request,
+            context,
+            metadata_store_factory=metadata_store_factory,
+            version_name="手动编辑",
+            operation="manual-edit",
+            parameters={"edited_cells": len(edits)},
+        )
+    finally:
+        shutil.rmtree(temporary_directory, ignore_errors=True)
+
+
 def _run_apply_preview_task(
     request: TaskRequest,
     context: ApplyVersionTaskContext,
@@ -296,12 +366,17 @@ def apply_filter_preview_task(request: TaskRequest, context: TaskContext) -> obj
     return run_apply_filter_preview_task(request, context)
 
 
+def save_manual_edits_task(request: TaskRequest, context: TaskContext) -> object:
+    return run_save_manual_edits_task(request, context)
+
+
 def apply_version_handlers() -> dict[str, TaskHandler]:
     return {
         APPLY_SORT_PREVIEW_OPERATION: apply_sort_preview_task,
         APPLY_DEDUPLICATE_PREVIEW_OPERATION: apply_deduplicate_preview_task,
         APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION: apply_delete_blank_rows_preview_task,
         APPLY_FILTER_PREVIEW_OPERATION: apply_filter_preview_task,
+        SAVE_MANUAL_EDITS_OPERATION: save_manual_edits_task,
     }
 
 
@@ -335,4 +410,55 @@ def _payload_string(request: TaskRequest, key: str) -> str:
     value = request.payload.get(key)
     if not isinstance(value, str) or not value:
         raise ValueError(f"任务参数缺少：{key}")
+    return value
+
+
+def _manual_edits(value: object) -> list[tuple[str, int, int, object]]:
+    if not isinstance(value, list) or not value:
+        raise ValueError("任务参数 edits 必须是非空数组")
+    edits: list[tuple[str, int, int, object]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("单元格修改必须是对象")
+        sheet_name = item.get("sheet_name")
+        row = item.get("row")
+        column = item.get("column")
+        cell_value = item.get("value")
+        if not isinstance(sheet_name, str) or not sheet_name:
+            raise ValueError("单元格修改缺少工作表名称")
+        if not isinstance(row, int) or isinstance(row, bool) or row < 0:
+            raise ValueError("单元格行号必须是非负整数")
+        if not isinstance(column, int) or isinstance(column, bool) or column < 0:
+            raise ValueError("单元格列号必须是非负整数")
+        if cell_value is not None and not isinstance(cell_value, (str, int, float, bool)):
+            raise ValueError("单元格值必须是文本、数字、布尔值或空值")
+        edits.append((sheet_name, row, column, cell_value))
+    return edits
+
+
+_INTEGER_PATTERN = re.compile(r"[-+]?(?:0|[1-9]\d*)")
+_NUMBER_PATTERN = re.compile(r"[-+]?(?:0|[1-9]\d*)\.\d+(?:[eE][-+]?\d+)?")
+_DATE_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _excel_edit_value(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    if value == "":
+        return None
+    if value.startswith("="):
+        return value
+    if _INTEGER_PATTERN.fullmatch(value):
+        return int(value)
+    if _NUMBER_PATTERN.fullmatch(value):
+        return float(value)
+    if _DATE_PATTERN.fullmatch(value):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return value
+    if value.upper() == "TRUE":
+        return True
+    if value.upper() == "FALSE":
+        return False
     return value

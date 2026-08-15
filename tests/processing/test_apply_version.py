@@ -15,6 +15,7 @@ from hyacinth.processing import (
     APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION,
     APPLY_FILTER_PREVIEW_OPERATION,
     APPLY_SORT_PREVIEW_OPERATION,
+    SAVE_MANUAL_EDITS_OPERATION,
     apply_deduplicate_preview_task,
     apply_delete_blank_rows_preview_task,
     apply_filter_preview_task,
@@ -24,6 +25,8 @@ from hyacinth.processing import (
     run_apply_delete_blank_rows_preview_task,
     run_apply_filter_preview_task,
     run_apply_sort_preview_task,
+    run_save_manual_edits_task,
+    save_manual_edits_task,
 )
 from hyacinth.tasks import TaskEvent, TaskQueue, TaskRequest, TaskState
 from hyacinth.versioning import ImportedWorkbook, MetadataStore, VersionRecord
@@ -200,7 +203,69 @@ def test_apply_handler_is_registered() -> None:
         APPLY_DEDUPLICATE_PREVIEW_OPERATION: apply_deduplicate_preview_task,
         APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION: apply_delete_blank_rows_preview_task,
         APPLY_FILTER_PREVIEW_OPERATION: apply_filter_preview_task,
+        SAVE_MANUAL_EDITS_OPERATION: save_manual_edits_task,
     }
+
+
+def test_manual_edits_create_child_snapshot_and_preserve_parent(tmp_path: Path) -> None:
+    root = tmp_path / "library"
+    parent = _seed_library(root)
+    parent_version = parent.head_version
+    assert parent_version is not None
+    request = TaskRequest(
+        task_id="manual-1",
+        name="保存手动编辑",
+        file_id=parent.file_id,
+        engine=None,
+        operation=SAVE_MANUAL_EDITS_OPERATION,
+        payload={
+            "library_root": str(root),
+            "parent_version_id": parent_version.version_id,
+            "version_id": "version-2",
+            "edits": [
+                {"sheet_name": "销售", "row": 1, "column": 0, "value": "pear"},
+                {"sheet_name": "销售", "row": 1, "column": 1, "value": "42"},
+                {"sheet_name": "销售", "row": 2, "column": 1, "value": "=40+2"},
+            ],
+        },
+    )
+
+    result = run_save_manual_edits_task(request, RecordingContext())
+
+    child = result.head_version
+    assert child is not None
+    assert child.parent_version_id == parent_version.version_id
+    assert child.operation == "manual-edit"
+    assert child.name == "手动编辑"
+    assert _value(child.snapshot_path, "A2") == "pear"
+    assert _value(child.snapshot_path, "B2") == 42
+    assert _value(child.snapshot_path, "B3") == "=40+2"
+    assert _value(parent_version.snapshot_path, "A2") == "apple"
+    assert result.working_path.read_bytes() == child.snapshot_path.read_bytes()
+    assert MetadataStore(root).get_workbook(parent.file_id).head_version == child
+
+
+def test_manual_edits_reject_empty_edit_list(tmp_path: Path) -> None:
+    root = tmp_path / "library"
+    parent = _seed_library(root)
+    parent_version = parent.head_version
+    assert parent_version is not None
+    request = TaskRequest(
+        task_id="manual-1",
+        name="保存手动编辑",
+        file_id=parent.file_id,
+        engine=None,
+        operation=SAVE_MANUAL_EDITS_OPERATION,
+        payload={
+            "library_root": str(root),
+            "parent_version_id": parent_version.version_id,
+            "version_id": "version-2",
+            "edits": [],
+        },
+    )
+
+    with pytest.raises(ValueError, match="edits"):
+        run_save_manual_edits_task(request, RecordingContext())
 
 
 def test_apply_promotes_exact_preview_to_child_snapshot_and_head(tmp_path: Path) -> None:

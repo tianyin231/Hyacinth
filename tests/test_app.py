@@ -40,6 +40,7 @@ from hyacinth.processing import (
     DEDUPLICATE_PREVIEW_OPERATION,
     DELETE_BLANK_ROWS_PREVIEW_OPERATION,
     FILTER_PREVIEW_OPERATION,
+    SAVE_MANUAL_EDITS_OPERATION,
     SORT_PREVIEW_OPERATION,
     run_apply_deduplicate_preview_task,
     run_apply_delete_blank_rows_preview_task,
@@ -48,6 +49,7 @@ from hyacinth.processing import (
     run_deduplicate_preview_task,
     run_delete_blank_rows_preview_task,
     run_filter_preview_task,
+    run_save_manual_edits_task,
     run_sort_preview_task,
 )
 from hyacinth.tasks import TaskEvent, TaskRequest, TaskState, TaskStatusWidget
@@ -300,6 +302,104 @@ def test_empty_preview_import_button_uses_normal_import_flow(
 
     assert len(task_queue.submitted) == 1
     assert task_queue.submitted[0].operation == IMPORT_WORKBOOK_OPERATION
+
+
+def test_manual_cell_edit_saves_new_child_version(qtbot: QtBot, tmp_path: Path) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    preview_request = task_queue.submitted[0]
+    preview = run_preview_index_task(preview_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            task_id=preview_request.task_id,
+            state=TaskState.SUCCEEDED,
+            name=preview_request.name,
+            file_id=record.file_id,
+            engine=None,
+            result=preview,
+        )
+    )
+    table = _child(window, QTableView, "preview-table")
+    qtbot.waitUntil(lambda: table.model() is not None, timeout=500)
+    model = table.model()
+    assert model is not None
+    edited_cell = model.index(1, 0)
+
+    assert model.setData(edited_cell, "pear", Qt.ItemDataRole.EditRole)
+    save_button = _child(window, QPushButton, "toolbar-save-version-button")
+    undo_button = _child(window, QPushButton, "toolbar-undo-button")
+    assert save_button.isEnabled()
+    assert undo_button.isEnabled()
+    qtbot.mouseClick(save_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    save_request = task_queue.submitted[-1]
+    assert save_request.operation == SAVE_MANUAL_EDITS_OPERATION
+    assert save_request.payload["edits"] == [
+        {"sheet_name": "销售", "row": 1, "column": 0, "value": "pear"}
+    ]
+
+    saved = run_save_manual_edits_task(save_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            task_id=save_request.task_id,
+            state=TaskState.SUCCEEDED,
+            name=save_request.name,
+            file_id=record.file_id,
+            engine=EngineName.PYTHON,
+            result=saved,
+        )
+    )
+    qtbot.waitUntil(lambda: len(MetadataStore(library_root).list_versions(record.file_id)) == 2)
+
+    versions = MetadataStore(library_root).list_versions(record.file_id)
+    assert versions[-1].operation == "manual-edit"
+    assert versions[-1].parent_version_id == versions[0].version_id
+    assert not save_button.isEnabled()
+    assert not undo_button.isEnabled()
+
+
+def test_unsaved_cell_edits_block_close_until_discarded(qtbot: QtBot, tmp_path: Path) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    task_queue = FakeApplicationTaskQueue([])
+    choices = ["cancel", "discard"]
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(
+        task_queue=task_queue,
+        library_root=library_root,
+        unsaved_changes_presenter=lambda _parent, _action: choices.pop(0),
+    )
+    qtbot.addWidget(window)
+    window.show()
+    preview_request = task_queue.submitted[0]
+    preview = run_preview_index_task(preview_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            task_id=preview_request.task_id,
+            state=TaskState.SUCCEEDED,
+            name=preview_request.name,
+            file_id=record.file_id,
+            engine=None,
+            result=preview,
+        )
+    )
+    table = _child(window, QTableView, "preview-table")
+    qtbot.waitUntil(lambda: table.model() is not None, timeout=500)
+    model = table.model()
+    assert model is not None
+    assert model.setData(model.index(1, 0), "pear", Qt.ItemDataRole.EditRole)
+
+    assert not window.close()
+    assert not task_queue.shutdown_called
+    assert _child(window, QPushButton, "toolbar-save-version-button").isEnabled()
+    assert window.close()
+    assert task_queue.shutdown_called
 
 
 def test_main_runs_qt_event_loop() -> None:

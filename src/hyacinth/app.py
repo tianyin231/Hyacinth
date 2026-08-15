@@ -41,6 +41,7 @@ from hyacinth.processing import (
     DEDUPLICATE_PREVIEW_OPERATION,
     DELETE_BLANK_ROWS_PREVIEW_OPERATION,
     FILTER_PREVIEW_OPERATION,
+    SAVE_MANUAL_EDITS_OPERATION,
     SORT_PREVIEW_OPERATION,
     DeduplicatePreviewResult,
     DeleteBlankRowsPreviewResult,
@@ -87,6 +88,7 @@ FilePicker = Callable[[QWidget], Path | None]
 ErrorPresenter = Callable[[QWidget, str], None]
 ConfirmationPresenter = Callable[[QWidget, str, str], bool]
 VersionChoicePresenter = Callable[[QWidget, tuple[VersionRecord, ...]], str | None]
+UnsavedChangesPresenter = Callable[[QWidget, str], str]
 
 DEFAULT_WINDOW_SIZE = QSize(1440, 900)
 MINIMUM_WINDOW_SIZE = QSize(1024, 640)
@@ -118,6 +120,7 @@ class HyacinthMainWindow(QMainWindow):
         error_presenter: ErrorPresenter,
         confirmation_presenter: ConfirmationPresenter,
         version_choice_presenter: VersionChoicePresenter,
+        unsaved_changes_presenter: UnsavedChangesPresenter,
     ) -> None:
         super().__init__()
         self.setObjectName("main-window")
@@ -135,6 +138,7 @@ class HyacinthMainWindow(QMainWindow):
         self._error_presenter = error_presenter
         self._confirmation_presenter = confirmation_presenter
         self._version_choice_presenter = version_choice_presenter
+        self._unsaved_changes_presenter = unsaved_changes_presenter
         self._task_queue = task_queue
         self._import_task_ids: set[str] = set()
         self._preview_task_id: str | None = None
@@ -151,14 +155,20 @@ class HyacinthMainWindow(QMainWindow):
         self._temporary_preview: WorkbookPreview | None = None
         self._apply_task_id: str | None = None
         self._apply_version_id: str | None = None
+        self._manual_save_task_id: str | None = None
+        self._manual_save_version_id: str | None = None
         self._checkout_task_id: str | None = None
         self._delete_task_id: str | None = None
         self._delete_version_id: str | None = None
         self._previewed_version_id: str | None = None
+        self._close_after_manual_save = False
 
         self._application_header = ApplicationHeader(workspace_root)
         self._command_bar = CommandBar(workspace_root)
         self._command_bar.import_requested.connect(self._choose_import_file)
+        self._command_bar.save_version_requested.connect(self._submit_manual_save)
+        self._command_bar.undo_requested.connect(self._workbook_preview_undo)
+        self._command_bar.redo_requested.connect(self._workbook_preview_redo)
         self._function_panel = FunctionPanel(workspace_root)
         self._function_panel.preview_requested.connect(self._submit_sort_preview)
         self._function_panel.deduplicate_preview_requested.connect(self._submit_deduplicate_preview)
@@ -181,6 +191,7 @@ class HyacinthMainWindow(QMainWindow):
         self._version_tree.version_restore_requested.connect(self._restore_deleted_version)
         self._workbook_preview = WorkbookPreviewWidget(workspace_root)
         self._workbook_preview.import_requested.connect(self._choose_import_file)
+        self._workbook_preview.edit_state_changed.connect(self._apply_edit_state)
         self._editor = WorkbookEditorFrame(self._workbook_preview, workspace_root)
 
         left_splitter = QSplitter(Qt.Orientation.Vertical, workspace_root)
@@ -215,6 +226,7 @@ class HyacinthMainWindow(QMainWindow):
         self._task_bridge.event_received.connect(self._apply_preview_event)
         self._task_bridge.event_received.connect(self._apply_processing_event)
         self._task_bridge.event_received.connect(self._apply_apply_event)
+        self._task_bridge.event_received.connect(self._apply_manual_save_event)
         self._task_bridge.event_received.connect(self._apply_checkout_event)
         self._task_bridge.event_received.connect(self._apply_delete_event)
         self._task_status.cancel_requested.connect(self._task_bridge.cancel)
@@ -280,6 +292,13 @@ class HyacinthMainWindow(QMainWindow):
         if (
             self._current_workbook is not None
             and self._current_workbook.file_id != workbook.file_id
+            and not self._resolve_unsaved_changes("切换文件")
+        ):
+            self._file_library.select_workbook(self._current_workbook.file_id)
+            return
+        if (
+            self._current_workbook is not None
+            and self._current_workbook.file_id != workbook.file_id
         ):
             self._cancel_processing_workflow(reload_base=False)
         if self._preview_task_id is not None:
@@ -319,7 +338,13 @@ class HyacinthMainWindow(QMainWindow):
         if event.task_id != self._preview_task_id:
             return
         if event.state is TaskState.SUCCEEDED and isinstance(event.result, WorkbookPreview):
-            self._workbook_preview.show_preview(event.result)
+            head = self._current_workbook.head_version if self._current_workbook else None
+            editable = (
+                not self._preview_is_temporary
+                and head is not None
+                and self._previewed_version_id == head.version_id
+            )
+            self._workbook_preview.show_preview(event.result, editable=editable)
             if self._preview_is_temporary:
                 self._temporary_preview = event.result
                 self._editor.set_temporary_result(True)
@@ -328,7 +353,6 @@ class HyacinthMainWindow(QMainWindow):
             else:
                 self._editor.set_temporary_result(False)
                 self._function_panel.set_workbook(self._headers_for_preview(event.result))
-                head = self._current_workbook.head_version if self._current_workbook else None
                 self._function_panel.setEnabled(
                     head is not None and self._previewed_version_id == head.version_id
                 )
@@ -583,9 +607,103 @@ class HyacinthMainWindow(QMainWindow):
         self._show_versions(workbook)
         self._load_preview(workbook.working_path, workbook.display_name, temporary=False)
 
+    def _workbook_preview_undo(self) -> None:
+        self._workbook_preview.undo()
+
+    def _workbook_preview_redo(self) -> None:
+        self._workbook_preview.redo()
+
+    def _apply_edit_state(self, dirty: bool, can_undo: bool, can_redo: bool) -> None:
+        self._command_bar.set_edit_state(dirty, can_undo, can_redo)
+        workbook = self._current_workbook
+        head = workbook.head_version if workbook is not None else None
+        self._function_panel.setEnabled(
+            not dirty
+            and head is not None
+            and self._previewed_version_id == head.version_id
+            and self._manual_save_task_id is None
+        )
+
+    def _submit_manual_save(self) -> None:
+        workbook = self._current_workbook
+        head = workbook.head_version if workbook is not None else None
+        edits = self._workbook_preview.pending_edits()
+        if (
+            workbook is None
+            or head is None
+            or not edits
+            or self._manual_save_task_id is not None
+            or self._previewed_version_id != head.version_id
+        ):
+            return
+        task_id = uuid4().hex
+        version_id = uuid4().hex
+        self._manual_save_task_id = task_id
+        self._manual_save_version_id = version_id
+        self._set_processing_navigation_enabled(False)
+        self._task_queue.submit(
+            TaskRequest(
+                task_id=task_id,
+                name="保存手动编辑",
+                file_id=workbook.file_id,
+                engine=None,
+                operation=SAVE_MANUAL_EDITS_OPERATION,
+                payload={
+                    "library_root": str(self._library_root),
+                    "parent_version_id": head.version_id,
+                    "version_id": version_id,
+                    "edits": [
+                        {
+                            "sheet_name": edit.sheet_name,
+                            "row": edit.row,
+                            "column": edit.column,
+                            "value": edit.value,
+                        }
+                        for edit in edits
+                    ],
+                },
+            )
+        )
+
+    def _apply_manual_save_event(self, event: TaskEvent) -> None:
+        if event.task_id != self._manual_save_task_id:
+            return
+        if event.state is TaskState.SUCCEEDED and isinstance(event.result, ImportedWorkbook):
+            self._manual_save_task_id = None
+            self._manual_save_version_id = None
+            self._workbook_preview.clear_edits()
+            self._set_processing_navigation_enabled(True)
+            self._current_workbook = event.result
+            head = event.result.head_version
+            self._previewed_version_id = head.version_id if head is not None else None
+            self._file_library.replace_workbook(event.result)
+            self._show_versions(event.result)
+            self._load_preview(
+                event.result.working_path,
+                event.result.display_name,
+                temporary=False,
+            )
+            if self._close_after_manual_save:
+                self._close_after_manual_save = False
+                self.close()
+        elif event.state in {TaskState.FAILED, TaskState.CANCELLED}:
+            self._manual_save_task_id = None
+            self._manual_save_version_id = None
+            self._close_after_manual_save = False
+            self._set_processing_navigation_enabled(True)
+            self._error_presenter(
+                self,
+                event.message
+                or ("保存已取消" if event.state is TaskState.CANCELLED else "保存失败"),
+            )
+
     def _preview_version(self, version_id: str) -> None:
         workbook = self._current_workbook
         if workbook is None or self._checkout_task_id is not None:
+            return
+        if version_id != self._previewed_version_id and not self._resolve_unsaved_changes(
+            "切换版本"
+        ):
             return
         try:
             version = MetadataStore(self._library_root).get_version(workbook.file_id, version_id)
@@ -609,6 +727,8 @@ class HyacinthMainWindow(QMainWindow):
         workbook = self._current_workbook
         head = workbook.head_version if workbook is not None else None
         if workbook is None or head is None or version_id == head.version_id:
+            return
+        if not self._resolve_unsaved_changes("切换当前工作版本"):
             return
         if self._preview_task_id is not None:
             self._task_queue.cancel(self._preview_task_id)
@@ -945,12 +1065,34 @@ class HyacinthMainWindow(QMainWindow):
         return task_id
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self._workbook_preview.pending_edits():
+            choice = self._unsaved_changes_presenter(self, "退出软件")
+            if choice == "cancel":
+                event.ignore()
+                return
+            if choice == "save":
+                self._close_after_manual_save = True
+                self._submit_manual_save()
+                event.ignore()
+                return
+            self._workbook_preview.clear_edits()
         if self._task_bridge.shutdown(timeout=1.0):
             self._discard_processing_result()
             self._workbook_preview.close()
             event.accept()
         else:
             event.ignore()
+
+    def _resolve_unsaved_changes(self, action: str) -> bool:
+        if not self._workbook_preview.pending_edits():
+            return True
+        choice = self._unsaved_changes_presenter(self, action)
+        if choice == "discard":
+            self._workbook_preview.clear_edits()
+            return True
+        if choice == "save":
+            self._submit_manual_save()
+        return False
 
 
 def create_main_window(
@@ -961,6 +1103,7 @@ def create_main_window(
     error_presenter: ErrorPresenter | None = None,
     confirmation_presenter: ConfirmationPresenter | None = None,
     version_choice_presenter: VersionChoicePresenter | None = None,
+    unsaved_changes_presenter: UnsavedChangesPresenter | None = None,
 ) -> HyacinthMainWindow:
     handlers = conversion_task_handlers()
     handlers.update(import_task_handlers())
@@ -979,6 +1122,7 @@ def create_main_window(
         error_presenter or show_import_error,
         confirmation_presenter or confirm_action,
         version_choice_presenter or choose_replacement_version,
+        unsaved_changes_presenter or ask_unsaved_changes,
     )
 
 
@@ -1034,3 +1178,22 @@ def choose_replacement_version(
     if not accepted:
         return None
     return candidates[labels.index(selected)].version_id
+
+
+def ask_unsaved_changes(parent: QWidget, action: str) -> str:
+    dialog = QMessageBox(parent)
+    dialog.setWindowTitle("有未保存的修改")
+    dialog.setText(f"{action}前，是否将当前单元格修改保存为新版本？")
+    dialog.setInformativeText("选择“放弃”会丢弃本次尚未保存的编辑。")
+    dialog.setIcon(QMessageBox.Icon.Warning)
+    save_button = dialog.addButton("保存", QMessageBox.ButtonRole.AcceptRole)
+    discard_button = dialog.addButton("放弃", QMessageBox.ButtonRole.DestructiveRole)
+    dialog.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+    dialog.setDefaultButton(save_button)
+    dialog.exec()
+    clicked = dialog.clickedButton()
+    if clicked is save_button:
+        return "save"
+    if clicked is discard_button:
+        return "discard"
+    return "cancel"

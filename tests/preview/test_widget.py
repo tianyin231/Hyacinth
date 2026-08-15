@@ -132,3 +132,32 @@ def test_read_only_table_does_not_scan_million_rows_for_typed_text(qtbot: QtBot)
     table.keyboardSearch("不存在的内容")
 
     assert source.read_count == 0
+
+
+def test_preview_widget_edits_head_cells_and_supports_undo_redo(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    from hyacinth.preview import WorkbookPreviewWidget
+
+    preview = _preview(tmp_path)
+    widget = WorkbookPreviewWidget()
+    qtbot.addWidget(widget)
+    widget.show_preview(preview, editable=True)
+    table = widget.findChild(QTableView, "preview-table")
+    assert table is not None
+    model = table.model()
+    assert model is not None
+    cell = model.index(0, 0)
+
+    assert model.setData(cell, "二月", Qt.ItemDataRole.EditRole)
+    assert model.data(cell) == "二月"
+    assert widget.pending_edits()[0].sheet_name == "销售"
+    assert widget.pending_edits()[0].value == "二月"
+    assert table.editTriggers() != QTableView.EditTrigger.NoEditTriggers
+
+    widget.undo()
+    assert model.data(cell) == "一月"
+    assert widget.pending_edits() == ()
+    widget.redo()
+    assert model.data(cell) == "二月"

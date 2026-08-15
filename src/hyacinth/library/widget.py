@@ -83,6 +83,17 @@ class FileLibraryWidget(QFrame):
             return
         self.add_workbook(record)
 
+    def select_workbook(self, file_id: str) -> None:
+        self._file_list.blockSignals(True)
+        try:
+            for row in range(self._file_list.count()):
+                item = self._file_list.item(row)
+                if item.data(Qt.ItemDataRole.UserRole) == file_id:
+                    self._file_list.setCurrentItem(item)
+                    return
+        finally:
+            self._file_list.blockSignals(False)
+
     def _emit_selected_workbook(
         self,
         current: QListWidgetItem | None,

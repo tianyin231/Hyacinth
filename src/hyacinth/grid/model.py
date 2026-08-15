@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from PySide6.QtCore import (
     QAbstractTableModel,
     QModelIndex,
@@ -25,10 +27,12 @@ class WorkbookTableModel(QAbstractTableModel):
         parent: QObject | None = None,
         *,
         editable: bool = True,
+        edit_value_at: Callable[[int, int], object] | None = None,
     ) -> None:
         super().__init__(parent)
         self._source = source
         self._editable = editable
+        self._edit_value_at = edit_value_at
 
     def rowCount(
         self,
@@ -53,6 +57,8 @@ class WorkbookTableModel(QAbstractTableModel):
     ) -> object | None:
         if not index.isValid():
             return None
+        if role == Qt.ItemDataRole.EditRole and self._edit_value_at is not None:
+            return self._edit_value_at(index.row(), index.column())
         if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
             return self._source.value_at(index.row(), index.column())
         return None

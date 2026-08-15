@@ -11,7 +11,14 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QContextMenuEvent, QKeyEvent, QMouseEvent, QPainter, QPen
+from PySide6.QtGui import (
+    QContextMenuEvent,
+    QKeyEvent,
+    QKeySequence,
+    QMouseEvent,
+    QPainter,
+    QPen,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -366,6 +373,9 @@ class ApplicationHeader(QFrame):
 
 class CommandBar(QFrame):
     import_requested = Signal()
+    save_version_requested = Signal()
+    undo_requested = Signal()
+    redo_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -375,11 +385,24 @@ class CommandBar(QFrame):
         import_button = _tool_button("导入文件", "toolbar-import-button", self, icon="plus")
         import_button.setAccessibleName("导入 Excel 文件")
         import_button.clicked.connect(self.import_requested)
-        save_button = _tool_button(
+        self._save_button = _tool_button(
             "保存为新版本", "toolbar-save-version-button", self, enabled=False, icon="save"
         )
-        undo_button = _tool_button("撤销", "toolbar-undo-button", self, enabled=False, icon="undo")
-        redo_button = _tool_button("重做", "toolbar-redo-button", self, enabled=False, icon="redo")
+        self._save_button.setShortcut(QKeySequence.StandardKey.Save)
+        self._save_button.setToolTip("将当前未保存修改创建为新的子版本 (Ctrl+S)")
+        self._save_button.clicked.connect(self.save_version_requested)
+        self._undo_button = _tool_button(
+            "撤销", "toolbar-undo-button", self, enabled=False, icon="undo"
+        )
+        self._undo_button.setShortcut(QKeySequence.StandardKey.Undo)
+        self._undo_button.setToolTip("撤销当前编辑会话中的上一步修改 (Ctrl+Z)")
+        self._undo_button.clicked.connect(self.undo_requested)
+        self._redo_button = _tool_button(
+            "重做", "toolbar-redo-button", self, enabled=False, icon="redo"
+        )
+        self._redo_button.setShortcut(QKeySequence.StandardKey.Redo)
+        self._redo_button.setToolTip("重做当前编辑会话中的修改 (Ctrl+Y)")
+        self._redo_button.clicked.connect(self.redo_requested)
         compare_button = _tool_button(
             "对比版本", "toolbar-compare-button", self, enabled=False, icon="compare"
         )
@@ -389,6 +412,9 @@ class CommandBar(QFrame):
         settings_button = _tool_button(
             "设置", "toolbar-settings-button", self, enabled=False, icon="settings"
         )
+        compare_button.setToolTip("版本对比将在后续节点开放")
+        recycle_button.setToolTip("文件回收站将在后续节点开放")
+        settings_button.setToolTip("设置将在后续节点开放")
 
         divider = QFrame(self)
         divider.setObjectName("toolbar-divider")
@@ -400,15 +426,20 @@ class CommandBar(QFrame):
         layout.setContentsMargins(12, 0, 12, 0)
         layout.setSpacing(7)
         layout.addWidget(import_button)
-        layout.addWidget(save_button)
+        layout.addWidget(self._save_button)
         layout.addWidget(divider)
-        layout.addWidget(undo_button)
-        layout.addWidget(redo_button)
+        layout.addWidget(self._undo_button)
+        layout.addWidget(self._redo_button)
         layout.addWidget(compare_button)
         layout.addWidget(recycle_button)
         layout.addStretch()
         layout.addWidget(mode)
         layout.addWidget(settings_button)
+
+    def set_edit_state(self, dirty: bool, can_undo: bool, can_redo: bool) -> None:
+        self._save_button.setEnabled(dirty)
+        self._undo_button.setEnabled(can_undo)
+        self._redo_button.setEnabled(can_redo)
 
 
 class FunctionPanel(QFrame):

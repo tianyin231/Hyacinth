@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (
 )
 
 from hyacinth.grid.model import WorkbookTableModel
-from hyacinth.preview.data_source import SqliteGridDataSource
+from hyacinth.preview.data_source import EditableGridDataSource, SqliteGridDataSource
+from hyacinth.preview.edit_session import CellEdit, EditSession
 from hyacinth.preview.index_task import WorkbookPreview
 from hyacinth.ui.icons import fluent_icon
 
@@ -41,6 +42,7 @@ class ReadOnlyWorkbookTableView(QTableView):
 
 class WorkbookPreviewWidget(QFrame):
     import_requested = Signal()
+    edit_state_changed = Signal(bool, bool, bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -48,6 +50,10 @@ class WorkbookPreviewWidget(QFrame):
         self.setMinimumWidth(320)
         self._preview: WorkbookPreview | None = None
         self._source: SqliteGridDataSource | None = None
+        self._editable = False
+        self._edit_session = EditSession(self)
+        self._edit_session.state_changed.connect(self.edit_state_changed)
+        self._edit_session.cell_changed.connect(self._refresh_edited_cell)
         self._retired_sources: dict[
             int,
             tuple[QAbstractItemModel, SqliteGridDataSource],
@@ -149,9 +155,10 @@ class WorkbookPreviewWidget(QFrame):
         self._import_button.setVisible(True)
         self._stack.setCurrentIndex(0)
 
-    def show_preview(self, preview: WorkbookPreview) -> None:
+    def show_preview(self, preview: WorkbookPreview, *, editable: bool = False) -> None:
         self._close_source()
         self._preview = preview
+        self._set_editable(editable)
         self._tabs.blockSignals(True)
         while self._tabs.count():
             self._tabs.removeTab(0)
@@ -181,9 +188,59 @@ class WorkbookPreviewWidget(QFrame):
         if preview is None or index < 0 or index >= len(preview.sheets):
             return
         self._close_source()
-        self._source = SqliteGridDataSource(preview.index_path, preview.sheets[index])
-        model = WorkbookTableModel(self._source, self._table, editable=False)
+        sheet = preview.sheets[index]
+        self._source = SqliteGridDataSource(preview.index_path, sheet)
+        if self._editable:
+            source = EditableGridDataSource(self._source, self._edit_session, sheet.title)
+            model = WorkbookTableModel(
+                source,
+                self._table,
+                editable=True,
+                edit_value_at=source.edit_value_at,
+            )
+        else:
+            model = WorkbookTableModel(self._source, self._table, editable=False)
         self._table.setModel(model)
+
+    def pending_edits(self) -> tuple[CellEdit, ...]:
+        return self._edit_session.edits()
+
+    def undo(self) -> None:
+        self._edit_session.undo()
+
+    def redo(self) -> None:
+        self._edit_session.redo()
+
+    def clear_edits(self) -> None:
+        self._edit_session.clear()
+
+    def _set_editable(self, editable: bool) -> None:
+        self._editable = editable
+        triggers = (
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+            | QAbstractItemView.EditTrigger.SelectedClicked
+            if editable
+            else QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self._table.setEditTriggers(triggers)
+        description = (
+            "双击或按 F2 编辑单元格，修改需保存为新版本" if editable else "当前版本为只读预览"
+        )
+        self._table.setAccessibleDescription(description)
+        self._table.setToolTip(description)
+
+    def _refresh_edited_cell(self, sheet_name: str, row: int, column: int) -> None:
+        if self._tabs.tabText(self._tabs.currentIndex()) != sheet_name:
+            return
+        model = self._table.model()
+        if isinstance(model, WorkbookTableModel):
+            index = model.index(row, column)
+            model.dataChanged.emit(
+                index,
+                index,
+                [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole],
+            )
 
     def _close_source(self) -> None:
         previous_model = self._table.model()

@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T22:47:11.7449222+08:00"
+updated_at: "2026-08-15T23:00:57.1169994+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-1-core-workflow-closure-in-progress"
+  implementation: "stage-1-manual-edit-version-completed"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -32,11 +32,11 @@ delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
   current_phase: "实机稳定性与核心工作流闭环实施"
-  next_milestone: "实现轻量单元格编辑、脏状态、撤销重做和保存为普通子版本"
+  next_milestone: "实现当前版本与指定版本节点导出、另存为和冲突文件名处理"
 
 current_task:
   id: "CORE-WORKFLOW-CLOSURE-001"
-  status: "milestone-1-completed-milestone-2-next"
+  status: "milestone-2-completed-milestone-3-next"
   goal: "按用户确认顺序修复 Qt 原生闪退高风险路径和引擎状态，再实现手动编辑保存、撤销重做、版本导出及工具栏真实能力状态"
   owner: "codex-sol"
 
@@ -217,9 +217,14 @@ last_completed:
   - "预览切换将旧模型保持强引用，并在模型销毁后关闭对应 SQLite 数据源；窗口关闭仍同步释放文件锁"
   - "应用启动时启用 faulthandler，异常诊断追加写入 %LOCALAPPDATA%\\Hyacinth\\logs\\crash.log"
   - "稳定性第一节点完整质量门通过：178 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
+  - "完成当前 HEAD 的稀疏单元格编辑会话，双击/F2 可修改文本、数字、ISO 日期和公式，未改动单元格继续从 SQLite 虚拟索引按需读取"
+  - "完成编辑会话撤销/重做与 Ctrl+Z、Ctrl+Y、Ctrl+S 工具栏入口，修改回到原值时自动恢复干净状态"
+  - "完成手动编辑后台版本事务：从父快照应用单元格修改，保存不可变子快照、恢复清单、SQLite HEAD 和 working/current.xlsx"
+  - "手动保存成功生成‘手动编辑’普通子节点并清空撤销栈；失败保留未保存修改供重试"
+  - "切换文件、切换版本和关闭软件前检测未保存修改，提供保存、放弃或取消，避免静默丢失编辑"
+  - "手动编辑保存第二节点完整质量门通过：184 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
 
 next_actions:
-  - "P1：实现轻量单元格编辑工作区、脏状态、撤销/重做和‘保存为新版本’，使手动编辑可以生成普通子节点"
   - "P1：实现版本节点导出/另存为、文件名冲突处理和导出完成入口"
   - "P2：按实际已完成功能逐步启用工具栏按钮；未完成按钮继续禁用并补充原因提示"
   - "版本图谱自动整理和文件级回收站暂后移，先保证稳定性与导入→编辑→保存→导出的核心闭环"
@@ -237,8 +242,8 @@ blockers:
     status: "resolved-and-tested"
     summary: "engine=None 运行态显示‘准备中’、终态显示‘无需引擎’，XLSX 导入和预览完成后不再留下‘引擎检测中’"
   - id: "MANUAL-EDIT-SAVE-GAP-001"
-    status: "confirmed-missing-core-feature"
-    summary: "当前预览控件、模型和 SQLite 数据源均显式只读，尚无编辑会话、脏状态、撤销栈或手动保存版本事务"
+    status: "resolved-core-slice-and-tested"
+    summary: "当前 HEAD 已支持稀疏单元格编辑、撤销重做、未保存保护和后台保存‘手动编辑’子版本；复制粘贴、格式和行列结构编辑仍按后续增强推进"
   - id: "VERSION-EXPORT-GAP-001"
     status: "confirmed-missing-core-feature"
     summary: "需求记录已定义节点下载与另存为，但当前代码没有任何导出入口和服务"
@@ -370,19 +375,27 @@ recent_decisions:
     impact: "主窗口结构、导入入口位置、功能/文件/版本/预览四区布局、统一视觉样式和界面结构测试"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
-  - "需求讨论记录.md"
-  - "src/hyacinth/__main__.py"
-  - "src/hyacinth/diagnostics.py"
+  - "src/hyacinth/app.py"
+  - "src/hyacinth/grid/model.py"
+  - "src/hyacinth/library/widget.py"
+  - "src/hyacinth/preview/__init__.py"
+  - "src/hyacinth/preview/data_source.py"
+  - "src/hyacinth/preview/edit_session.py"
   - "src/hyacinth/preview/widget.py"
-  - "src/hyacinth/tasks/status_widget.py"
+  - "src/hyacinth/processing/__init__.py"
+  - "src/hyacinth/processing/apply_version.py"
   - "src/hyacinth/ui/shell.py"
-  - "tests/tasks/test_status_widget.py"
-  - "tests/test_diagnostics.py"
-  - "tests/versioning/test_widget.py"
+  - "tests/preview/test_edit_session.py"
+  - "tests/preview/test_widget.py"
+  - "tests/processing/test_apply_version.py"
+  - "tests/test_app.py"
 
 verification:
-  status: "stability-milestone-1-passed"
+  status: "manual-edit-version-milestone-2-passed"
   commands:
+    - "uv run pytest：184 passed in 31.76s"
+    - "手动编辑端到端：加载 HEAD→修改 A2→启用保存/撤销→后台提交→生成 manual-edit 子节点→清空编辑会话"
+    - "未保存保护回归：取消关闭保留编辑和 Worker，放弃后清空编辑并正常关闭"
     - "uv run pytest：178 passed in 30.22s"
     - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check"
     - "定向回归覆盖无引擎终态、旧 QGraphicsScene 保活、预览切换、窗口关闭 SQLite 文件锁和崩溃日志路径"
