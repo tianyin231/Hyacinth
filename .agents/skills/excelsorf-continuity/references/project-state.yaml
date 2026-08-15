@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T12:20:17.1612362+08:00"
+updated_at: "2026-08-15T12:48:04.2480844+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-1-conversion-vertical-slice-design"
+  implementation: "stage-1-conversion-status-vertical-slice"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -31,12 +31,12 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 双引擎转换核心垂直切片实施中"
-  next_milestone: "阶段 1 双引擎转换与最小任务状态展示"
+  current_phase: "阶段 1 双引擎转换与最小任务状态展示垂直切片已完成"
+  next_milestone: "阶段 1 文件导入与内部工作副本垂直切片"
 
 current_task:
   id: "STAGE-1-CONVERSION-SLICE-001"
-  status: "in-progress"
+  status: "completed"
   goal: "将任务队列接入双引擎转换，并在已确认 Fluent 工作台中显示最小任务状态"
   owner: "codex-sol"
 
@@ -63,10 +63,15 @@ last_completed:
   - "完成常驻独立 Worker、全局 FIFO、结构化进度/结果事件、排队移除、协作取消、安全关键阶段保护、超时重建、崩溃恢复与关闭收尾原型"
   - "阶段 1 后台任务队列原型通过 DeepSeek 只读审查，修复派发断管和退出超时进程泄漏问题"
   - "后台任务队列原型快进合并到本地 main，临时 worktree 与分支已清理"
+  - "完成自动双引擎转换 handler、Python 协作进度与取消、COM 整段安全关键、临时输出原子落位和失败清理"
+  - "完成 QTimer 事件桥、底部任务状态栏、取消交互和主窗口 Worker 生命周期集成"
+  - "完成 Windows 原生 Qt 状态栏截图检查，中文、任务名、进度、引擎、耗时和取消按钮无重叠或截断"
+  - "独立审查发现并修复检测后取消仍进入 COM 转换、关闭延期后状态轮询停止两个问题"
+  - "双引擎转换状态切片已快进合并到本地 main，临时 worktree 与分支已清理"
 
 next_actions:
-  - "在隔离 worktree 中按 TDD 实现转换 handler、Qt 事件桥和底部任务状态栏"
-  - "COM 转换本切片整体作为安全关键阶段，取消时等待其完成；后续再细分打开、计算和保存阶段"
+  - "确认下一条文件导入、内部唯一目录和工作副本垂直切片方案"
+  - "后续将 COM 子进程扩展为结构化阶段事件，把安全关键范围从整段转换收窄到 SaveAs"
   - "每完成一个可独立验收的关键开发节点提交本地 Git"
   - "后续普通更改默认不推送远端，用户明确要求时再推送"
 
@@ -83,6 +88,9 @@ blockers:
   - id: "REQ-CLIENT-001"
     status: "tracked"
     summary: "需求讨论记录第 43 节中的项目仍需在后续与客户复核"
+  - id: "ENGINE-COM-CANCEL-001"
+    status: "future"
+    summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
   - id: "DEC-20260815-012"
@@ -158,6 +166,22 @@ recent_decisions:
 
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
+  - "src/hyacinth/__main__.py"
+  - "src/hyacinth/app.py"
+  - "src/hyacinth/excel/com_engine.py"
+  - "src/hyacinth/excel/contracts.py"
+  - "src/hyacinth/excel/python_engine.py"
+  - "src/hyacinth/excel/task_handler.py"
+  - "src/hyacinth/tasks/__init__.py"
+  - "src/hyacinth/tasks/contracts.py"
+  - "src/hyacinth/tasks/qt_bridge.py"
+  - "src/hyacinth/tasks/status_widget.py"
+  - "src/hyacinth/tasks/worker.py"
+  - "tests/excel/test_conversion_task.py"
+  - "tests/tasks/test_qt_bridge.py"
+  - "tests/tasks/test_status_widget.py"
+  - "tests/test_app.py"
+  - "output/playwright/task-status-slice.png"
 
 verification:
   status: "passed"
@@ -176,6 +200,7 @@ verification:
     - "uv run ruff format --check ."
     - "uv lock --check"
     - "git diff --check"
+    - "uv run pytest tests/excel/test_conversion_task.py::test_task_queue_runs_real_conversion_with_selected_engine -q -s"
   evidence:
     - "pytest：21 passed；Ruff check/format、Mypy strict 和 uv build 全部通过"
     - "1048576x256 模型创建 0.094ms，Python 峰值 1512B，创建时底层读取 0"
@@ -185,6 +210,9 @@ verification:
     - "任务队列测试：8 passed；完整 pytest：29 passed"
     - "队列原型提交：e8c16ed、3b93592；main 当前领先 origin/main 14 个提交，未推送"
     - "DeepSeek 生命周期审查指出的派发断管和退出超时泄漏已修复，修复后 Ruff/Mypy/格式/锁文件/构建均通过"
+    - "完整 pytest：39 passed；真实常驻 Worker 自动引擎转换测试通过"
+    - "Windows 原生 Qt 截图 task-status-slice.png：960x34，全部文字和控件完整可见"
+    - "切片提交：4b280ee、6f8d491、02d6e06；main 当前领先 origin/main 19 个提交，未推送"
   worker_sessions:
     STAGE-1-TASK-QUEUE-RESEARCH-001:
       session_id: "ses_ffc9b4161ffe7561dWNGTOr8H5"
@@ -210,4 +238,10 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "集成分析 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立完成范围识别"
-  last_result: "用户已确认方案 A，准备在隔离 worktree 中按 TDD 实现核心转换垂直切片"
+    STAGE-1-CONVERSION-SLICE-REVIEW-001:
+      session_id: "ses_ffc47ce1effeCGOhfDGDxvHZGo"
+      provider: "opencode-go"
+      model: "deepseek-v4-flash"
+      finish: "aborted"
+      result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
+  last_result: "双引擎转换与最小任务状态展示切片已合并到 main；39 项测试和全部质量门通过"
