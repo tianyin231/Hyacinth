@@ -4,12 +4,16 @@ from collections.abc import Sequence
 from PySide6.QtWidgets import QApplication
 
 from hyacinth.app import create_main_window
+from hyacinth.app_icon import application_icon
 from hyacinth.diagnostics import install_crash_diagnostics
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     install_crash_diagnostics()
-    app = QApplication.instance() or QApplication(list(argv) if argv is not None else sys.argv)
+    app = QApplication.instance()
+    if not isinstance(app, QApplication):
+        app = QApplication(list(argv) if argv is not None else sys.argv)
+    app.setWindowIcon(application_icon())
     window = create_main_window()
     window.show()
     try:

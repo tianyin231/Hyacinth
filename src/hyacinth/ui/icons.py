@@ -136,20 +136,27 @@ def _draw_sort(painter: QPainter, size: float) -> None:
 
 
 def _draw_brand(painter: QPainter, size: float) -> None:
-    path = QPainterPath(QPointF(size * 0.5, size * 0.12))
-    path.cubicTo(
-        QPointF(size * 0.66, size * 0.34),
-        QPointF(size * 0.82, size * 0.48),
-        QPointF(size * 0.72, size * 0.68),
-    )
-    path.cubicTo(
-        QPointF(size * 0.6, size * 0.88),
-        QPointF(size * 0.3, size * 0.84),
-        QPointF(size * 0.24, size * 0.62),
-    )
-    path.cubicTo(
-        QPointF(size * 0.18, size * 0.42),
-        QPointF(size * 0.38, size * 0.3),
-        QPointF(size * 0.5, size * 0.12),
-    )
-    painter.drawPath(path)
+    petal = QPainterPath(QPointF(4.0, 0.0))
+    petal.cubicTo(QPointF(6.21, 0.0), QPointF(8.0, 1.79), QPointF(8.0, 4.0))
+    petal.lineTo(8.0, 11.0)
+    petal.cubicTo(QPointF(8.0, 12.66), QPointF(6.66, 14.0), QPointF(5.0, 14.0))
+    petal.lineTo(4.0, 14.0)
+    petal.cubicTo(QPointF(1.79, 14.0), QPointF(0.0, 12.21), QPointF(0.0, 10.0))
+    petal.lineTo(0.0, 4.0)
+    petal.cubicTo(QPointF(0.0, 1.79), QPointF(1.79, 0.0), QPointF(4.0, 0.0))
+    petal.closeSubpath()
+
+    painter.save()
+    painter.scale(size / 24.0, size / 24.0)
+    painter.setPen(Qt.PenStyle.NoPen)
+    for x, y, angle, color in (
+        (4.5, 2.0, 34.0, "#64748b"),
+        (11.5, 8.0, -34.0, "#0f6cbd"),
+    ):
+        painter.save()
+        painter.translate(x + 4.0, y + 7.0)
+        painter.rotate(angle)
+        painter.translate(-4.0, -7.0)
+        painter.fillPath(petal, QColor(color))
+        painter.restore()
+    painter.restore()

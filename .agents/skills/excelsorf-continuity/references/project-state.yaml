@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T23:15:12.2879362+08:00"
+updated_at: "2026-08-15T23:55:00+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "核心工作流闭环完成，等待用户实机复验"
-  next_milestone: "用户复验导入稳定性、手动编辑保存、撤销重做和导出；若仍闪退则读取持久崩溃日志继续定位"
+  current_phase: "软件品牌图标完成，等待用户视觉验收"
+  next_milestone: "用户确认品牌图标视觉后继续整体功能开发"
 
 current_task:
-  id: "CORE-WORKFLOW-CLOSURE-001"
-  status: "implementation-completed-awaiting-real-machine-validation"
-  goal: "按用户确认顺序修复 Qt 原生闪退高风险路径和引擎状态，再实现手动编辑保存、撤销重做、版本导出及工具栏真实能力状态"
+  id: "APP-ICON-001"
+  status: "implementation-completed-awaiting-user-validation"
+  goal: "按最终预览图绘制风信子双花瓣品牌图标，生成透明 PNG 和 Windows 多尺寸 ICO，并接入标题栏及窗口"
   owner: "codex-sol"
 
 last_completed:
@@ -233,8 +233,13 @@ last_completed:
   - "真实常驻 Worker 独立完成手动编辑版本提交和子版本导出，任务结果可序列化并正确发布文件"
   - "工具栏按真实能力启用：保存、撤销、重做随编辑状态变化，导出随版本可用性变化；未实现功能保持禁用并给出提示"
   - "核心工作流最终质量门通过：192 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
+  - "按最终 Fluent 预览图完成灰蓝后瓣与 Fluent 蓝前瓣组成的透明双花瓣品牌图标"
+  - "生成 512x512 透明 PNG、SVG 矢量母版和包含 16 至 256 像素九档尺寸的 Windows ICO"
+  - "应用标题栏品牌标识、窗口图标和 QApplication 全局图标已统一使用新品牌图标"
+  - "品牌图标质量门通过：195 项测试、Ruff、Mypy strict、uv lock、uv build、包内资源检查和原生界面截图目视检查"
 
 next_actions:
+  - "用户查看新品牌图标与本机 uv run hyacinth 的窗口图标，确认视觉方向"
   - "用户实机运行 uv run hyacinth，复验连续导入、直接编辑、撤销重做、保存子节点、节点下载和另存为"
   - "若仍发生原生闪退，保留 %LOCALAPPDATA%\\Hyacinth\\logs\\crash.log 和 Windows CrashDumps 后继续分析"
   - "版本图谱自动整理和文件级回收站暂后移，先保证稳定性与导入→编辑→保存→导出的核心闭环"
@@ -313,6 +318,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260815-025"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "软件图标沿用最终预览图中的双花瓣品牌标识，使用灰蓝色后瓣和 Fluent 蓝前瓣，并统一接入软件窗口"
+    source: "用户当前会话明确要求参照预览图绘制软件图标"
+    supersedes: "none"
+    impact: "需求讨论记录第 44 节、品牌矢量图标、Windows 多尺寸应用图标和 Qt 窗口图标"
   - id: "DEC-20260815-024"
     date: "2026-08-15"
     status: "approved"
@@ -376,24 +388,28 @@ recent_decisions:
     source: "用户当前会话明确确认推荐方案 2"
     supersedes: "none"
     impact: "元数据仓库、导入原子事务、根版本目录、恢复清单、文件发现和版本树 UI"
-  - id: "DEC-20260815-015"
-    date: "2026-08-15"
-    status: "approved-and-implemented"
-    summary: "暂停版本树功能开发，先按最终 Fluent 预览图校正完整主界面壳层；既有后端不重写，未完成功能使用真实布局占位"
-    source: "用户指出当前成品偏离最初设想，并明确确认推荐校正方案"
-    supersedes: "none"
-    impact: "主窗口结构、导入入口位置、功能/文件/版本/预览四区布局、统一视觉样式和界面结构测试"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
-  - "src/hyacinth/preview/data_source.py"
-  - "src/hyacinth/preview/widget.py"
-  - "tests/preview/test_data_source.py"
-  - "tests/processing/test_apply_version.py"
-  - "tests/versioning/test_export_task.py"
+  - "需求讨论记录.md"
+  - "scripts/generate_app_icon.py"
+  - "src/hyacinth/__main__.py"
+  - "src/hyacinth/app.py"
+  - "src/hyacinth/app_icon.py"
+  - "src/hyacinth/assets/app-icon.svg"
+  - "src/hyacinth/assets/app-icon.png"
+  - "src/hyacinth/assets/app-icon.ico"
+  - "src/hyacinth/ui/icons.py"
+  - "tests/test_app.py"
+  - "tests/test_app_icon.py"
 
 verification:
-  status: "core-workflow-closure-final-gate-passed"
+  status: "app-icon-final-gate-passed"
   commands:
+    - "uv run pytest：195 passed in 30.86s"
+    - "uv run ruff check src tests scripts；uv run ruff format --check src tests scripts；uv run mypy；uv lock --check；uv build"
+    - "wheel 内容检查：app-icon.svg、app-icon.png、app-icon.ico 均已包含"
+    - "uv run python scripts/capture_ui_states.py --output output/icon-qa"
+    - "原图目视检查 default-empty-state.png：左上双花瓣品牌标识清晰，主界面布局未受影响"
     - "uv run pytest：192 passed in 32.23s"
     - "真实 TaskQueue Worker：手动编辑保存和版本导出均成功完成"
     - "筛选可见行编辑回归：界面第 2 可见行正确保存到源工作表物理第 3 行"

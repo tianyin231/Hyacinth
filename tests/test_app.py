@@ -239,6 +239,7 @@ def test_create_main_window_uses_product_identity(qtbot: QtBot, tmp_path: Path) 
     assert isinstance(window, QMainWindow)
     assert window.windowTitle() == "风信子"
     assert window.objectName() == "main-window"
+    assert not window.windowIcon().isNull()
 
 
 def test_initial_window_size_prefers_1440x900_and_adapts_to_available_screen() -> None:

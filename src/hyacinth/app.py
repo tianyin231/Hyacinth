@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from hyacinth.app_icon import application_icon
 from hyacinth.excel.task_handler import CONVERT_XLS_OPERATION, conversion_task_handlers
 from hyacinth.library import (
     IMPORT_WORKBOOK_OPERATION,
@@ -133,6 +134,7 @@ class HyacinthMainWindow(QMainWindow):
         super().__init__()
         self.setObjectName("main-window")
         self.setWindowTitle("风信子")
+        self.setWindowIcon(application_icon())
         self.setMinimumSize(MINIMUM_WINDOW_SIZE)
         self._apply_initial_window_geometry()
         self.setStyleSheet(APP_STYLESHEET)
