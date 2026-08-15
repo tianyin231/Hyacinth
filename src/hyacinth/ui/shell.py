@@ -18,6 +18,7 @@ from PySide6.QtGui import (
     QMouseEvent,
     QPainter,
     QPen,
+    QWheelEvent,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -1262,11 +1263,104 @@ class DeletedRowsModel(QAbstractTableModel):
         return "原始行号" if section == 0 else None
 
 
+class _VersionTreeView(QGraphicsView):
+    node_selected = Signal(str)
+    position_changing = Signal(str, float, float)
+    position_committed = Signal(str, float, float)
+
+    def __init__(self, scene: QGraphicsScene, parent: QWidget | None = None) -> None:
+        super().__init__(scene, parent)
+        self._drag_proxy: QGraphicsProxyWidget | None = None
+        self._drag_version_id: str | None = None
+        self._drag_origin_view: QPoint | None = None
+        self._drag_origin_scene: QPointF | None = None
+        self._dragged = False
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        self._reset_node_drag()
+        if event.button() is Qt.MouseButton.LeftButton:
+            item = self.itemAt(event.position().toPoint())
+            while item is not None and not isinstance(item, QGraphicsProxyWidget):
+                item = item.parentItem()
+            if isinstance(item, QGraphicsProxyWidget):
+                card = item.widget()
+                if card is not None and not bool(card.property("deleted")):
+                    version_id = str(card.property("version-id"))
+                    self._drag_proxy = item
+                    self._drag_version_id = version_id
+                    self._drag_origin_view = event.position().toPoint()
+                    self._drag_origin_scene = item.pos()
+                    self.setDragMode(QGraphicsView.DragMode.NoDrag)
+                    card.setFocus()
+                    self.node_selected.emit(version_id)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if (
+            self._drag_proxy is not None
+            and self._drag_version_id is not None
+            and self._drag_origin_view is not None
+            and self._drag_origin_scene is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+        ):
+            movement = event.position().toPoint() - self._drag_origin_view
+            if movement.manhattanLength() >= QApplication.startDragDistance():
+                self._dragged = True
+                scene_delta = self.mapToScene(event.position().toPoint()) - self.mapToScene(
+                    self._drag_origin_view
+                )
+                position = self._drag_origin_scene + scene_delta
+                self.position_changing.emit(
+                    self._drag_version_id,
+                    position.x(),
+                    position.y(),
+                )
+                event.accept()
+                return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if (
+            event.button() is Qt.MouseButton.LeftButton
+            and self._dragged
+            and self._drag_proxy is not None
+            and self._drag_version_id is not None
+        ):
+            position = self._drag_proxy.pos()
+            self.position_committed.emit(self._drag_version_id, position.x(), position.y())
+        super().mouseReleaseEvent(event)
+        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self._reset_node_drag()
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        vertical_delta = event.angleDelta().y()
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            if vertical_delta != 0:
+                factor = 1.15 if vertical_delta > 0 else 1 / 1.15
+                target_scale = self.transform().m11() * factor
+                if 0.4 <= target_scale <= 2.5:
+                    self.scale(factor, factor)
+            event.accept()
+            return
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            horizontal_delta = vertical_delta or event.angleDelta().x()
+            scrollbar = self.horizontalScrollBar()
+            scrollbar.setValue(scrollbar.value() - horizontal_delta)
+            event.accept()
+            return
+        super().wheelEvent(event)
+
+    def _reset_node_drag(self) -> None:
+        self._drag_proxy = None
+        self._drag_version_id = None
+        self._drag_origin_view = None
+        self._drag_origin_scene = None
+        self._dragged = False
+
+
 class _VersionNodeCard(QFrame):
     selected = Signal(str)
     continue_requested = Signal(str)
-    position_changing = Signal(str, float, float)
-    position_committed = Signal(str, float, float)
     delete_requested = Signal(str)
     context_menu_requested = Signal(str, QPoint)
 
@@ -1274,9 +1368,6 @@ class _VersionNodeCard(QFrame):
         super().__init__()
         self._version_id = version_id
         self._deleted = deleted
-        self._drag_origin_global: QPointF | None = None
-        self._drag_origin_scene: QPointF | None = None
-        self._dragged = False
         self.setProperty("version-id", version_id)
         self.setProperty("deleted", deleted)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -1288,40 +1379,7 @@ class _VersionNodeCard(QFrame):
                 super().mousePressEvent(event)
                 return
             self.selected.emit(self._version_id)
-            proxy = self.graphicsProxyWidget()
-            if proxy is not None:
-                self._drag_origin_global = event.globalPosition()
-                self._drag_origin_scene = proxy.pos()
-                self._dragged = False
         super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        if (
-            self._drag_origin_global is not None
-            and self._drag_origin_scene is not None
-            and not self._deleted
-            and event.buttons() & Qt.MouseButton.LeftButton
-        ):
-            delta = event.globalPosition() - self._drag_origin_global
-            if delta.toPoint().manhattanLength() >= QApplication.startDragDistance():
-                self._dragged = True
-                position = self._drag_origin_scene + delta
-                self.position_changing.emit(self._version_id, position.x(), position.y())
-                event.accept()
-                return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        proxy = self.graphicsProxyWidget()
-        if event.button() is Qt.MouseButton.LeftButton and self._dragged and proxy is not None:
-            position = proxy.pos()
-            self.position_committed.emit(self._version_id, position.x(), position.y())
-            event.accept()
-        else:
-            super().mouseReleaseEvent(event)
-        self._drag_origin_global = None
-        self._drag_origin_scene = None
-        self._dragged = False
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if event.button() is Qt.MouseButton.LeftButton and not self._deleted:
@@ -1413,12 +1471,15 @@ class VersionTreePanel(QFrame):
         self._scene = QGraphicsScene(self)
         self._scene.setObjectName("version-tree-scene")
         self._scene.setSceneRect(0, 0, 320, 480)
-        self._view = QGraphicsView(self._scene, self)
+        self._view = _VersionTreeView(self._scene, self)
         self._view.setObjectName("version-tree-view")
         self._view.setAccessibleName("版本演化树")
         self._view.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self._view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self._view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self._view.node_selected.connect(self._select_version)
+        self._view.position_changing.connect(self._move_version)
+        self._view.position_committed.connect(self._commit_version_position)
 
         self._content = QStackedWidget(self)
         self._content.addWidget(empty)
@@ -1530,8 +1591,6 @@ class VersionTreePanel(QFrame):
             card.continue_requested.connect(self._request_continue)
             card.delete_requested.connect(self._request_delete)
             card.context_menu_requested.connect(self._show_context_menu)
-            card.position_changing.connect(self._move_version)
-            card.position_committed.connect(self._commit_version_position)
             proxy = scene.addWidget(card)
             assert isinstance(proxy, QGraphicsProxyWidget)
             proxy.setPos(*position)

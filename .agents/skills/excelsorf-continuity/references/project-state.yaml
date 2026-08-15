@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T23:55:00+08:00"
+updated_at: "2026-08-16T00:01:30+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "软件品牌图标完成，等待用户视觉验收"
-  next_milestone: "用户确认品牌图标视觉后继续整体功能开发"
+  current_phase: "版本图谱实机输入修复完成，等待用户复验"
+  next_milestone: "用户实机复验节点自由拖动、Shift 横向滚动和 Ctrl 缩放"
 
 current_task:
-  id: "APP-ICON-001"
-  status: "implementation-completed-awaiting-user-validation"
-  goal: "按最终预览图绘制风信子双花瓣品牌图标，生成透明 PNG 和 Windows 多尺寸 ICO，并接入标题栏及窗口"
+  id: "VERSION-TREE-INPUT-001"
+  status: "implementation-completed-awaiting-real-machine-validation"
+  goal: "修复版本节点在真实 QGraphicsView 输入路径中无法自由拖动的问题，并按原始文档实现滚轮手势"
   owner: "codex-sol"
 
 last_completed:
@@ -237,8 +237,13 @@ last_completed:
   - "生成 512x512 透明 PNG、SVG 矢量母版和包含 16 至 256 像素九档尺寸的 Windows ICO"
   - "应用标题栏品牌标识、窗口图标和 QApplication 全局图标已统一使用新品牌图标"
   - "品牌图标质量门通过：195 项测试、Ruff、Mypy strict、uv lock、uv build、包内资源检查和原生界面截图目视检查"
+  - "使用真实 QGraphicsView 视口输入复现节点拖动失效，确认旧测试绕过了视图和平移模式的事件竞争"
+  - "版本图谱视口统一接管节点拖动，拖动时连线实时跟随，松开后继续沿现有信号保存固定位置"
+  - "按原始文档实现普通滚轮纵向、Shift+滚轮横向、Ctrl+滚轮缩放，缩放范围限制为 40%-250%"
+  - "版本图谱输入修复质量门通过：196 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
 
 next_actions:
+  - "用户实机运行 uv run hyacinth，复验节点拖动、Shift+滚轮横向滚动和 Ctrl+滚轮缩放"
   - "用户查看新品牌图标与本机 uv run hyacinth 的窗口图标，确认视觉方向"
   - "用户实机运行 uv run hyacinth，复验连续导入、直接编辑、撤销重做、保存子节点、节点下载和另存为"
   - "若仍发生原生闪退，保留 %LOCALAPPDATA%\\Hyacinth\\logs\\crash.log 和 Windows CrashDumps 后继续分析"
@@ -250,6 +255,9 @@ next_actions:
   - "后续普通更改默认不推送远端，用户明确要求时再推送"
 
 blockers:
+  - id: "VERSION-TREE-REAL-DRAG-001"
+    status: "resolved-and-tested"
+    summary: "根因是旧测试直接向节点 QWidget 发送事件，真实输入却先被 QGraphicsView 的 ScrollHandDrag 处理；现由视口识别节点拖动并暂停画布平移，真实视口回归已覆盖"
   - id: "QT-WIDGETS-NATIVE-CRASH-001"
     status: "mitigated-awaiting-real-machine-validation"
     summary: "已移除版本树旧场景即时延迟销毁，并让预览模型和 SQLite 数据源按安全顺序释放；完整回归通过且已增加持久崩溃日志，仍需用户实机验证间歇性 Qt6Widgets 访问冲突不再出现"
@@ -318,6 +326,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260815-026"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "版本图谱滚轮手势按原始文档：Shift+滚轮横向滚动，Ctrl+滚轮缩放；不采用 Ctrl+滚轮横向滚动"
+    source: "用户在指出节点拖动问题后明确要求按原始文档执行"
+    supersedes: "用户上一条尚未落盘实施的 Ctrl+滚轮横向滚动表述"
+    impact: "需求讨论记录第 42 节、VersionTreePanel 视图输入事件和版本图谱交互测试"
   - id: "DEC-20260815-025"
     date: "2026-08-15"
     status: "approved"
@@ -381,30 +396,20 @@ recent_decisions:
     source: "用户当前会话明确确认推荐方案 1"
     supersedes: "none"
     impact: "多列排序任务、临时预览生命周期、子版本事务、HEAD、版本树和主窗口状态机"
-  - id: "DEC-20260815-016"
-    date: "2026-08-15"
-    status: "approved-and-implemented"
-    summary: "根版本切片采用 SQLite 权威元数据、不可变 xlsx 完整快照、快照旁恢复清单和 QGraphicsView 根节点/HEAD 展示"
-    source: "用户当前会话明确确认推荐方案 2"
-    supersedes: "none"
-    impact: "元数据仓库、导入原子事务、根版本目录、恢复清单、文件发现和版本树 UI"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
   - "需求讨论记录.md"
-  - "scripts/generate_app_icon.py"
-  - "src/hyacinth/__main__.py"
-  - "src/hyacinth/app.py"
-  - "src/hyacinth/app_icon.py"
-  - "src/hyacinth/assets/app-icon.svg"
-  - "src/hyacinth/assets/app-icon.png"
-  - "src/hyacinth/assets/app-icon.ico"
-  - "src/hyacinth/ui/icons.py"
+  - "src/hyacinth/ui/shell.py"
   - "tests/test_app.py"
-  - "tests/test_app_icon.py"
+  - "tests/versioning/test_widget.py"
 
 verification:
-  status: "app-icon-final-gate-passed"
+  status: "version-tree-input-final-gate-passed"
   commands:
+    - "真实视口节点拖动与滚轮手势定向回归：2 passed"
+    - "版本图谱及位置持久化回归：14 passed"
+    - "uv run pytest：196 passed in 28.52s"
+    - "uv run ruff check src tests scripts；uv run ruff format --check src tests scripts；uv run mypy；uv lock --check；uv build；git diff --check"
     - "uv run pytest：195 passed in 30.86s"
     - "uv run ruff check src tests scripts；uv run ruff format --check src tests scripts；uv run mypy；uv lock --check；uv build"
     - "wheel 内容检查：app-icon.svg、app-icon.png、app-icon.ico 均已包含"
@@ -731,4 +736,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "实机五项问题对应闭环已完成：Qt 高风险销毁路径稳定化并增加崩溃日志；无引擎任务状态修正；工具栏按真实能力启用；当前 HEAD 支持手动编辑、撤销重做和保存子节点；顶部及节点右键支持下载/另存为。最终 192 项测试和全部质量门通过，等待用户实机复验间歇性闪退是否消失"
+  last_result: "版本图谱真实输入路径已修复：节点可通过 QGraphicsView 视口自由拖动，连线实时跟随并持久化位置；普通滚轮纵向、Shift+滚轮横向、Ctrl+滚轮缩放。最终 196 项测试和全部质量门通过，等待用户实机复验"

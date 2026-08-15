@@ -1,8 +1,8 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QPoint, Qt
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QKeyEvent, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -20,6 +20,26 @@ from pytestqt.qtbot import QtBot
 from shiboken6 import isValid
 
 from hyacinth.versioning import VersionLayout, VersionRecord
+
+
+def _send_wheel(
+    view: QGraphicsView,
+    *,
+    delta: int,
+    modifiers: Qt.KeyboardModifier,
+) -> None:
+    position = QPointF(view.viewport().rect().center())
+    event = QWheelEvent(
+        position,
+        QPointF(view.viewport().mapToGlobal(position.toPoint())),
+        QPoint(),
+        QPoint(0, delta),
+        Qt.MouseButton.NoButton,
+        modifiers,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    QApplication.sendEvent(view.viewport(), event)
 
 
 def test_version_tree_renders_real_root_node_and_head(qtbot: QtBot, tmp_path: Path) -> None:
@@ -259,13 +279,15 @@ def test_version_tree_drag_moves_connected_edge_and_emits_persisted_position(
     old_line = edges[0].line()
     root_card = proxies[root.version_id].widget()
     assert root_card is not None
-    center = root_card.rect().center()
+    center = view.mapFromScene(proxies[root.version_id].sceneBoundingRect().center())
 
     with qtbot.waitSignal(panel.version_position_changed) as moved_signal:
-        qtbot.mousePress(root_card, Qt.MouseButton.LeftButton, pos=center)  # type: ignore[no-untyped-call]
-        qtbot.mouseMove(root_card, pos=center + QPoint(50, 35))  # type: ignore[no-untyped-call]
+        qtbot.mousePress(  # type: ignore[no-untyped-call]
+            view.viewport(), Qt.MouseButton.LeftButton, pos=center
+        )
+        qtbot.mouseMove(view.viewport(), pos=center + QPoint(50, 35))  # type: ignore[no-untyped-call]
         qtbot.mouseRelease(
-            root_card,
+            view.viewport(),
             Qt.MouseButton.LeftButton,
             pos=center + QPoint(50, 35),
         )  # type: ignore[no-untyped-call]
@@ -274,6 +296,54 @@ def test_version_tree_drag_moves_connected_edge_and_emits_persisted_position(
     assert moved_signal.args[1] > 80.0
     assert moved_signal.args[2] > 60.0
     assert edges[0].line() != old_line
+
+
+def test_version_tree_wheel_gestures_follow_original_document(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    from hyacinth.ui import VersionTreePanel
+
+    root = VersionRecord(
+        "version-1",
+        "file-1",
+        None,
+        "导入原始文件",
+        datetime(2026, 8, 15, 7, 30, tzinfo=UTC),
+        "import",
+        None,
+        tmp_path / "root.xlsx",
+        "a" * 64,
+    )
+    child = VersionRecord(
+        "version-2",
+        "file-1",
+        root.version_id,
+        "多列排序",
+        datetime(2026, 8, 15, 8, 0, tzinfo=UTC),
+        "sort",
+        None,
+        tmp_path / "child.xlsx",
+        "b" * 64,
+    )
+    panel = VersionTreePanel()
+    qtbot.addWidget(panel)
+    panel.resize(320, 420)
+    panel.show()
+    panel.set_workbook("销售报表.xlsx", (root, child), child.version_id)
+    view = panel.findChild(QGraphicsView, "version-tree-view")
+    assert view is not None
+    qtbot.waitUntil(lambda: view.horizontalScrollBar().maximum() > 0)
+
+    horizontal = view.horizontalScrollBar()
+    initial_horizontal = horizontal.value()
+    initial_scale = view.transform().m11()
+    _send_wheel(view, delta=-120, modifiers=Qt.KeyboardModifier.ShiftModifier)
+    assert horizontal.value() > initial_horizontal
+    assert view.transform().m11() == initial_scale
+
+    _send_wheel(view, delta=120, modifiers=Qt.KeyboardModifier.ControlModifier)
+    assert view.transform().m11() > initial_scale
 
 
 def test_deleted_version_is_placeholder_and_can_be_restored_but_not_previewed(

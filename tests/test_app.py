@@ -1374,11 +1374,13 @@ def test_dragged_version_position_persists_after_reopening_tree(
     card = proxy.widget()
     assert card is not None
     initial_position = proxy.pos()
-    center = card.rect().center()
-    qtbot.mousePress(card, Qt.MouseButton.LeftButton, pos=center)  # type: ignore[no-untyped-call]
-    qtbot.mouseMove(card, pos=center + QPoint(60, 40))  # type: ignore[no-untyped-call]
+    center = tree.mapFromScene(proxy.sceneBoundingRect().center())
+    qtbot.mousePress(  # type: ignore[no-untyped-call]
+        tree.viewport(), Qt.MouseButton.LeftButton, pos=center
+    )
+    qtbot.mouseMove(tree.viewport(), pos=center + QPoint(60, 40))  # type: ignore[no-untyped-call]
     qtbot.mouseRelease(
-        card,
+        tree.viewport(),
         Qt.MouseButton.LeftButton,
         pos=center + QPoint(60, 40),
     )  # type: ignore[no-untyped-call]
