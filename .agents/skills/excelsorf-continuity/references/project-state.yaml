@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T17:31:08.1022328+08:00"
+updated_at: "2026-08-15T17:38:08.7026137+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -31,12 +31,12 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 运行界面一致性复核"
-  next_milestone: "取得用户本地实际截图后，对照真实默认启动状态修正界面或验收方式"
+  current_phase: "阶段 1 默认启动界面视觉校正方案确认"
+  next_milestone: "用户确认后实施空状态与 Fluent 壳层精修，并建立可复现的默认/有数据双场景截图验收"
 
 current_task:
   id: "UI-RUNTIME-VISUAL-COMPARISON-001"
-  status: "needs-user-evidence"
+  status: "plan-proposed-awaiting-user-approval"
   goal: "查明受控验收截图与用户本地正常启动界面的差异，并以可复现的真实启动截图重新验收"
   owner: "codex-sol"
 
@@ -120,10 +120,16 @@ last_completed:
   - "确认 sort-child-version-slice.png 是注入测试文件库、完成排序/应用并手动调整到 1376x760 后的 QWidget 客户区场景图，不是默认启动截图"
   - "确认仓库没有保存该场景图的可复现截图脚本；正常入口默认窗口为 1280x760，并读取真实 Documents\\Hyacinth 文件库"
   - "只读检查真实 Documents\\Hyacinth SQLite，目前 files 表为空，因此用户正常启动不会出现场景图中的销售报表、表格数据或父子版本节点"
+  - "收到用户 1282x792 完整默认启动截图，并与最终 Fluent 预览稿及排序受控场景图逐项对照"
+  - "确认用户截图与当前代码壳层一致，不存在样式表未加载或异常 DPI 缩放；与受控排序图的主要差异是空文件库、系统标题栏和客户区宽度"
+  - "确认当前四区位置和 260/340/剩余编辑区比例基本正确，但空状态、控件细节、统一矢量图标、局部 Fluent 材质和 Excel 网格主角感仍未达到批准稿"
+  - "ui-ux-pro-max 复核强调空状态必须提供清晰引导和可执行动作，不能只留下大面积空白；其通用配色/字体建议因与已确认 Segoe UI/Fluent 蓝方向冲突未采纳"
 
 next_actions:
-  - "请用户提供本地正常启动后的完整窗口截图，确认除空数据状态与窗口尺寸外是否还有真实样式或布局偏差"
-  - "取得截图后，先并排对照最终 Fluent 预览稿、真实启动截图和受控场景图，再提出最小修正方案"
+  - "等待用户确认推荐的默认启动视觉校正范围：不伪造示例数据，精修空状态、控件、图标和轻量 Fluent 层级"
+  - "默认空状态在 Excel 编辑区提供明确导入入口与低干扰网格/壁纸占位，版本树和文件区提供紧凑引导，空排序表单不再成为视觉主角"
+  - "统一工具栏和面板的矢量图标、控件高度、内边距、圆角、悬停/按下/焦点/禁用状态，并保留已确认 Segoe UI 与 Fluent 蓝强调色"
+  - "增加可复现的 1280x760 默认空状态和有数据处理状态截图流程，后续视觉结论必须同时核对两种状态"
   - "根据需求讨论记录选择下一个处理功能垂直切片，并在实现前向用户展示范围和方案"
   - "后续将 COM 子进程扩展为结构化阶段事件，把安全关键范围从整段转换收窄到 SaveAs"
   - "每完成一个可独立验收的关键开发节点提交本地 Git"
@@ -140,8 +146,8 @@ blockers:
     status: "no-current-data-preserve-fallback"
     summary: "默认 Documents\\Hyacinth 当前不存在，无需本轮迁移真实旧记录；catalog 仍保留无清单旧目录的只读发现，不静默丢失"
   - id: "UI-FIDELITY-001"
-    status: "reopened-user-reported-runtime-mismatch"
-    summary: "现有 sort-child-version-slice.png 只证明受控测试场景的客户区布局，不等同于真实默认启动效果；需取得用户本地完整截图后重新判定视觉一致性"
+    status: "confirmed-partial-implementation-plan-awaiting-approval"
+    summary: "四区结构和比例基本正确，但真实默认启动截图仍呈现大面积无引导空白、原生 Qt 控件感、图标与 Fluent 层级不足；已提出不伪造数据的空状态与壳层精修方案"
   - id: "PREVIEW-DATA-ACCESS-001"
     status: "resolved-and-implemented"
     summary: "后台单次流式建立可再生 SQLite 稀疏索引，Qt 虚拟模型通过行缓存按需查询；性能和真实 Worker 已验证"
@@ -239,7 +245,7 @@ changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
 
 verification:
-  status: "runtime-visual-mismatch-diagnosed-needs-user-screenshot"
+  status: "runtime-visual-gap-confirmed-plan-awaiting-approval"
   commands:
     - "uv lock --check"
     - "$env:PYTHONPATH='src'; ..\\..\\.venv\\Scripts\\python.exe -m pytest --override-ini addopts='' -q"
@@ -256,6 +262,10 @@ verification:
     - "只读搜索截图生成脚本、窗口默认尺寸和应用入口"
     - "Computer Use 列出窗口并启动当前 .venv\\Scripts\\hyacinth.exe 入口"
     - "SQLite mode=ro 查询 Documents\\Hyacinth\\library.sqlite3 的 files 表"
+    - "原图查看用户 codex-clipboard-c7e5cff4-eab0-4539-9f2e-4b1f6690fd6c.png"
+    - "并排目视核对用户默认启动截图、visual-direction-fluent-final.png 和 sort-child-version-slice.png"
+    - "ui-ux-pro-max design-system 与 empty-state UX 搜索"
+    - "只读核对需求讨论记录视觉方向、空状态、四区交换与原始前端框架设计"
     - "100000 行 x 5 列真实 xlsx 后台索引与第 100000 行末端查询计时"
     - "Windows 原生 Qt grab 保存 output/playwright/preview-slice.png"
     - "并排目视核对 output/playwright/visual-direction-fluent-final.png 与 output/playwright/preview-slice.png"
@@ -304,7 +314,10 @@ verification:
     - "用户报告本地正常启动界面与 sort-child-version-slice.png 不同，原 UI-FIDELITY 验证结论已重新打开"
     - "差异来源之一已证实：受控截图有测试夹具和已应用排序状态，真实默认文件库 files 表为空"
     - "差异来源之二已证实：受控截图为手动 1376x760 客户区抓取，正常窗口默认 1280x760 并显示系统窗口框"
-    - "尚缺用户本地完整截图，无法判断是否还存在 DPI、字体、分隔器比例或样式表未生效等额外偏差"
+    - "用户实际截图已补齐：1282x792（含 Windows 标题栏），客户区与当前 1280x760 默认窗口吻合，排除异常 DPI 与样式表未生效"
+    - "实际启动与受控排序图使用同一当前壳层；受控图中的文件、表格和版本节点来自测试夹具，不能作为默认空状态视觉证据"
+    - "实际启动与批准稿的剩余差距已确认：空状态缺少导入动作和低干扰视觉承托、组合框/按钮仍偏原生 Qt、图标体系不统一、标题/工具栏/侧栏缺少轻量材质层级"
+    - "符合需求的部分：四区持续可见、左右宽度约 260/340/剩余、Segoe UI、蓝色强调、禁用状态和高对比数据区方向"
   worker_sessions:
     STAGE-1-SORT-PREVIEW-CORE-001:
       session_id: "ses_ffb6eb165ffeExum72T3S31KLf"
@@ -384,4 +397,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "已确认此前展示的是受控测试场景图而非默认启动截图；真实文件库为空和窗口尺寸/系统框差异可解释部分不一致，等待用户本地完整截图后继续精确对照"
+  last_result: "用户实际默认启动截图已完成三图对照：当前壳层运行正常但只部分达到批准稿；已形成不伪造数据的空状态与 Fluent 壳层精修方案，等待用户确认后实施"
