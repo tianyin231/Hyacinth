@@ -7,6 +7,13 @@ from hyacinth.processing.apply_version import (
     run_apply_deduplicate_preview_task,
     run_apply_sort_preview_task,
 )
+from hyacinth.processing.blank_rows_preview import (
+    DELETE_BLANK_ROWS_PREVIEW_OPERATION,
+    DeleteBlankRowsPreviewResult,
+    delete_blank_rows_preview_handlers,
+    delete_blank_rows_preview_task,
+    run_delete_blank_rows_preview_task,
+)
 from hyacinth.processing.deduplicate_preview import (
     DEDUPLICATE_PREVIEW_OPERATION,
     DeduplicatePreviewResult,
@@ -30,8 +37,10 @@ __all__ = [
     "APPLY_DEDUPLICATE_PREVIEW_OPERATION",
     "APPLY_SORT_PREVIEW_OPERATION",
     "DEDUPLICATE_PREVIEW_OPERATION",
+    "DELETE_BLANK_ROWS_PREVIEW_OPERATION",
     "SORT_PREVIEW_OPERATION",
     "DeduplicatePreviewResult",
+    "DeleteBlankRowsPreviewResult",
     "DuplicateGroup",
     "KeepDuplicate",
     "SortDirection",
@@ -42,8 +51,11 @@ __all__ = [
     "apply_version_handlers",
     "deduplicate_preview_handlers",
     "deduplicate_preview_task",
+    "delete_blank_rows_preview_handlers",
+    "delete_blank_rows_preview_task",
     "run_apply_deduplicate_preview_task",
     "run_deduplicate_preview_task",
+    "run_delete_blank_rows_preview_task",
     "run_apply_sort_preview_task",
     "run_sort_preview_task",
     "sort_preview_handlers",

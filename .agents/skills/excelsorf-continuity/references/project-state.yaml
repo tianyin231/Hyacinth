@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T19:21:28.0986621+08:00"
+updated_at: "2026-08-15T19:30:37.0113297+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 删除重复行垂直切片完成"
-  next_milestone: "删除空白行两阶段版本闭环（待用户确认）"
+  current_phase: "阶段 1 删除空白行垂直切片"
+  next_milestone: "删除空白行两阶段版本闭环（用户已确认）"
 
 current_task:
-  id: "STAGE-1-DELETE-DUPLICATES-001"
-  status: "completed"
-  goal: "按已确认需求贯通删除重复行的参数、临时预览、统计明细、精确应用、子版本和 HEAD 闭环"
+  id: "STAGE-1-DELETE-BLANK-ROWS-001"
+  status: "preview-core-completed-ui-and-apply-pending"
+  goal: "按已确认需求贯通删除空白行的整行/关键列规则、原始行号预览、精确应用、子版本和 HEAD 闭环"
   owner: "codex-sol"
 
 last_completed:
@@ -153,10 +153,14 @@ last_completed:
   - "原生 1440x900 截图确认去重参数表单、版本树、Excel 网格和状态栏完整可见，无重叠或截断"
   - "删除重复行完整质量门通过：116 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
   - "删除重复行后台预览核心已提交本地 main：f39d390；完整版本闭环已提交本地 main：f596664"
+  - "完成删除空白行后台预览核心：整行或关键列判空、空白文本处理、原始删除行号、兼容模式提示和原子临时结果"
+  - "结构性删除默认拒绝公式、表格、图表和命名区域，显式兼容模式可生成带风险提示的预览；跨删除行的合并单元格始终拒绝"
+  - "删除空白行预览核心通过真实常驻 Worker、10 项定向测试和 126 项全量质量门"
 
 next_actions:
-  - "向用户报告输入卡死修复与删除重复行闭环结果，并确认下一步是否实施删除空白行"
-  - "删除空白行可复用本切片的结构安全检查、行删除预览、统计展示和通用版本应用骨架"
+  - "实现删除空白行后台预览核心，复用删除重复行的结构安全检查、原子临时输出和整行样式移动"
+  - "接入处理功能选择器、关键列多选、删除行号明细和通用版本应用骨架"
+  - "完成真实 Qt 端到端、原生截图和完整质量门后提交本地 Git，不推送"
   - "删除空白行之后评估条件筛选的 Excel AutoFilter 保真方案"
   - "后续实现窗口状态持久化时，正常启动优先恢复用户上次位置、尺寸和最大化状态，1440x900 仅作为无保存状态时的默认值"
   - "后续将 COM 子进程扩展为结构化阶段事件，把安全关键范围从整段转换收窄到 SaveAs"
@@ -208,6 +212,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260815-020"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "下一处理功能垂直切片采用删除空白行；默认整行全空，可切换指定关键列全空，空白文本参与，公式结果为空仍不删除"
+    source: "用户当前会话确认继续推荐的删除空白行切片；具体规则来自需求讨论记录第 19.3 节"
+    supersedes: "none"
+    impact: "删除空白行预览任务、行号统计、FunctionPanel 参数页、通用版本应用和端到端测试"
   - id: "DEC-20260815-019"
     date: "2026-08-15"
     status: "approved"
@@ -271,30 +282,24 @@ recent_decisions:
     source: "用户当前会话确认推荐方案 1"
     supersedes: "none"
     impact: "阶段 1 下一切片的代码边界、UI 范围和测试范围"
-  - id: "DEC-20260815-010"
-    date: "2026-08-15"
-    status: "approved"
-    summary: "后台队列原型采用常驻独立 Worker 进程、UI 侧 FIFO 调度、结构化 IPC、协作取消和非关键阶段超时重建；本节点只做核心原型"
-    source: "用户当前会话明确确认方案 1"
-    supersedes: "none"
-    impact: "阶段 1 任务队列架构、取消语义、崩溃恢复与测试范围"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
-  - "output/playwright/deduplicate-configured.png"
-  - "output/playwright/default-empty-state.png"
-  - "output/playwright/fluent-shell-populated.png"
-  - "scripts/capture_ui_states.py"
-  - "src/hyacinth/app.py"
   - "src/hyacinth/processing/__init__.py"
-  - "src/hyacinth/processing/apply_version.py"
-  - "src/hyacinth/ui/shell.py"
-  - "tests/processing/test_apply_version.py"
-  - "tests/test_app.py"
-  - "tests/versioning/test_widget.py"
+  - "src/hyacinth/processing/blank_rows_preview.py"
+  - "tests/processing/test_blank_rows_preview.py"
 
 verification:
-  status: "deduplicate-two-stage-version-slice-passing"
+  status: "delete-blank-rows-preview-core-verified"
   commands:
+    - "uv run pytest --override-ini addopts='' tests/processing/test_blank_rows_preview.py -q"
+    - "uv run pytest --override-ini addopts='' -q"
+    - "uv run ruff check ."
+    - "uv run ruff format --check ."
+    - "uv run mypy"
+    - "uv lock --check"
+    - "uv build"
+    - "git diff --check"
+    - "只读核对需求讨论记录第 17、19.3、19.6 节和现有删除重复行预览、通用应用事务、FunctionPanel 与端到端测试"
     - "uv run pytest --override-ini addopts='' tests/versioning/test_widget.py tests/test_app.py tests/processing/test_apply_version.py -q"
     - "uv run python scripts/capture_ui_states.py"
     - "原图目视检查 output/playwright/deduplicate-configured.png"
@@ -339,6 +344,9 @@ verification:
     - "OpenCode DeepSeek session ses_ffb779869ffetPKJvDGwsXSdcX 导出并核验 provider/model/finish/files changed"
     - "OpenCode DeepSeek session ses_ffb6eb165ffeExum72T3S31KLf 导出并核验 provider/model/finish 与实际写入范围"
   evidence:
+    - "删除空白行预览核心定向测试：10 passed in 0.98s"
+    - "删除空白行结果覆盖整行/关键列、空白文本、0/False 保留、公式非空、危险结构兼容提示、合并区域拒绝和样式尾行"
+    - "当前全量复验：126 passed in 27.49s；Ruff check/format、Mypy strict、uv lock、uv build 和 git diff --check 全部通过"
     - "去重 UI、应用事务与端到端定向测试：22 passed in 3.72s"
     - "去重应用直接复用预览文件字节，版本 operation 为 delete-duplicates，参数记录关键列、保留规则、文本选项及统计"
     - "deduplicate-configured.png：1440x900，关键列多选、保留规则、复选项、说明、明细按钮和操作栏均完整可见"
@@ -487,4 +495,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "只读输入卡死已由 275fae4 修复；删除重复行预览核心已由 f39d390 提交，完整参数面板、统计明细、精确应用、子版本、HEAD 与版本树闭环已由 f596664 提交，并通过 116 项测试和 1440x900 原生截图验收；未推送"
+  last_result: "删除空白行后台预览核心已经完成并通过完整质量门；下一步接入精确应用事务、FunctionPanel 参数表单和真实 Qt 端到端闭环"
