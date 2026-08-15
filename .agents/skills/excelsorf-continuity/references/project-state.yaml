@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T14:49:29.8926199+08:00"
+updated_at: "2026-08-15T15:31:17.5533374+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-1-working-copy-preview-vertical-slice"
+  implementation: "stage-1-ui-shell-fidelity-corrected"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 工作副本加载与表格预览垂直切片已完成"
+  current_phase: "阶段 1 主界面 Fluent 壳层校正已完成"
   next_milestone: "阶段 1 根版本记录与版本树展示垂直切片（待方案确认）"
 
 current_task:
-  id: "STAGE-1-WORKBOOK-PREVIEW-001"
+  id: "STAGE-1-UI-FIDELITY-001"
   status: "completed"
-  goal: "选择工作副本后后台建立可随机访问的预览数据，显示工作表标签和虚拟化表格"
+  goal: "对照最终 Fluent 预览图恢复完整工作台壳层，并复用现有导入、预览和任务状态功能"
   owner: "codex-sol"
 
 last_completed:
@@ -86,6 +86,11 @@ last_completed:
   - "真实常驻 Worker 完成预览索引任务，100000x5 数据索引与极限网格随机跳转实测通过"
   - "Windows 原生 Qt 截图确认文件列表、中文表格、工作表标签和状态栏完整可见"
   - "工作副本预览切片已快进合并到本地 main，合并后 64 项测试和全部质量门再次通过"
+  - "逐项对照最终 Fluent 预览图、原始四区布局需求和当前原生 Qt 截图，确认当前界面只是窄功能切片，整体壳层、层级和比例尚未忠实实现"
+  - "按最终 Fluent 预览稿恢复品牌/文档标题、顶部命令栏、左侧功能与文件双面板、中部版本树区、右侧公式/格式栏和 Excel 预览区"
+  - "将既有导入入口移回顶部工具栏，并保持文件选择、后台索引、工作表切换和任务状态行为不变"
+  - "统一主窗口 Fluent 颜色、字体、边框、选中态、焦点态和分隔条样式，未完成功能以禁用控件和明确占位呈现"
+  - "原生 Qt 截图确认主界面区域位置与 260/340/其余编辑区比例接近批准稿，完整质量门 65 项测试通过"
 
 next_actions:
   - "下一切片核对导入根版本、版本元数据和版本树展示需求，提出最小方案供用户确认"
@@ -94,6 +99,9 @@ next_actions:
   - "后续普通更改默认不推送远端，用户明确要求时再推送"
 
 blockers:
+  - id: "UI-FIDELITY-001"
+    status: "resolved-and-verified"
+    summary: "完整工作台壳层已按最终 Fluent 预览稿恢复；未完成功能保留明确占位，既有导入、预览和任务状态已嵌入正确区域"
   - id: "PREVIEW-DATA-ACCESS-001"
     status: "resolved-and-implemented"
     summary: "后台单次流式建立可再生 SQLite 稀疏索引，Qt 虚拟模型通过行缓存按需查询；性能和真实 Worker 已验证"
@@ -117,6 +125,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260815-015"
+    date: "2026-08-15"
+    status: "approved-and-implemented"
+    summary: "暂停版本树功能开发，先按最终 Fluent 预览图校正完整主界面壳层；既有后端不重写，未完成功能使用真实布局占位"
+    source: "用户指出当前成品偏离最初设想，并明确确认推荐校正方案"
+    supersedes: "none"
+    impact: "主窗口结构、导入入口位置、功能/文件/版本/预览四区布局、统一视觉样式和界面结构测试"
   - id: "DEC-20260815-014"
     date: "2026-08-15"
     status: "approved"
@@ -180,33 +195,16 @@ recent_decisions:
     source: "用户当前会话明确确认"
     supersedes: "none"
     impact: "阶段 0 分支与工作区组织"
-  - id: "DEC-20260815-005"
-    date: "2026-08-15"
-    status: "approved"
-    summary: "阶段 0/1 采用方案 A 串行推进，工程环境使用 uv 管理 Python 3.12"
-    source: "用户当前会话明确确认"
-    supersedes: "none"
-    impact: "工程基线、依赖管理和阶段实施顺序"
-
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
   - "src/hyacinth/app.py"
-  - "src/hyacinth/grid/model.py"
   - "src/hyacinth/library/widget.py"
-  - "src/hyacinth/preview/__init__.py"
-  - "src/hyacinth/preview/data_source.py"
-  - "src/hyacinth/preview/index_task.py"
   - "src/hyacinth/preview/widget.py"
-  - "tests/grid/test_model.py"
+  - "src/hyacinth/ui/__init__.py"
+  - "src/hyacinth/ui/shell.py"
   - "tests/library/test_file_list_widget.py"
-  - "tests/preview/__init__.py"
-  - "tests/preview/test_data_source.py"
-  - "tests/preview/test_index_task.py"
-  - "tests/preview/test_performance.py"
-  - "tests/preview/test_queue.py"
-  - "tests/preview/test_widget.py"
   - "tests/test_app.py"
-  - "output/playwright/preview-slice.png"
+  - "output/playwright/ui-shell-correction.png"
 
 verification:
   status: "passed"
@@ -220,6 +218,8 @@ verification:
     - "git diff --check"
     - "100000 行 x 5 列真实 xlsx 后台索引与第 100000 行末端查询计时"
     - "Windows 原生 Qt grab 保存 output/playwright/preview-slice.png"
+    - "并排目视核对 output/playwright/visual-direction-fluent-final.png 与 output/playwright/preview-slice.png"
+    - "Windows 原生 Qt grab 保存 output/playwright/ui-shell-correction.png 并与最终 Fluent 预览图对照"
   evidence:
     - "完整 pytest：64 passed in 21.18s；Ruff check/format、Mypy strict、uv lock 和 uv build 全部通过"
     - "快进合并到 main 后复验：64 passed in 18.59s；全部静态检查、锁文件和构建再次通过"
@@ -229,8 +229,12 @@ verification:
     - "取消保留旧索引并清理临时文件；源指纹未变化时复用索引；快速切换文件忽略旧任务迟到结果"
     - "异常打开路径关闭部分初始化工作簿；关闭主窗口释放 SQLite，Windows 可立即删除索引"
     - "原生 Qt 截图 preview-slice.png：1100x700，中文表格、文件选中态、34px 工作表标签和状态栏无重叠或截断"
+    - "视觉一致性复核：当前截图未实现批准稿的完整标题/工具栏、功能区、版本树和面板壳层；此前视觉验证只证明无重叠或截断，不等于还原预览稿"
+    - "校正后完整 pytest：65 passed；Ruff check/format、Mypy strict、uv lock、uv build 和 git diff --check 全部通过"
+    - "结构测试覆盖品牌/文档标题、顶部导入入口、三列主分隔器、左侧双面板、版本树/公式/格式区域和未完成功能禁用状态"
+    - "原生 Qt 截图 ui-shell-correction.png：1376x760，主区域比例、工具栏、面板层级、表格和状态栏与批准稿方向一致，无重叠或截断"
     - "用户未跟踪的 追加需求.txt 未读取、未修改；尚未推送"
-    - "切片提交：903e589；本地 main 领先 origin/main 29 个提交"
+    - "切片提交：903e589；本地 main 领先 origin/main 30 个提交"
   worker_sessions:
     STAGE-1-WORKBOOK-PREVIEW-REVIEW-001:
       session_id: "ses_ffbd61a90ffeYVzkzw3ZyV5Nmf"
@@ -286,4 +290,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "工作副本加载与只读表格预览切片已合并到本地 main；64 项测试、性能实测、真实 Worker、Windows 文件锁和原生 Qt 视觉验证通过"
+  last_result: "主界面 Fluent 壳层校正完成，既有导入与预览功能保持可用；65 项测试和完整质量门通过，下一步回到根版本与版本树切片"

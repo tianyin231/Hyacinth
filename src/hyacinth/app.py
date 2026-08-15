@@ -3,9 +3,16 @@ from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
 
-from PySide6.QtCore import QStandardPaths
+from PySide6.QtCore import QStandardPaths, Qt
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QMainWindow, QMessageBox, QWidget
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QMainWindow,
+    QMessageBox,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
 
 from hyacinth.excel.task_handler import CONVERT_XLS_OPERATION, conversion_task_handlers
 from hyacinth.library import (
@@ -31,6 +38,14 @@ from hyacinth.tasks import (
     TaskStatusWidget,
 )
 from hyacinth.tasks.qt_bridge import TaskQueuePort
+from hyacinth.ui import (
+    APP_STYLESHEET,
+    ApplicationHeader,
+    CommandBar,
+    FunctionPanel,
+    VersionTreePanel,
+    WorkbookEditorFrame,
+)
 
 
 class ApplicationTaskQueue(TaskQueuePort, Protocol):
@@ -52,11 +67,13 @@ class HyacinthMainWindow(QMainWindow):
         super().__init__()
         self.setObjectName("main-window")
         self.setWindowTitle("风信子")
-        self.resize(960, 640)
+        self.resize(1280, 760)
+        self.setMinimumSize(1024, 640)
+        self.setStyleSheet(APP_STYLESHEET)
 
-        workspace = QWidget(self)
-        workspace.setObjectName("workspace")
-        self.setCentralWidget(workspace)
+        workspace_root = QWidget(self)
+        workspace_root.setObjectName("workspace-root")
+        self.setCentralWidget(workspace_root)
 
         self._library_root = library_root
         self._file_picker = file_picker
@@ -64,18 +81,44 @@ class HyacinthMainWindow(QMainWindow):
         self._task_queue = task_queue
         self._import_task_ids: set[str] = set()
         self._preview_task_id: str | None = None
+
+        self._application_header = ApplicationHeader(workspace_root)
+        self._command_bar = CommandBar(workspace_root)
+        self._command_bar.import_requested.connect(self._choose_import_file)
+        self._function_panel = FunctionPanel(workspace_root)
         self._file_library = FileLibraryWidget(
             discover_imported_workbooks(library_root),
-            workspace,
+            workspace_root,
         )
-        self._file_library.import_requested.connect(self._choose_import_file)
         self._file_library.workbook_selected.connect(self._select_workbook)
-        self._workbook_preview = WorkbookPreviewWidget(workspace)
-        workspace_layout = QHBoxLayout(workspace)
+        self._version_tree = VersionTreePanel(workspace_root)
+        self._workbook_preview = WorkbookPreviewWidget(workspace_root)
+        editor = WorkbookEditorFrame(self._workbook_preview, workspace_root)
+
+        left_splitter = QSplitter(Qt.Orientation.Vertical, workspace_root)
+        left_splitter.setObjectName("left-workspace-splitter")
+        left_splitter.addWidget(self._function_panel)
+        left_splitter.addWidget(self._file_library)
+        left_splitter.setStretchFactor(0, 3)
+        left_splitter.setStretchFactor(1, 2)
+        left_splitter.setSizes([330, 210])
+
+        main_splitter = QSplitter(Qt.Orientation.Horizontal, workspace_root)
+        main_splitter.setObjectName("main-workspace-splitter")
+        main_splitter.addWidget(left_splitter)
+        main_splitter.addWidget(self._version_tree)
+        main_splitter.addWidget(editor)
+        main_splitter.setStretchFactor(0, 0)
+        main_splitter.setStretchFactor(1, 0)
+        main_splitter.setStretchFactor(2, 1)
+        main_splitter.setSizes([260, 340, 680])
+
+        workspace_layout = QVBoxLayout(workspace_root)
         workspace_layout.setContentsMargins(0, 0, 0, 0)
         workspace_layout.setSpacing(0)
-        workspace_layout.addWidget(self._file_library)
-        workspace_layout.addWidget(self._workbook_preview, 1)
+        workspace_layout.addWidget(self._application_header)
+        workspace_layout.addWidget(self._command_bar)
+        workspace_layout.addWidget(main_splitter, 1)
 
         self._task_bridge = TaskQueueBridge(task_queue, parent=self)
         self._task_status = TaskStatusWidget(self)
@@ -133,6 +176,9 @@ class HyacinthMainWindow(QMainWindow):
     def _select_workbook(self, workbook: ImportedWorkbook) -> None:
         if self._preview_task_id is not None:
             self._task_queue.cancel(self._preview_task_id)
+        self.setWindowTitle(f"风信子 — {workbook.display_name}")
+        self._application_header.set_document_name(workbook.display_name)
+        self._version_tree.set_workbook(workbook.display_name)
         task_id = uuid4().hex
         self._preview_task_id = task_id
         self._workbook_preview.set_loading(workbook.display_name)

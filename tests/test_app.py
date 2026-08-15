@@ -9,10 +9,12 @@ import pytest
 from openpyxl import Workbook
 from PySide6.QtCore import QObject, Qt
 from PySide6.QtWidgets import (
+    QFrame,
     QLabel,
     QListWidget,
     QMainWindow,
     QPushButton,
+    QSplitter,
     QTabBar,
     QTableView,
 )
@@ -84,6 +86,32 @@ def test_create_main_window_uses_product_identity(qtbot: QtBot) -> None:
     assert isinstance(window, QMainWindow)
     assert window.windowTitle() == "风信子"
     assert window.objectName() == "main-window"
+
+
+def test_main_window_matches_approved_workspace_shell(qtbot: QtBot) -> None:
+    from hyacinth.app import create_main_window
+
+    window = create_main_window()
+    qtbot.addWidget(window)
+
+    main_splitter = _child(window, QSplitter, "main-workspace-splitter")
+    left_splitter = _child(window, QSplitter, "left-workspace-splitter")
+    import_button = _child(window, QPushButton, "toolbar-import-button")
+    import_button_parent = import_button.parent()
+
+    assert _child(window, QLabel, "app-brand").text() == "风信子"
+    assert _child(window, QLabel, "document-title").text() == "未选择文件"
+    assert _child(window, QFrame, "function-panel").isEnabled()
+    assert _child(window, QFrame, "file-library").isEnabled()
+    assert _child(window, QFrame, "version-tree-panel").isEnabled()
+    assert _child(window, QFrame, "formula-bar").isEnabled()
+    assert _child(window, QFrame, "format-bar").isEnabled()
+    assert main_splitter.count() == 3
+    assert left_splitter.count() == 2
+    assert import_button_parent is not None
+    assert import_button_parent.objectName() == "top-toolbar"
+    assert import_button.minimumHeight() >= 30
+    assert not _child(window, QPushButton, "toolbar-save-version-button").isEnabled()
 
 
 def test_main_runs_qt_event_loop() -> None:
@@ -164,7 +192,7 @@ def test_import_button_submits_task_and_lists_successful_result(
     qtbot.addWidget(window)
     window.show()
     qtbot.mouseClick(  # type: ignore[no-untyped-call]
-        _child(window, QPushButton, "library-import-button"),
+        _child(window, QPushButton, "toolbar-import-button"),
         Qt.MouseButton.LeftButton,
     )
 
@@ -219,7 +247,7 @@ def test_failed_import_shows_reason_and_keeps_import_available(
     )
     qtbot.addWidget(window)
     window.show()
-    button = _child(window, QPushButton, "library-import-button")
+    button = _child(window, QPushButton, "toolbar-import-button")
     qtbot.mouseClick(button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
     request = task_queue.submitted[0]
     task_queue.push_event(
@@ -270,6 +298,8 @@ def test_existing_file_loads_working_copy_and_renders_selected_sheet(
     request = task_queue.submitted[0]
     assert request.operation == BUILD_PREVIEW_INDEX_OPERATION
     assert request.payload["working_path"] == str(working)
+    assert _child(window, QLabel, "document-title").text() == "销售.xlsx"
+    assert window.windowTitle() == "风信子 — 销售.xlsx"
     preview = run_preview_index_task(request, PreviewTaskContext())
     task_queue.push_event(
         TaskEvent(

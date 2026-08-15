@@ -2,7 +2,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QSignalSpy
-from PySide6.QtWidgets import QListWidget, QPushButton
+from PySide6.QtWidgets import QListWidget
 from pytestqt.qtbot import QtBot
 
 from hyacinth.library import ImportedWorkbook
@@ -18,20 +18,14 @@ def _record(file_id: str, name: str, root: Path) -> ImportedWorkbook:
     )
 
 
-def test_file_library_widget_requests_import_and_selects_newest_file(
+def test_file_library_widget_selects_newest_file(
     qtbot: QtBot,
     tmp_path: Path,
 ) -> None:
     widget = FileLibraryWidget()
     qtbot.addWidget(widget)
-    button = widget.findChild(QPushButton, "library-import-button")
     file_list = widget.findChild(QListWidget, "library-file-list")
-    assert button is not None
     assert file_list is not None
-    assert button.minimumHeight() >= 44
-
-    with qtbot.waitSignal(widget.import_requested, timeout=500):
-        qtbot.mouseClick(button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
 
     widget.add_workbook(_record("file-1", "库存.xlsx", tmp_path))
     selected = QSignalSpy(widget.workbook_selected)

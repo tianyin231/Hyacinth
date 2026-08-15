@@ -66,54 +66,6 @@ class WorkbookPreviewWidget(QFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._stack)
 
-        self.setStyleSheet(
-            """
-            QFrame#workbook-preview { background: #ffffff; }
-            QLabel#preview-state {
-                color: #5d6673;
-                background: #ffffff;
-                padding: 24px;
-                font-size: 13px;
-            }
-            QTableView#preview-table {
-                color: #20242b;
-                background: #ffffff;
-                alternate-background-color: #f8fafc;
-                gridline-color: #e3e7ec;
-                border: 0;
-                selection-background-color: #dceefb;
-                selection-color: #20242b;
-            }
-            QTableView#preview-table:focus { border: 2px solid #0f6cbd; }
-            QHeaderView::section {
-                color: #4d5663;
-                background: #f4f6f8;
-                border: 0;
-                border-right: 1px solid #dfe3e8;
-                border-bottom: 1px solid #dfe3e8;
-                padding: 4px 6px;
-            }
-            QTabBar#preview-sheet-tabs {
-                background: #f4f6f8;
-                border-top: 1px solid #dfe3e8;
-            }
-            QTabBar#preview-sheet-tabs::tab {
-                color: #46505d;
-                background: transparent;
-                min-width: 76px;
-                min-height: 30px;
-                padding: 0 12px;
-                border-right: 1px solid #dfe3e8;
-            }
-            QTabBar#preview-sheet-tabs::tab:selected {
-                color: #0f548c;
-                background: #ffffff;
-                border-top: 2px solid #0f6cbd;
-            }
-            QTabBar#preview-sheet-tabs:focus { border: 2px solid #0f6cbd; }
-            """
-        )
-
     def set_loading(self, display_name: str) -> None:
         self._close_source()
         self._preview = None
