@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T14:47:33.2985221+08:00"
+updated_at: "2026-08-15T14:49:29.8926199+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -85,6 +85,7 @@ last_completed:
   - "完成旧预览取消、迟到结果隔离、错误状态及 Windows SQLite 连接释放"
   - "真实常驻 Worker 完成预览索引任务，100000x5 数据索引与极限网格随机跳转实测通过"
   - "Windows 原生 Qt 截图确认文件列表、中文表格、工作表标签和状态栏完整可见"
+  - "工作副本预览切片已快进合并到本地 main，合并后 64 项测试和全部质量门再次通过"
 
 next_actions:
   - "下一切片核对导入根版本、版本元数据和版本树展示需求，提出最小方案供用户确认"
@@ -221,6 +222,7 @@ verification:
     - "Windows 原生 Qt grab 保存 output/playwright/preview-slice.png"
   evidence:
     - "完整 pytest：64 passed in 21.18s；Ruff check/format、Mypy strict、uv lock 和 uv build 全部通过"
+    - "快进合并到 main 后复验：64 passed in 18.59s；全部静态检查、锁文件和构建再次通过"
     - "真实常驻 Worker 成功返回可序列化 WorkbookPreview，索引文件完整落盘"
     - "100000x5、500000 个非空单元格索引耗时 6.047 秒，索引 17.45 MiB，末端查询 0.000125 秒"
     - "1048576x256 逻辑网格通过 SQLite 稀疏数据源跳转末端，Qt 视图性能测试小于 1 秒"
@@ -228,6 +230,7 @@ verification:
     - "异常打开路径关闭部分初始化工作簿；关闭主窗口释放 SQLite，Windows 可立即删除索引"
     - "原生 Qt 截图 preview-slice.png：1100x700，中文表格、文件选中态、34px 工作表标签和状态栏无重叠或截断"
     - "用户未跟踪的 追加需求.txt 未读取、未修改；尚未推送"
+    - "切片提交：903e589；本地 main 领先 origin/main 29 个提交"
   worker_sessions:
     STAGE-1-WORKBOOK-PREVIEW-REVIEW-001:
       session_id: "ses_ffbd61a90ffeYVzkzw3ZyV5Nmf"
@@ -283,4 +286,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "工作副本加载与只读表格预览切片完成；64 项测试、性能实测、真实 Worker、Windows 文件锁和原生 Qt 视觉验证通过"
+  last_result: "工作副本加载与只读表格预览切片已合并到本地 main；64 项测试、性能实测、真实 Worker、Windows 文件锁和原生 Qt 视觉验证通过"
