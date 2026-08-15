@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T10:00:43.8993246+08:00"
+updated_at: "2026-08-15T10:02:26.5999033+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -96,9 +96,11 @@ verification:
     - "递归文件清单与敏感信息模式扫描"
     - "git push -u origin main"
     - "git status --short --branch"
+    - "git ls-remote origin refs/heads/main"
   evidence:
     - "Git Credential Manager 已保存 GitHub 账号 tianyin231，提交用户与邮箱已配置"
     - "当前目录共 68 个文件、约 1.44 MB；敏感信息扫描未发现真实凭据"
     - "初始提交 ea2e28b 已成功推送，main 正在跟踪 origin/main"
+    - "远端 main 指向 40c2e0cfcf6a3622a04fc8e173f97424e03d8244，与收尾提交一致"
   worker_sessions: {}
-  last_result: "Git 仓库初始化与首次远端推送成功"
+  last_result: "Git 仓库初始化、首次远端推送及远端分支指针核验全部成功"
