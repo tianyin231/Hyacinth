@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T10:26:37.6459857+08:00"
+updated_at: "2026-08-15T10:39:05.5913865+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-0-engineering-baseline"
+  implementation: "stage-1-engine-prototype"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 双引擎与格式保真风险原型已启动"
-  next_milestone: "阶段 1 Excel 双引擎与格式保真风险原型"
+  current_phase: "阶段 1 双引擎与格式保真风险原型已完成"
+  next_milestone: "阶段 1 大表格模型与交互性能风险原型"
 
 current_task:
   id: "STAGE-1-ENGINE-PROTOTYPE-001"
-  status: "in_progress"
-  goal: "验证 Excel COM/Python 双引擎探测、xls/xlsx 转换和关键内容保真边界"
+  status: "completed"
+  goal: "已验证 Excel COM/Python 双引擎探测、xls/xlsx 转换和关键内容保真边界"
   owner: "codex-sol"
 
 last_completed:
@@ -52,13 +52,18 @@ last_completed:
   - "完成 uv/Python 3.12、PySide6 最小应用、测试、静态检查和构建工程基线"
   - "阶段 0 工程基线已快进合并到本地 main"
   - "用户的 ui-ux-pro-max Skill 目录迁移已提交，阶段 0 临时 worktree 与分支已清理"
+  - "完成双引擎能力合同、自动选择器、Python 降级转换和 Excel COM 子进程转换原型"
+  - "确认 COM 保留公式与基础格式；Python 降级保留基础数据但不保留 xls 公式表达式和复杂样式"
 
 next_actions:
-  - "在隔离 worktree 中按 TDD 实施方案 A 的双引擎原型"
+  - "确认阶段 1 第二个风险原型：大表格 QAbstractTableModel 按需访问与滚动性能"
   - "每完成一个可独立验收的关键开发节点提交本地 Git"
   - "后续普通更改默认不推送远端，用户明确要求时再推送"
 
 blockers:
+  - id: "ENGINE-PYTHON-FIDELITY-001"
+    status: "confirmed-risk"
+    summary: "Python 降级转换 xls 时公式只能保留缓存值，复杂样式可能丢失，必须持续显示兼容模式限制"
   - id: "ENV-COM-001"
     status: "verified"
     summary: "Excel 16.0 COM 后台实例已完成真实启动与退出握手"
@@ -126,16 +131,37 @@ recent_decisions:
 
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
+  - "pyproject.toml"
+  - "src/hyacinth/excel/__init__.py"
+  - "src/hyacinth/excel/com_engine.py"
+  - "src/hyacinth/excel/com_worker.py"
+  - "src/hyacinth/excel/contracts.py"
+  - "src/hyacinth/excel/python_engine.py"
+  - "src/hyacinth/excel/selection.py"
+  - "tests/excel/test_com_availability.py"
+  - "tests/excel/test_com_conversion.py"
+  - "tests/excel/test_contracts.py"
+  - "tests/excel/test_python_engine.py"
+  - "tests/excel/test_selection.py"
+  - "tests/fixtures/legacy-fidelity.xls"
+  - "uv.lock"
 
 verification:
   status: "passed"
   commands:
-    - "读取需求讨论记录第 6、8、9、18、19.6 和 36 节"
-    - "uv run python -c <Excel.Application COM 启动、版本读取与退出握手>"
-    - "读取 openpyxl、xlrd、pywin32 实际安装版本"
+    - "uv lock --check"
+    - "uv sync --locked --python 3.12"
+    - "$env:QT_QPA_PLATFORM='offscreen'; uv run pytest"
+    - "uv run ruff check ."
+    - "uv run ruff format --check ."
+    - "uv run mypy"
+    - "uv build"
+    - "Get-Process EXCEL -ErrorAction SilentlyContinue"
   evidence:
-    - "Excel.Application COM 握手成功：version=16.0，visible=False，正常 Quit"
-    - "依赖版本：openpyxl 3.1.5、xlrd 2.0.2、pywin32 312"
-    - "需求要求 COM 优先、Python 自动降级，并由共同上层接口隔离引擎差异"
+    - "pytest：10 passed，包含真实 Excel COM 转换集成测试"
+    - "COM 转换保留公式表达式、数字格式、粗体表头、合并区域和 Sheet 顺序"
+    - "Python 转换保留基础值、日期、合并区域和 Sheet 顺序，并返回明确保真警告"
+    - "Ruff check/format、Mypy strict 和 uv build 全部通过"
+    - "COM 测试后无 EXCEL 进程残留"
   worker_sessions: {}
-  last_result: "阶段 1 双引擎原型方案 A 已确认并开始执行"
+  last_result: "阶段 1 双引擎与格式保真风险原型全部验证通过，等待关键节点提交"
