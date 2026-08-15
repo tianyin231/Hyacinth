@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T22:01:43.0094783+08:00"
+updated_at: "2026-08-15T22:04:18.0000000+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -36,7 +36,7 @@ delivery:
 
 current_task:
   id: "STAGE-1-VERSION-INTERACTIONS-001"
-  status: "milestone-3-completed-awaiting-next-scope"
+  status: "milestone-3-committed-awaiting-next-scope"
   goal: "暂停新增数据处理类型，优先补齐版本节点预览与 HEAD 分离、从历史节点创建分支、节点拖动布局、软删除和恢复等整体版本管理能力"
   owner: "codex-sol"
 
@@ -203,9 +203,9 @@ last_completed:
   - "版本树增加右键删除/恢复、Delete 键、灰色虚线占位、明确 HEAD 切换确认和一次撤销删除入口"
   - "原生 1440x900 截图 version-node-deleted.png 确认灰色占位、HEAD、父子连线和撤销入口清晰"
   - "软删除关键节点完整质量门通过：175 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
+  - "版本节点软删除与恢复关键节点已提交本地 main：f7fa0c2；未推送"
 
 next_actions:
-  - "提交版本节点软删除、灰色占位、HEAD 安全切换和恢复关键节点到本地 Git，不推送"
   - "向用户确认下一切片优先实现版本图谱自动整理/适应窗口/缩放状态，还是文件级回收站"
   - "暂停筛选并提取及其他新增数据处理功能，除非用户再次调整优先级"
   - "后续实现窗口状态持久化时，正常启动优先恢复用户上次位置、尺寸和最大化状态，1440x900 仅作为无保存状态时的默认值"
@@ -656,4 +656,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "版本节点软删除、灰色占位、HEAD 安全切换、即时撤销和恢复已通过 175 项完整质量门和原生截图检查；下一步提交本地 Git 后由用户确认图谱视图控制或文件级回收站优先级"
+  last_result: "版本节点软删除、灰色占位、HEAD 安全切换、即时撤销和恢复已通过 175 项完整质量门并提交本地 main：f7fa0c2；下一步由用户确认图谱视图控制或文件级回收站优先级"
