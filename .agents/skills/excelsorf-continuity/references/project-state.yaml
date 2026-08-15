@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T21:27:54.5722084+08:00"
+updated_at: "2026-08-15T21:37:02.9508111+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-1-version-checkout-completed"
+  implementation: "stage-1-version-node-drag-completed"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -32,11 +32,11 @@ delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
   current_phase: "阶段 1 版本管理交互"
-  next_milestone: "版本节点拖动、连线跟随和位置持久化"
+  next_milestone: "版本节点软删除、灰色占位、HEAD 安全切换和恢复"
 
 current_task:
   id: "STAGE-1-VERSION-INTERACTIONS-001"
-  status: "milestone-1-completed-drag-pending"
+  status: "milestone-2-completed-soft-delete-pending"
   goal: "暂停新增数据处理类型，优先补齐版本节点预览与 HEAD 分离、从历史节点创建分支、节点拖动布局、软删除和恢复等整体版本管理能力"
   owner: "codex-sol"
 
@@ -188,10 +188,17 @@ last_completed:
   - "历史版本预览索引改为按版本 ID 隔离，避免相同大小和时间戳的不同快照误用缓存"
   - "原生 1440x900 截图确认历史根节点选中、已有子节点 HEAD、从此继续入口和禁用处理区状态清晰"
   - "版本签出首个关键节点完整质量门通过：157 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
+  - "历史预览、从此继续和分支创建关键节点已提交本地 main：b444b8b；未推送"
+  - "完成版本节点鼠标自由拖动，拖动过程只移动节点和相连箭头，不重建场景或改变父子关系"
+  - "松开节点后将坐标和固定状态写入 SQLite version_layouts，重新打开和版本树刷新后保持位置"
+  - "自动排布预先避让已固定节点，新增未固定节点不会移动用户手动固定的节点"
+  - "修复拖动已选节点时重复触发历史预览加载的问题"
+  - "原生 1440x900 截图确认拖动后的节点位置、实时连线、选中态和 HEAD 标记清晰"
+  - "版本节点拖动关键节点完整质量门通过：161 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
 
 next_actions:
-  - "提交历史预览、从此继续和分支创建首个关键节点到本地 Git，不推送"
-  - "实现节点拖动、连线实时跟随、位置与固定状态持久化，并提供自动排布回退"
+  - "提交节点拖动和位置持久化关键节点到本地 Git，不推送"
+  - "实现版本节点软删除、灰色占位、HEAD 安全切换、即时撤销和恢复"
   - "随后实现节点软删除、已删除占位、HEAD 安全切换、即时撤销和恢复；文件级回收站作为后续独立切片"
   - "暂停筛选并提取及其他新增数据处理功能，除非用户再次调整优先级"
   - "后续实现窗口状态持久化时，正常启动优先恢复用户上次位置、尺寸和最大化状态，1440x900 仅作为无保存状态时的默认值"
@@ -332,12 +339,14 @@ changed_files:
   - "output/playwright/delete-blank-rows-configured.png"
   - "output/playwright/filter-configured.png"
   - "output/playwright/version-history-selected.png"
+  - "output/playwright/version-node-dragged.png"
   - "scripts/capture_ui_states.py"
   - "src/hyacinth/app.py"
   - "src/hyacinth/preview/index_task.py"
   - "src/hyacinth/ui/shell.py"
   - "src/hyacinth/versioning/__init__.py"
   - "src/hyacinth/versioning/checkout_task.py"
+  - "src/hyacinth/versioning/models.py"
   - "src/hyacinth/versioning/store.py"
   - "tests/preview/test_index_task.py"
   - "tests/test_app.py"
@@ -346,8 +355,10 @@ changed_files:
   - "tests/versioning/test_widget.py"
 
 verification:
-  status: "version-checkout-milestone-completed"
+  status: "version-node-drag-milestone-completed"
   commands:
+    - "uv run pytest --override-ini addopts='' tests/versioning/test_store.py tests/versioning/test_widget.py::test_version_tree_drag_moves_connected_edge_and_emits_persisted_position tests/test_app.py::test_dragged_version_position_persists_after_reopening_tree -q"
+    - "原图目视检查 output/playwright/version-node-dragged.png"
     - "uv run pytest --override-ini addopts='' tests/versioning tests/preview/test_index_task.py tests/test_app.py -q"
     - "uv run python scripts/capture_ui_states.py --output output/playwright"
     - "原图目视检查 output/playwright/version-history-selected.png"
@@ -435,6 +446,10 @@ verification:
     - "OpenCode DeepSeek session ses_ffb779869ffetPKJvDGwsXSdcX 导出并核验 provider/model/finish/files changed"
     - "OpenCode DeepSeek session ses_ffb6eb165ffeExum72T3S31KLf 导出并核验 provider/model/finish 与实际写入范围"
   evidence:
+    - "节点布局存储、连线跟随和主窗口重开持久化定向回归：12 passed in 0.91s"
+    - "version-node-dragged.png：手动移动根节点后子节点保持原位，父子连线重新连接两卡片且 HEAD/选中态不混淆"
+    - "最终全量复验：161 passed in 29.47s；Ruff check/format、Mypy strict、uv lock、uv build 和 git diff --check 全部通过"
+    - "历史预览、从此继续和分支创建关键节点本地提交：b444b8b；未推送"
     - "版本签出、存储、版本树、独立历史缓存和主窗口分支端到端定向回归：40 passed in 5.48s"
     - "真实 TaskQueue 在常驻 Worker 中成功切换 HEAD 和 working/current.xlsx，返回目标 ImportedWorkbook"
     - "主窗口端到端确认单击历史根节点不移动 HEAD，继续后 HEAD 回到根节点，再次排序创建第二个以根节点为父的分支且旧子节点保留"
@@ -630,4 +645,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "版本管理首个关键节点已完成完整质量门：历史只读预览、从此继续切换 HEAD/工作副本、从历史节点创建新分支和版本级预览缓存隔离；下一步本地提交后实现节点拖动与位置持久化"
+  last_result: "版本节点拖动、连线实时跟随和位置/固定状态持久化已经完成完整质量门；下一步本地提交后实现节点软删除与恢复"

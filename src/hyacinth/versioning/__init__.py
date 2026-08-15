@@ -4,7 +4,7 @@ from hyacinth.versioning.checkout_task import (
     checkout_version_task,
     run_checkout_version_task,
 )
-from hyacinth.versioning.models import ImportedWorkbook, VersionRecord
+from hyacinth.versioning.models import ImportedWorkbook, VersionLayout, VersionRecord
 from hyacinth.versioning.store import (
     MetadataStore,
     read_recovery_manifest,
@@ -15,6 +15,7 @@ __all__ = [
     "CHECKOUT_VERSION_OPERATION",
     "ImportedWorkbook",
     "MetadataStore",
+    "VersionLayout",
     "VersionRecord",
     "checkout_version_handlers",
     "checkout_version_task",

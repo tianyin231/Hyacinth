@@ -164,6 +164,7 @@ class HyacinthMainWindow(QMainWindow):
         self._version_tree = VersionTreePanel(workspace_root)
         self._version_tree.version_preview_requested.connect(self._preview_version)
         self._version_tree.version_continue_requested.connect(self._continue_from_version)
+        self._version_tree.version_position_changed.connect(self._save_version_position)
         self._workbook_preview = WorkbookPreviewWidget(workspace_root)
         self._workbook_preview.import_requested.connect(self._choose_import_file)
         self._editor = WorkbookEditorFrame(self._workbook_preview, workspace_root)
@@ -737,8 +738,30 @@ class HyacinthMainWindow(QMainWindow):
         if head is None:
             self._version_tree.set_workbook(workbook.display_name, None)
             return
-        versions = MetadataStore(self._library_root).list_versions(workbook.file_id)
-        self._version_tree.set_workbook(workbook.display_name, versions, head.version_id)
+        store = MetadataStore(self._library_root)
+        versions = store.list_versions(workbook.file_id)
+        layouts = store.list_version_layouts(workbook.file_id)
+        self._version_tree.set_workbook(
+            workbook.display_name,
+            versions,
+            head.version_id,
+            layouts,
+        )
+
+    def _save_version_position(self, version_id: str, x: float, y: float) -> None:
+        workbook = self._current_workbook
+        if workbook is None:
+            return
+        try:
+            MetadataStore(self._library_root).save_version_layout(
+                workbook.file_id,
+                version_id,
+                x,
+                y,
+                fixed=True,
+            )
+        except ValueError as error:
+            self._error_presenter(self, str(error))
 
     def _set_processing_navigation_enabled(self, enabled: bool) -> None:
         self._command_bar.setEnabled(enabled)

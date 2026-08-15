@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 )
 from pytestqt.qtbot import QtBot
 
-from hyacinth.versioning import VersionRecord
+from hyacinth.versioning import VersionLayout, VersionRecord
 
 
 def test_version_tree_renders_real_root_node_and_head(qtbot: QtBot, tmp_path: Path) -> None:
@@ -171,6 +171,75 @@ def test_version_tree_selects_history_and_requests_continue(qtbot: QtBot, tmp_pa
     with qtbot.waitSignal(panel.version_continue_requested) as double_click_signal:
         qtbot.mouseDClick(cards["version-1"], Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
     assert double_click_signal.args == ["version-1"]
+
+
+def test_version_tree_drag_moves_connected_edge_and_emits_persisted_position(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    from hyacinth.ui import VersionTreePanel
+
+    root = VersionRecord(
+        "version-1",
+        "file-1",
+        None,
+        "导入原始文件",
+        datetime(2026, 8, 15, 7, 30, tzinfo=UTC),
+        "import",
+        None,
+        tmp_path / "root.xlsx",
+        "a" * 64,
+    )
+    child = VersionRecord(
+        "version-2",
+        "file-1",
+        root.version_id,
+        "多列排序",
+        datetime(2026, 8, 15, 8, 0, tzinfo=UTC),
+        "sort",
+        None,
+        tmp_path / "child.xlsx",
+        "b" * 64,
+    )
+    panel = VersionTreePanel()
+    qtbot.addWidget(panel)
+    panel.resize(700, 500)
+    panel.show()
+    panel.set_workbook(
+        "销售报表.xlsx",
+        (root, child),
+        child.version_id,
+        {root.version_id: VersionLayout(80.0, 60.0, True)},
+    )
+    view = panel.findChild(QGraphicsView, "version-tree-view")
+    assert view is not None
+    proxies = {
+        str(item.widget().property("version-id")): item
+        for item in view.scene().items()
+        if isinstance(item, QGraphicsProxyWidget) and item.widget() is not None
+    }
+    edges = [item for item in view.scene().items() if isinstance(item, QGraphicsLineItem)]
+    assert proxies[root.version_id].pos().x() == 80.0
+    assert proxies[root.version_id].pos().y() == 60.0
+    assert len(edges) == 1
+    old_line = edges[0].line()
+    root_card = proxies[root.version_id].widget()
+    assert root_card is not None
+    center = root_card.rect().center()
+
+    with qtbot.waitSignal(panel.version_position_changed) as moved_signal:
+        qtbot.mousePress(root_card, Qt.MouseButton.LeftButton, pos=center)  # type: ignore[no-untyped-call]
+        qtbot.mouseMove(root_card, pos=center + QPoint(50, 35))  # type: ignore[no-untyped-call]
+        qtbot.mouseRelease(
+            root_card,
+            Qt.MouseButton.LeftButton,
+            pos=center + QPoint(50, 35),
+        )  # type: ignore[no-untyped-call]
+
+    assert moved_signal.args[0] == root.version_id
+    assert moved_signal.args[1] > 80.0
+    assert moved_signal.args[2] > 60.0
+    assert edges[0].line() != old_line
 
 
 def test_function_panel_emits_accessible_sort_parameters(qtbot: QtBot) -> None:

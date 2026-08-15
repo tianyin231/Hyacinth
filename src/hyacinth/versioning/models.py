@@ -20,6 +20,13 @@ class VersionRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class VersionLayout:
+    x: float
+    y: float
+    fixed: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ImportedWorkbook:
     file_id: str
     display_name: str

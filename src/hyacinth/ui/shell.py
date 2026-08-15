@@ -4,17 +4,21 @@ from PySide6.QtCore import (
     QAbstractTableModel,
     QModelIndex,
     QPersistentModelIndex,
+    QPointF,
+    QRectF,
     QSize,
     Qt,
     Signal,
 )
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFrame,
+    QGraphicsLineItem,
     QGraphicsProxyWidget,
     QGraphicsScene,
     QGraphicsView,
@@ -33,7 +37,7 @@ from PySide6.QtWidgets import (
 )
 
 from hyacinth.ui.icons import fluent_icon
-from hyacinth.versioning import VersionRecord
+from hyacinth.versioning import VersionLayout, VersionRecord
 
 APP_STYLESHEET = """
 QMainWindow#main-window, QWidget#workspace-root {
@@ -1218,10 +1222,15 @@ class DeletedRowsModel(QAbstractTableModel):
 class _VersionNodeCard(QFrame):
     selected = Signal(str)
     continue_requested = Signal(str)
+    position_changing = Signal(str, float, float)
+    position_committed = Signal(str, float, float)
 
     def __init__(self, version_id: str) -> None:
         super().__init__()
         self._version_id = version_id
+        self._drag_origin_global: QPointF | None = None
+        self._drag_origin_scene: QPointF | None = None
+        self._dragged = False
         self.setProperty("version-id", version_id)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -1229,7 +1238,39 @@ class _VersionNodeCard(QFrame):
         if event.button() is Qt.MouseButton.LeftButton:
             self.setFocus()
             self.selected.emit(self._version_id)
+            proxy = self.graphicsProxyWidget()
+            if proxy is not None:
+                self._drag_origin_global = event.globalPosition()
+                self._drag_origin_scene = proxy.pos()
+                self._dragged = False
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if (
+            self._drag_origin_global is not None
+            and self._drag_origin_scene is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+        ):
+            delta = event.globalPosition() - self._drag_origin_global
+            if delta.toPoint().manhattanLength() >= QApplication.startDragDistance():
+                self._dragged = True
+                position = self._drag_origin_scene + delta
+                self.position_changing.emit(self._version_id, position.x(), position.y())
+                event.accept()
+                return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        proxy = self.graphicsProxyWidget()
+        if event.button() is Qt.MouseButton.LeftButton and self._dragged and proxy is not None:
+            position = proxy.pos()
+            self.position_committed.emit(self._version_id, position.x(), position.y())
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+        self._drag_origin_global = None
+        self._drag_origin_scene = None
+        self._dragged = False
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if event.button() is Qt.MouseButton.LeftButton:
@@ -1251,6 +1292,7 @@ class _VersionNodeCard(QFrame):
 class VersionTreePanel(QFrame):
     version_preview_requested = Signal(str)
     version_continue_requested = Signal(str)
+    version_position_changed = Signal(str, float, float)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1322,12 +1364,15 @@ class VersionTreePanel(QFrame):
         self._cards: dict[str, _VersionNodeCard] = {}
         self._head_version_id: str | None = None
         self._selected_version_id: str | None = None
+        self._proxies: dict[str, QGraphicsProxyWidget] = {}
+        self._edge_relations: list[tuple[str, str, QGraphicsLineItem]] = []
 
     def set_workbook(
         self,
         display_name: str | None,
         versions: VersionRecord | tuple[VersionRecord, ...] | None = None,
         head_version_id: str | None = None,
+        layouts: dict[str, VersionLayout] | None = None,
     ) -> None:
         if display_name is None:
             self._empty_title.setText("选择文件查看版本演化树")
@@ -1346,7 +1391,7 @@ class VersionTreePanel(QFrame):
         head_id = head_version_id or records[-1].version_id
         self._head_version_id = head_id
         self._selected_version_id = head_id
-        self._render_versions(display_name, records, head_id)
+        self._render_versions(display_name, records, head_id, layouts or {})
         self._content.setCurrentIndex(1)
         self._continue.setEnabled(False)
 
@@ -1355,6 +1400,7 @@ class VersionTreePanel(QFrame):
         display_name: str,
         versions: tuple[VersionRecord, ...],
         head_version_id: str,
+        layouts: dict[str, VersionLayout],
     ) -> None:
         previous_scene = self._scene
         scene = QGraphicsScene(self)
@@ -1363,6 +1409,11 @@ class VersionTreePanel(QFrame):
         depths: dict[str, int] = {}
         proxies: dict[str, QGraphicsProxyWidget] = {}
         self._cards = {}
+        occupied = [
+            QRectF(layout.x, layout.y, 230.0, 108.0)
+            for version_id, layout in layouts.items()
+            if layout.fixed and any(version.version_id == version_id for version in versions)
+        ]
         for index, version in enumerate(versions):
             depth = (
                 0
@@ -1370,7 +1421,18 @@ class VersionTreePanel(QFrame):
                 else depths.get(version.parent_version_id, 0) + 1
             )
             depths[version.version_id] = depth
-            position = (28.0 + depth * 260.0, 42.0 + index * 126.0)
+            layout = layouts.get(version.version_id)
+            if layout is not None and layout.fixed:
+                position = (layout.x, layout.y)
+            else:
+                x = 28.0 + depth * 260.0
+                y = 42.0 + index * 126.0
+                candidate = QRectF(x, y, 230.0, 108.0)
+                while any(candidate.adjusted(-8, -8, 8, 8).intersects(rect) for rect in occupied):
+                    y += 126.0
+                    candidate.moveTop(y)
+                position = (x, y)
+                occupied.append(candidate)
             positions[version.version_id] = position
             card = self._version_card(
                 display_name,
@@ -1379,11 +1441,15 @@ class VersionTreePanel(QFrame):
             )
             card.selected.connect(self._select_version)
             card.continue_requested.connect(self._request_continue)
+            card.position_changing.connect(self._move_version)
+            card.position_committed.connect(self._commit_version_position)
             proxy = scene.addWidget(card)
             assert isinstance(proxy, QGraphicsProxyWidget)
             proxy.setPos(*position)
             proxies[version.version_id] = proxy
             self._cards[version.version_id] = card
+        self._proxies = proxies
+        self._edge_relations = []
         pen = QPen(Qt.GlobalColor.gray, 1.5)
         for version in versions:
             parent_id = version.parent_version_id
@@ -1401,6 +1467,7 @@ class VersionTreePanel(QFrame):
                 pen,
             )
             line.setZValue(-1)
+            self._edge_relations.append((parent_id, version.version_id, line))
         scene.setSceneRect(scene.itemsBoundingRect().adjusted(-20, -20, 40, 40))
         self._view.setScene(scene)
         self._scene = scene
@@ -1478,13 +1545,15 @@ class VersionTreePanel(QFrame):
     def _select_version(self, version_id: str) -> None:
         if version_id not in self._cards:
             return
+        selection_changed = version_id != self._selected_version_id
         self._selected_version_id = version_id
         for card_id, card in self._cards.items():
             card.setProperty("selected", card_id == version_id)
             card.style().unpolish(card)
             card.style().polish(card)
         self._continue.setEnabled(version_id != self._head_version_id)
-        self.version_preview_requested.emit(version_id)
+        if selection_changed:
+            self.version_preview_requested.emit(version_id)
 
     def _continue_selected_version(self) -> None:
         if self._selected_version_id is not None:
@@ -1493,6 +1562,27 @@ class VersionTreePanel(QFrame):
     def _request_continue(self, version_id: str) -> None:
         if version_id != self._head_version_id and version_id in self._cards:
             self.version_continue_requested.emit(version_id)
+
+    def _move_version(self, version_id: str, x: float, y: float) -> None:
+        proxy = self._proxies.get(version_id)
+        if proxy is None:
+            return
+        proxy.setPos(x, y)
+        for parent_id, child_id, line in self._edge_relations:
+            if version_id not in {parent_id, child_id}:
+                continue
+            parent_rect = self._proxies[parent_id].sceneBoundingRect()
+            child_rect = self._proxies[child_id].sceneBoundingRect()
+            line.setLine(
+                parent_rect.right(),
+                parent_rect.center().y(),
+                child_rect.left(),
+                child_rect.center().y(),
+            )
+
+    def _commit_version_position(self, version_id: str, x: float, y: float) -> None:
+        self._scene.setSceneRect(self._scene.itemsBoundingRect().adjusted(-20, -20, 40, 40))
+        self.version_position_changed.emit(version_id, x, y)
 
 
 class WorkbookEditorFrame(QFrame):

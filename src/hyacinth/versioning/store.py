@@ -9,7 +9,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from hyacinth.excel.contracts import EngineName
-from hyacinth.versioning.models import ImportedWorkbook, VersionRecord
+from hyacinth.versioning.models import ImportedWorkbook, VersionLayout, VersionRecord
 
 DATABASE_NAME = "library.sqlite3"
 MANIFEST_NAME = "manifest.json"
@@ -36,6 +36,12 @@ CREATE TABLE IF NOT EXISTS versions (
     parameters_json TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS versions_file_id ON versions(file_id);
+CREATE TABLE IF NOT EXISTS version_layouts (
+    version_id TEXT PRIMARY KEY REFERENCES versions(version_id) ON DELETE CASCADE,
+    x REAL NOT NULL,
+    y REAL NOT NULL,
+    fixed INTEGER NOT NULL DEFAULT 1
+);
 """
 
 
@@ -210,6 +216,50 @@ class MetadataStore:
             if updated.rowcount != 1:
                 raise ValueError("当前 HEAD 已变化，请刷新版本树")
         return self._version_from_row(row)
+
+    def list_version_layouts(self, file_id: str) -> dict[str, VersionLayout]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT l.version_id, l.x, l.y, l.fixed
+                FROM version_layouts AS l
+                JOIN versions AS v ON v.version_id = l.version_id
+                WHERE v.file_id = ?
+                """,
+                (file_id,),
+            ).fetchall()
+        return {
+            str(version_id): VersionLayout(float(x), float(y), bool(fixed))
+            for version_id, x, y, fixed in rows
+        }
+
+    def save_version_layout(
+        self,
+        file_id: str,
+        version_id: str,
+        x: float,
+        y: float,
+        *,
+        fixed: bool,
+    ) -> None:
+        with self._connection() as connection:
+            exists = connection.execute(
+                "SELECT 1 FROM versions WHERE file_id = ? AND version_id = ?",
+                (file_id, version_id),
+            ).fetchone()
+            if exists is None:
+                raise ValueError(f"找不到文件中的版本记录：{version_id}")
+            connection.execute(
+                """
+                INSERT INTO version_layouts (version_id, x, y, fixed)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(version_id) DO UPDATE SET
+                    x = excluded.x,
+                    y = excluded.y,
+                    fixed = excluded.fixed
+                """,
+                (version_id, x, y, int(fixed)),
+            )
 
     def reconcile_manifests(self) -> int:
         recovered = 0

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from openpyxl import Workbook
-from PySide6.QtCore import QObject, QSize, Qt
+from PySide6.QtCore import QObject, QPoint, QSize, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -1106,3 +1106,70 @@ def test_historical_preview_checkout_and_processing_create_branch(
     assert (
         len([version for version in versions if version.parent_version_id == root.version_id]) == 2
     )
+
+
+def test_dragged_version_position_persists_after_reopening_tree(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    root = record.head_version
+    assert root is not None
+    first_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    first_window = create_main_window(task_queue=first_queue, library_root=library_root)
+    qtbot.addWidget(first_window)
+    first_window.show()
+    request = first_queue.submitted[0]
+    preview = run_preview_index_task(request, PreviewTaskContext())
+    first_queue.push_event(
+        TaskEvent(
+            request.task_id,
+            TaskState.SUCCEEDED,
+            request.name,
+            request.file_id,
+            None,
+            result=preview,
+        )
+    )
+    tree = _child(first_window, QGraphicsView, "version-tree-view")
+    proxy = next(
+        item
+        for item in tree.scene().items()
+        if isinstance(item, QGraphicsProxyWidget)
+        and item.widget() is not None
+        and item.widget().property("version-id") == root.version_id
+    )
+    card = proxy.widget()
+    assert card is not None
+    initial_position = proxy.pos()
+    center = card.rect().center()
+    qtbot.mousePress(card, Qt.MouseButton.LeftButton, pos=center)  # type: ignore[no-untyped-call]
+    qtbot.mouseMove(card, pos=center + QPoint(60, 40))  # type: ignore[no-untyped-call]
+    qtbot.mouseRelease(
+        card,
+        Qt.MouseButton.LeftButton,
+        pos=center + QPoint(60, 40),
+    )  # type: ignore[no-untyped-call]
+    layouts = MetadataStore(library_root).list_version_layouts(record.file_id)
+    assert layouts[root.version_id].x > initial_position.x()
+    assert layouts[root.version_id].y > initial_position.y()
+    first_window.close()
+
+    second_queue = FakeApplicationTaskQueue([])
+    second_window = create_main_window(task_queue=second_queue, library_root=library_root)
+    qtbot.addWidget(second_window)
+    second_window.show()
+    reopened_tree = _child(second_window, QGraphicsView, "version-tree-view")
+    reopened_proxy = next(
+        item
+        for item in reopened_tree.scene().items()
+        if isinstance(item, QGraphicsProxyWidget)
+        and item.widget() is not None
+        and item.widget().property("version-id") == root.version_id
+    )
+
+    assert reopened_proxy.pos().x() == layouts[root.version_id].x
+    assert reopened_proxy.pos().y() == layouts[root.version_id].y

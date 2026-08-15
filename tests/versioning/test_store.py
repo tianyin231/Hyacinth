@@ -10,6 +10,7 @@ from hyacinth.excel.contracts import EngineName
 from hyacinth.versioning import (
     ImportedWorkbook,
     MetadataStore,
+    VersionLayout,
     VersionRecord,
     write_recovery_manifest,
 )
@@ -181,6 +182,28 @@ def test_switch_head_rejects_stale_current_head(tmp_path: Path) -> None:
         store.switch_head("file-1", "version-1", "version-stale")
 
     assert store.get_workbook("file-1").head_version == record.root_version
+
+
+def test_version_layout_is_persisted_without_changing_version_metadata(tmp_path: Path) -> None:
+    record = _record(tmp_path)
+    store = MetadataStore(tmp_path)
+    store.record_import(record)
+
+    store.save_version_layout(record.file_id, "version-1", 96.5, 72.0, fixed=True)
+
+    assert MetadataStore(tmp_path).list_version_layouts(record.file_id) == {
+        "version-1": VersionLayout(96.5, 72.0, True),
+    }
+    assert store.get_workbook(record.file_id).head_version == record.root_version
+
+
+def test_version_layout_rejects_version_from_another_file(tmp_path: Path) -> None:
+    record = _record(tmp_path)
+    store = MetadataStore(tmp_path)
+    store.record_import(record)
+
+    with pytest.raises(ValueError, match="版本"):
+        store.save_version_layout("other-file", "version-1", 10.0, 20.0, fixed=True)
 
 
 def test_reconcile_known_file_child_version_and_working_copy(tmp_path: Path) -> None:

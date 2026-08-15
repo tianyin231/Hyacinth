@@ -7,7 +7,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from openpyxl import Workbook
-from PySide6.QtCore import QEventLoop, Qt, QTimer
+from PySide6.QtCore import QEventLoop, QPoint, Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -143,7 +143,9 @@ def _add_child_version(library_root: Path) -> None:
     store.record_child_version(child, root.version_id)
 
 
-def capture_ui_states(output_directory: Path) -> tuple[Path, Path, Path, Path, Path, Path]:
+def capture_ui_states(
+    output_directory: Path,
+) -> tuple[Path, Path, Path, Path, Path, Path, Path]:
     app = QApplication.instance() or QApplication([])
     output_directory.mkdir(parents=True, exist_ok=True)
     with (
@@ -296,6 +298,18 @@ def capture_ui_states(output_directory: Path) -> tuple[Path, Path, Path, Path, P
         branch_path = output_directory / "version-history-selected.png"
         if not branch_window.grab().save(str(branch_path)):
             raise RuntimeError("无法保存历史版本选中截图")
+        center = root_card.rect().center()
+        QTest.mousePress(root_card, Qt.MouseButton.LeftButton, pos=center)
+        QTest.mouseMove(root_card, pos=center + QPoint(0, 160))
+        QTest.mouseRelease(
+            root_card,
+            Qt.MouseButton.LeftButton,
+            pos=center + QPoint(0, 160),
+        )
+        app.processEvents()
+        dragged_path = output_directory / "version-node-dragged.png"
+        if not branch_window.grab().save(str(dragged_path)):
+            raise RuntimeError("无法保存版本节点拖动截图")
         branch_window.close()
     return (
         empty_path,
@@ -304,6 +318,7 @@ def capture_ui_states(output_directory: Path) -> tuple[Path, Path, Path, Path, P
         blank_rows_path,
         filter_path,
         branch_path,
+        dragged_path,
     )
 
 
