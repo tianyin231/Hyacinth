@@ -233,9 +233,15 @@ class WorkbookPreviewWidget(QFrame):
     def _refresh_edited_cell(self, sheet_name: str, row: int, column: int) -> None:
         if self._tabs.tabText(self._tabs.currentIndex()) != sheet_name:
             return
+        source = self._source
+        if source is None:
+            return
+        visible_row = source.visible_row_index(row)
+        if visible_row is None:
+            return
         model = self._table.model()
         if isinstance(model, WorkbookTableModel):
-            index = model.index(row, column)
+            index = model.index(visible_row, column)
             model.dataChanged.emit(
                 index,
                 index,

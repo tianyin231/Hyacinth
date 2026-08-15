@@ -1,3 +1,4 @@
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -5,9 +6,10 @@ from hashlib import sha256
 from pathlib import Path
 
 from hyacinth.excel.contracts import EngineName
-from hyacinth.tasks import TaskRequest
+from hyacinth.tasks import TaskEvent, TaskQueue, TaskRequest, TaskState
 from hyacinth.versioning import (
     EXPORT_VERSION_OPERATION,
+    ExportedVersion,
     ImportedWorkbook,
     MetadataStore,
     VersionRecord,
@@ -129,3 +131,25 @@ def test_child_export_is_xlsx_and_never_overwrites_existing_file(tmp_path: Path)
     assert existing.read_bytes() == b"keep-me"
     assert result.path.name == f"{existing.stem}(1).xlsx"
     assert result.path.read_bytes() == b"child-xlsx"
+
+
+def test_task_queue_exports_version_in_worker_process(tmp_path: Path) -> None:
+    root = tmp_path / "library"
+    _record, _root_version, child = _seed_versions(root)
+    queue = TaskQueue(export_version_handlers())
+    try:
+        queue.submit(_request(root, child.version_id, tmp_path / "downloads"))
+        events: list[TaskEvent] = []
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            events.extend(queue.poll_events())
+            if any(event.state in {TaskState.SUCCEEDED, TaskState.FAILED} for event in events):
+                break
+            time.sleep(0.01)
+
+        succeeded = [event for event in events if event.state is TaskState.SUCCEEDED]
+        assert len(succeeded) == 1, [(event.state, event.message) for event in events]
+        assert isinstance(succeeded[0].result, ExportedVersion)
+        assert succeeded[0].result.path.read_bytes() == b"child-xlsx"
+    finally:
+        assert queue.shutdown(timeout=5.0) is True

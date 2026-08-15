@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T23:09:22.1270302+08:00"
+updated_at: "2026-08-15T23:15:12.2879362+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-1-version-export-completed"
+  implementation: "stage-1-core-workflow-closure-completed"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -31,12 +31,12 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "实机稳定性与核心工作流闭环实施"
-  next_milestone: "完成工具栏能力状态与真实 Windows 核心流程回归，交付用户实机复验"
+  current_phase: "核心工作流闭环完成，等待用户实机复验"
+  next_milestone: "用户复验导入稳定性、手动编辑保存、撤销重做和导出；若仍闪退则读取持久崩溃日志继续定位"
 
 current_task:
   id: "CORE-WORKFLOW-CLOSURE-001"
-  status: "milestone-3-completed-milestone-4-in-progress"
+  status: "implementation-completed-awaiting-real-machine-validation"
   goal: "按用户确认顺序修复 Qt 原生闪退高风险路径和引擎状态，再实现手动编辑保存、撤销重做、版本导出及工具栏真实能力状态"
   owner: "codex-sol"
 
@@ -229,9 +229,14 @@ last_completed:
   - "导出完成反馈提供打开文件和打开所在位置；复制在后台 Worker 执行且支持取消，不阻塞主界面"
   - "1440x900 原生截图确认新增导出按钮未挤压命令栏，四区布局、Excel 网格和状态栏保持原验收比例"
   - "版本导出第三节点完整回归：189 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
+  - "修正筛选版本编辑的可见行到 Excel 物理行映射，隐藏行不会导致手动修改写入错误行"
+  - "真实常驻 Worker 独立完成手动编辑版本提交和子版本导出，任务结果可序列化并正确发布文件"
+  - "工具栏按真实能力启用：保存、撤销、重做随编辑状态变化，导出随版本可用性变化；未实现功能保持禁用并给出提示"
+  - "核心工作流最终质量门通过：192 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
 
 next_actions:
-  - "P2：按实际已完成功能逐步启用工具栏按钮；未完成按钮继续禁用并补充原因提示"
+  - "用户实机运行 uv run hyacinth，复验连续导入、直接编辑、撤销重做、保存子节点、节点下载和另存为"
+  - "若仍发生原生闪退，保留 %LOCALAPPDATA%\\Hyacinth\\logs\\crash.log 和 Windows CrashDumps 后继续分析"
   - "版本图谱自动整理和文件级回收站暂后移，先保证稳定性与导入→编辑→保存→导出的核心闭环"
   - "暂停筛选并提取及其他新增数据处理功能，除非用户再次调整优先级"
   - "后续实现窗口状态持久化时，正常启动优先恢复用户上次位置、尺寸和最大化状态，1440x900 仅作为无保存状态时的默认值"
@@ -380,26 +385,18 @@ recent_decisions:
     impact: "主窗口结构、导入入口位置、功能/文件/版本/预览四区布局、统一视觉样式和界面结构测试"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
-  - "output/playwright/deduplicate-configured.png"
-  - "output/playwright/default-empty-state.png"
-  - "output/playwright/delete-blank-rows-configured.png"
-  - "output/playwright/filter-configured.png"
-  - "output/playwright/fluent-shell-populated.png"
-  - "output/playwright/version-history-selected.png"
-  - "output/playwright/version-node-deleted.png"
-  - "output/playwright/version-node-dragged.png"
-  - "src/hyacinth/app.py"
-  - "src/hyacinth/ui/icons.py"
-  - "src/hyacinth/ui/shell.py"
-  - "src/hyacinth/versioning/__init__.py"
-  - "src/hyacinth/versioning/export_task.py"
-  - "tests/test_app.py"
+  - "src/hyacinth/preview/data_source.py"
+  - "src/hyacinth/preview/widget.py"
+  - "tests/preview/test_data_source.py"
+  - "tests/processing/test_apply_version.py"
   - "tests/versioning/test_export_task.py"
-  - "tests/versioning/test_widget.py"
 
 verification:
-  status: "version-export-milestone-3-passed"
+  status: "core-workflow-closure-final-gate-passed"
   commands:
+    - "uv run pytest：192 passed in 32.23s"
+    - "真实 TaskQueue Worker：手动编辑保存和版本导出均成功完成"
+    - "筛选可见行编辑回归：界面第 2 可见行正确保存到源工作表物理第 3 行"
     - "uv run pytest：189 passed in 32.88s"
     - "导出定向回归覆盖根版本原格式、子版本 xlsx、非法字符清理、同名 (1) 避让、节点另存为和完成反馈"
     - "uv run python scripts/capture_ui_states.py --output output/playwright"
@@ -718,4 +715,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "实机五项问题已完成证据化分析：闪退为 Qt6Widgets 原生访问冲突且需仪器化复现；引擎检测中为确定性状态显示错误；灰色工具栏、手动编辑保存和版本导出均是当前明确的功能缺口。建议暂停图谱增强，依次处理 P0 闪退、P1 状态栏、手动编辑保存和导出闭环"
+  last_result: "实机五项问题对应闭环已完成：Qt 高风险销毁路径稳定化并增加崩溃日志；无引擎任务状态修正；工具栏按真实能力启用；当前 HEAD 支持手动编辑、撤销重做和保存子节点；顶部及节点右键支持下载/另存为。最终 192 项测试和全部质量门通过，等待用户实机复验间歇性闪退是否消失"

@@ -20,6 +20,7 @@ class SqliteGridDataSource:
         self.row_count = max(sheet.row_count, LOGICAL_PREVIEW_ROWS)
         self.column_count = max(sheet.column_count, LOGICAL_PREVIEW_COLUMNS)
         self._sheet_index = sheet.index
+        self._physical_row_count = sheet.row_count
         self._visible_row_count = sheet.visible_row_count
         self._row_cache_size = row_cache_size
         self._rows: OrderedDict[int, dict[int, tuple[str, str | None]]] = OrderedDict()
@@ -70,6 +71,28 @@ class SqliteGridDataSource:
         ).fetchone()
         return int(row[0]) if row is not None else None
 
+    def source_row_index(self, visible_row: int) -> int:
+        source_row = self._source_row(visible_row)
+        if source_row is not None:
+            return source_row
+        if self._visible_row_count is None:
+            return visible_row
+        return self._physical_row_count + max(0, visible_row - self._visible_row_count)
+
+    def visible_row_index(self, source_row: int) -> int | None:
+        if self._visible_row_count is None:
+            return source_row
+        row = self._connection.execute(
+            "SELECT visible_row_index FROM visible_rows "
+            "WHERE sheet_index = ? AND source_row_index = ?",
+            (self._sheet_index, source_row),
+        ).fetchone()
+        if row is not None:
+            return int(row[0])
+        if source_row >= self._physical_row_count:
+            return self._visible_row_count + source_row - self._physical_row_count
+        return None
+
     def set_value(self, row: int, column: int, value: object) -> None:
         raise RuntimeError("工作簿预览为只读")
 
@@ -92,25 +115,28 @@ class EditableGridDataSource:
         self._sheet_name = sheet_name
 
     def value_at(self, row: int, column: int) -> object:
+        source_row = self._source.source_row_index(row)
         return self._session.value_at(
             self._sheet_name,
-            row,
+            source_row,
             column,
             self._source.value_at(row, column),
         )
 
     def edit_value_at(self, row: int, column: int) -> object:
+        source_row = self._source.source_row_index(row)
         return self._session.value_at(
             self._sheet_name,
-            row,
+            source_row,
             column,
             self._source.edit_value_at(row, column),
         )
 
     def set_value(self, row: int, column: int, value: object) -> None:
+        source_row = self._source.source_row_index(row)
         self._session.set_value(
             self._sheet_name,
-            row,
+            source_row,
             column,
             base_value=self._source.edit_value_at(row, column),
             current_value=self.edit_value_at(row, column),

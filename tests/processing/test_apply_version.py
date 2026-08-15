@@ -468,3 +468,40 @@ def test_task_queue_applies_preview_in_worker_process(tmp_path: Path) -> None:
         assert succeeded[0].result.head_version.version_id == "version-2"
     finally:
         assert queue.shutdown(timeout=5.0) is True
+
+
+def test_task_queue_saves_manual_edits_in_worker_process(tmp_path: Path) -> None:
+    root = tmp_path / "library"
+    parent = _seed_library(root)
+    parent_version = parent.head_version
+    assert parent_version is not None
+    request = TaskRequest(
+        task_id="manual-worker-1",
+        name="保存手动编辑",
+        file_id=parent.file_id,
+        engine=None,
+        operation=SAVE_MANUAL_EDITS_OPERATION,
+        payload={
+            "library_root": str(root),
+            "parent_version_id": parent_version.version_id,
+            "version_id": "version-2",
+            "edits": [{"sheet_name": "销售", "row": 1, "column": 0, "value": "pear"}],
+        },
+    )
+    queue = TaskQueue(apply_version_handlers())
+    try:
+        queue.submit(request)
+        events: list[TaskEvent] = []
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            events.extend(queue.poll_events())
+            if any(event.state in {TaskState.SUCCEEDED, TaskState.FAILED} for event in events):
+                break
+            time.sleep(0.01)
+
+        succeeded = [event for event in events if event.state is TaskState.SUCCEEDED]
+        assert len(succeeded) == 1, [(event.state, event.message) for event in events]
+        assert isinstance(succeeded[0].result, ImportedWorkbook)
+        assert _value(succeeded[0].result.working_path, "A2") == "pear"
+    finally:
+        assert queue.shutdown(timeout=5.0) is True
