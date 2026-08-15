@@ -1,12 +1,12 @@
 schema_version: 1
-updated_at: "2026-08-15T09:57:45.6500703+08:00"
+updated_at: "2026-08-15T10:00:43.8993246+08:00"
 updated_by: "codex-sol"
 
 project:
   name: "风信子"
   root: "E:\\codex_work\\ExcelSorf"
   status: "planning"
-  repository: "initializing: https://github.com/tianyin231/Hyacinth"
+  repository: "https://github.com/tianyin231/Hyacinth"
   implementation: "no-application-code"
 
 sources:
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "项目资料与目标已复核，等待阶段 0/1 启动"
+  current_phase: "Git 仓库已初始化，等待阶段 0/1 启动"
   next_milestone: "阶段 0 工程基线与阶段 1 技术风险原型"
 
 current_task:
   id: "GIT-INIT-001"
-  status: "in_progress"
-  goal: "将当前工作目录初始化为 Git 仓库并首次推送到 tianyin231/Hyacinth"
+  status: "completed"
+  goal: "当前工作目录已初始化为 Git 仓库并首次推送到 tianyin231/Hyacinth"
   owner: "codex-sol"
 
 last_completed:
@@ -48,15 +48,13 @@ last_completed:
   - "三个无 Skill RED 场景和三个有 Skill GREEN 场景完成，GREEN 全部符合约束"
   - "完整复核需求讨论记录、原始前端框架设计、项目状态和最终 Fluent 视觉原型"
   - "使用 opencode-go/deepseek-v4-flash Worker 独立梳理项目目标，Codex/Sol 已交叉验证"
+  - "初始化 main 分支并将当前 68 个文件首次推送到 tianyin231/Hyacinth"
 
 next_actions:
-  - "完成本地 Git 初始化、初始提交并推送 main 分支"
-  - "推送完成后等待用户授权启动阶段 0 和阶段 1"
+  - "等待用户授权启动阶段 0 和阶段 1"
+  - "后续普通更改默认只提交到本地仓库，用户明确要求时再推送远端"
 
 blockers:
-  - id: "GIT-NET-001"
-    status: "active"
-    summary: "访问 github.com 连续出现连接重置或超时，需在本地提交后继续重试推送"
   - id: "ENV-COM-001"
     status: "future"
     summary: "COM 引擎验收需要安装正版 Microsoft Excel 的 Windows 测试环境"
@@ -65,6 +63,13 @@ blockers:
     summary: "需求讨论记录第 43 节中的项目仍需在后续与客户复核"
 
 recent_decisions:
+  - id: "DEC-20260815-003"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "完成初始化推送后，后续普通更改默认只保存在本地 Git 仓库，不频繁推送"
+    source: "用户当前会话明确确认"
+    supersedes: "none"
+    impact: "后续提交与远端同步策略"
   - id: "DEC-20260815-001"
     date: "2026-08-15"
     status: "approved"
@@ -84,15 +89,16 @@ changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
 
 verification:
-  status: "in_progress"
+  status: "passed"
   commands:
     - "gh auth status"
     - "git credential-manager github list"
     - "递归文件清单与敏感信息模式扫描"
-    - "git ls-remote https://github.com/tianyin231/Hyacinth.git"
+    - "git push -u origin main"
+    - "git status --short --branch"
   evidence:
     - "Git Credential Manager 已保存 GitHub 账号 tianyin231，提交用户与邮箱已配置"
     - "当前目录共 68 个文件、约 1.44 MB；敏感信息扫描未发现真实凭据"
-    - "GitHub 远端只读核验连续两次连接重置或超时"
+    - "初始提交 ea2e28b 已成功推送，main 正在跟踪 origin/main"
   worker_sessions: {}
-  last_result: "本地前置检查完成，等待初始化、提交和推送验证"
+  last_result: "Git 仓库初始化与首次远端推送成功"
