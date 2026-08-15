@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T11:15:05.9209683+08:00"
+updated_at: "2026-08-15T11:48:33.9335724+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-1-task-queue-design"
+  implementation: "stage-1-task-queue-prototype"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -31,12 +31,12 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 后台任务队列与取消风险原型实施中"
+  current_phase: "阶段 1 后台任务队列与取消风险原型已完成"
   next_milestone: "阶段 1 后台任务队列与取消风险原型"
 
 current_task:
   id: "STAGE-1-TASK-QUEUE-001"
-  status: "in-progress"
+  status: "completed"
   goal: "验证独立后台进程中的全局单任务 FIFO 队列、结构化进度、取消与崩溃恢复边界"
   owner: "codex-sol"
 
@@ -60,9 +60,12 @@ last_completed:
   - "完成 1048576x256 逻辑网格的首屏、末端跳转、访问次数和 Python 内存性能验证"
   - "大表格性能原型已快进合并到本地 main，临时 worktree 与分支已清理"
   - "使用 opencode-go/deepseek-v4-flash Worker 完成后台任务队列只读调研，Codex/Sol 已复核并否决其不符合独立进程要求的 QThread 执行方案"
+  - "完成常驻独立 Worker、全局 FIFO、结构化进度/结果事件、排队移除、协作取消、安全关键阶段保护、超时重建、崩溃恢复与关闭收尾原型"
+  - "阶段 1 后台任务队列原型通过 DeepSeek 只读审查，修复派发断管和退出超时进程泄漏问题"
+  - "后台任务队列原型快进合并到本地 main，临时 worktree 与分支已清理"
 
 next_actions:
-  - "在隔离 worktree 中按 TDD 实现并验证独立后台进程、FIFO、事件、取消和崩溃恢复"
+  - "将任务队列与双引擎转换、临时预览和 UI 状态展示做下一条垂直切片集成"
   - "核心风险原型暂不制作可见任务面板，UI 集成留到后续垂直切片"
   - "每完成一个可独立验收的关键开发节点提交本地 Git"
   - "后续普通更改默认不推送远端，用户明确要求时再推送"
@@ -154,8 +157,13 @@ recent_decisions:
     impact: "开发顺序和里程碑"
 
 changed_files:
-  - "需求讨论记录.md"
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
+  - "需求讨论记录.md"
+  - "src/hyacinth/tasks/contracts.py"
+  - "src/hyacinth/tasks/manager.py"
+  - "src/hyacinth/tasks/worker.py"
+  - "src/hyacinth/tasks/__init__.py"
+  - "tests/tasks/test_queue.py"
 
 verification:
   status: "passed"
@@ -168,12 +176,21 @@ verification:
     - "uv run ruff format --check ."
     - "uv run mypy"
     - "uv build"
+    - "uv run pytest tests/tasks/test_queue.py -q"
+    - "$env:QT_QPA_PLATFORM='offscreen'; uv run pytest"
+    - "uv run ruff check ."
+    - "uv run ruff format --check ."
+    - "uv lock --check"
+    - "git diff --check"
   evidence:
     - "pytest：21 passed；Ruff check/format、Mypy strict 和 uv build 全部通过"
     - "1048576x256 模型创建 0.094ms，Python 峰值 1512B，创建时底层读取 0"
     - "1920x1080 首屏 40.8ms、末端跳转 30.1ms，两次底层读取均为 665 个单元格"
     - "稀疏覆盖层只保存编辑坐标，命中编辑时不访问基础数据源"
     - "合并到 main 后复验：21 passed，首屏 37.4ms、末端跳转 22.9ms、读取次数均为 665"
+    - "任务队列测试：8 passed；完整 pytest：29 passed"
+    - "队列原型提交：e8c16ed、3b93592；main 当前领先 origin/main 14 个提交，未推送"
+    - "DeepSeek 生命周期审查指出的派发断管和退出超时泄漏已修复，修复后 Ruff/Mypy/格式/锁文件/构建均通过"
   worker_sessions:
     STAGE-1-TASK-QUEUE-RESEARCH-001:
       session_id: "ses_ffc9b4161ffe7561dWNGTOr8H5"
@@ -181,4 +198,16 @@ verification:
       model: "deepseek-v4-flash"
       finish: "stop"
       result: "只读调研完成；建议的 QThread 执行方案因不满足独立后台进程要求被 Codex/Sol 否决，其状态机、取消风险和测试清单作为设计输入保留"
-  last_result: "用户已确认常驻独立 Worker 进程方案，准备在隔离 worktree 中按 TDD 实现核心风险原型"
+    STAGE-1-TASK-QUEUE-REVIEW-001:
+      session_id: "ses_ffc848ce3ffe24PWWUcA9yLJ0B"
+      provider: "opencode-go"
+      model: "deepseek-v4-flash"
+      finish: "aborted"
+      result: "审查 Worker 长时间无结果，已中止；未采纳其未完成输出"
+    STAGE-1-TASK-QUEUE-REVIEW-002:
+      session_id: "ses_ffc7f30a3ffegreTNf5KgQUT9d"
+      provider: "opencode-go"
+      model: "deepseek-v4-flash"
+      finish: "stop"
+      result: "只读生命周期审查完成；指出派发断管与退出超时泄漏两个重要问题，均已修复并重新通过完整质量门"
+  last_result: "后台任务队列风险原型已合并到 main；29 项测试、Ruff、Mypy、格式、锁文件和 uv build 全部通过"
