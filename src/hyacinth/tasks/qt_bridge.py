@@ -44,6 +44,10 @@ class TaskQueueBridge(QObject):
         return self._task_queue.cancel(task_id)
 
     def shutdown(self, timeout: float = 1.0) -> bool:
+        was_running = self.is_running
         self._timer.stop()
         self.poll_once()
-        return self._task_queue.shutdown(timeout)
+        stopped = self._task_queue.shutdown(timeout)
+        if not stopped and was_running:
+            self._timer.start()
+        return stopped

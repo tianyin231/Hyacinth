@@ -51,6 +51,7 @@ def run_conversion_task(
     context.report_progress(None, "正在检测 Excel 引擎")
     engine = select_engine()
     context.set_engine(engine.name)
+    context.check_cancelled()
     context.report_progress(None, "正在转换工作簿")
 
     with TemporaryDirectory(prefix="hyacinth-convert-", dir=destination.parent) as directory:

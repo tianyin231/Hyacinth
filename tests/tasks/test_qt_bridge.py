@@ -7,8 +7,9 @@ from hyacinth.tasks.qt_bridge import TaskQueueBridge
 
 
 class FakeTaskQueue:
-    def __init__(self, events: list[TaskEvent]) -> None:
+    def __init__(self, events: list[TaskEvent], *, shutdown_result: bool = True) -> None:
         self._events = events
+        self._shutdown_result = shutdown_result
         self.cancelled: list[str] = []
         self.shutdown_timeout: float | None = None
 
@@ -23,7 +24,7 @@ class FakeTaskQueue:
 
     def shutdown(self, timeout: float = 1.0) -> bool:
         self.shutdown_timeout = timeout
-        return True
+        return self._shutdown_result
 
 
 def test_qt_bridge_polls_and_emits_task_events(qtbot: QtBot) -> None:
@@ -48,3 +49,12 @@ def test_qt_bridge_polls_and_emits_task_events(qtbot: QtBot) -> None:
     assert bridge.shutdown(timeout=0.25) is True
     assert task_queue.shutdown_timeout == 0.25
     assert bridge.is_running is False
+
+
+def test_qt_bridge_resumes_polling_when_shutdown_is_deferred(qtbot: QtBot) -> None:
+    task_queue = FakeTaskQueue([], shutdown_result=False)
+    bridge = TaskQueueBridge(task_queue, poll_interval_ms=10)
+    bridge.start()
+
+    assert bridge.shutdown(timeout=0.01) is False
+    assert bridge.is_running is True
