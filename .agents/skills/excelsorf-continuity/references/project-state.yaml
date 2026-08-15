@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T14:12:28.4062703+08:00"
+updated_at: "2026-08-15T14:16:09.9112065+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -31,12 +31,12 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 文件导入与内部工作副本垂直切片已验证，待合并"
+  current_phase: "阶段 1 文件导入与内部工作副本垂直切片已完成"
   next_milestone: "阶段 1 工作副本加载与表格预览垂直切片"
 
 current_task:
   id: "STAGE-1-IMPORT-SLICE-001"
-  status: "verified-awaiting-merge"
+  status: "completed"
   goal: "实现单后台任务、暂存校验后原子发布的文件导入垂直切片"
   owner: "codex-sol"
 
@@ -77,10 +77,9 @@ last_completed:
   - "完成 Fluent 导入按钮、受限文件选择器、文件列表、失败反馈和启动恢复"
   - "Windows 原生 Qt 截图确认中文、按钮、文件行、空状态和状态栏无重叠或截断"
   - "独立审查发现并修复重启后文件顺序错误和大文件复制可能绕过取消清理两个问题"
+  - "文件导入切片已快进合并到本地 main，合并后 52 项测试和全部质量门再次通过"
 
 next_actions:
-  - "将 feature/stage-1-import-slice 快进合并到本地 main 并清理隔离 worktree"
-  - "合并后复跑完整质量门并提交最终状态"
   - "下一切片确认工作副本加载、工作表标签和大表格预览接入方案"
   - "后续将 COM 子进程扩展为结构化阶段事件，把安全关键范围从整段转换收窄到 SaveAs"
   - "每完成一个可独立验收的关键开发节点提交本地 Git"
@@ -207,6 +206,7 @@ verification:
     - "Windows 原生 Qt grab 保存 output/playwright/import-slice.png"
   evidence:
     - "完整 pytest：52 passed；Ruff check/format、Mypy strict、uv lock 和 uv build 全部通过"
+    - "快进合并到 main 后复验：52 passed；全部静态检查、锁文件和构建再次通过"
     - "真实常驻 Worker 完成 xlsx 导入并返回 ImportedWorkbook，现有队列取消与恢复测试无回归"
     - "分块复制每 1 MiB 检查取消；失败或取消清除暂存目录，提交后的迟到取消返回成功"
     - "启动恢复只显示完整发布目录，并按目录发布时间倒序恢复最新文件置顶"
@@ -255,4 +255,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "文件导入与内部工作副本切片已通过 52 项测试和完整质量门，等待快进合并到本地 main"
+  last_result: "文件导入与内部工作副本切片已合并到本地 main；52 项测试和全部质量门通过"
