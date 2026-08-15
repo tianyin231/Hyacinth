@@ -334,16 +334,51 @@ def test_version_tree_wheel_gestures_follow_original_document(
     view = panel.findChild(QGraphicsView, "version-tree-view")
     assert view is not None
     qtbot.waitUntil(lambda: view.horizontalScrollBar().maximum() > 0)
+    assert view.verticalScrollBar().maximum() > 0
+    assert view.sceneRect().width() == 10000.0
+    assert view.sceneRect().height() == 10000.0
 
     horizontal = view.horizontalScrollBar()
+    vertical = view.verticalScrollBar()
     initial_horizontal = horizontal.value()
+    initial_vertical = vertical.value()
     initial_scale = view.transform().m11()
+    _send_wheel(view, delta=-120, modifiers=Qt.KeyboardModifier.NoModifier)
+    assert vertical.value() > initial_vertical
+
     _send_wheel(view, delta=-120, modifiers=Qt.KeyboardModifier.ShiftModifier)
     assert horizontal.value() > initial_horizontal
     assert view.transform().m11() == initial_scale
 
     _send_wheel(view, delta=120, modifiers=Qt.KeyboardModifier.ControlModifier)
     assert view.transform().m11() > initial_scale
+
+
+def test_version_nodes_are_clamped_inside_large_canvas(qtbot: QtBot, tmp_path: Path) -> None:
+    from hyacinth.ui import VersionTreePanel
+
+    root = VersionRecord(
+        "version-1",
+        "file-1",
+        None,
+        "导入原始文件",
+        datetime(2026, 8, 15, 7, 30, tzinfo=UTC),
+        "import",
+        None,
+        tmp_path / "root.xlsx",
+        "a" * 64,
+    )
+    panel = VersionTreePanel()
+    qtbot.addWidget(panel)
+    panel.set_workbook("销售报表.xlsx", root, root.version_id)
+    view = panel.findChild(QGraphicsView, "version-tree-view")
+    assert view is not None
+    proxy = next(item for item in view.scene().items() if isinstance(item, QGraphicsProxyWidget))
+
+    panel._move_version(root.version_id, -100000.0, 100000.0)
+
+    assert proxy.pos().x() == view.sceneRect().left()
+    assert proxy.pos().y() == view.sceneRect().bottom() - proxy.size().height()
 
 
 def test_deleted_version_is_placeholder_and_can_be_restored_but_not_previewed(

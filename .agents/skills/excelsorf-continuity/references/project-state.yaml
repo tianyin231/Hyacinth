@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-16T00:01:30+08:00"
+updated_at: "2026-08-16T00:17:27+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "版本图谱实机输入修复完成，等待用户复验"
-  next_milestone: "用户实机复验节点自由拖动、Shift 横向滚动和 Ctrl 缩放"
+  current_phase: "版本图谱大画布与专注模式已完成，等待实机验收"
+  next_milestone: "用户实机复验版本图谱全向平移、节点边界和专注模式"
 
 current_task:
-  id: "VERSION-TREE-INPUT-001"
+  id: "VERSION-TREE-CANVAS-FOCUS-001"
   status: "implementation-completed-awaiting-real-machine-validation"
-  goal: "修复版本节点在真实 QGraphicsView 输入路径中无法自由拖动的问题，并按原始文档实现滚轮手势"
+  goal: "将版本图谱改为较大有界画布，支持上下左右自由平移，并增加只显示版本演化树的一键专注/恢复模式"
   owner: "codex-sol"
 
 last_completed:
@@ -241,8 +241,13 @@ last_completed:
   - "版本图谱视口统一接管节点拖动，拖动时连线实时跟随，松开后继续沿现有信号保存固定位置"
   - "按原始文档实现普通滚轮纵向、Shift+滚轮横向、Ctrl+滚轮缩放，缩放范围限制为 40%-250%"
   - "版本图谱输入修复质量门通过：196 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
+  - "版本图谱场景改为 10000×10000 有界大画布，少量节点时也可上下左右平移，普通滚轮纵向、Shift+滚轮横向、Ctrl+滚轮缩放"
+  - "版本节点拖动位置限制在画布边界内，节点和连线移动不重建场景"
+  - "版本树标题栏增加专注/退出专注按钮，可隐藏其他工作区并精确恢复进入前的显隐状态和分隔尺寸"
+  - "版本图谱大画布与专注模式通过 198 项全量测试及全部质量门"
 
 next_actions:
+  - "用户实机运行 uv run hyacinth，复验版本图谱上下左右平移、边界限制和专注/恢复布局"
   - "用户实机运行 uv run hyacinth，复验节点拖动、Shift+滚轮横向滚动和 Ctrl+滚轮缩放"
   - "用户查看新品牌图标与本机 uv run hyacinth 的窗口图标，确认视觉方向"
   - "用户实机运行 uv run hyacinth，复验连续导入、直接编辑、撤销重做、保存子节点、节点下载和另存为"
@@ -255,6 +260,12 @@ next_actions:
   - "后续普通更改默认不推送远端，用户明确要求时再推送"
 
 blockers:
+  - id: "VERSION-FOCUS-VISIBILITY-SCOPE-001"
+    status: "resolved-and-tested"
+    summary: "按用户确认范围完成：隐藏应用页眉、命令栏、左侧区域、Excel 编辑区和底部状态栏，只保留 Windows 标题栏及版本树自身标题栏与画布；退出时恢复原显隐状态和分隔尺寸"
+  - id: "VERSION-TREE-VERTICAL-PAN-001"
+    status: "resolved-and-tested"
+    summary: "旧场景随节点包围框收缩导致少量节点时没有纵向滚动范围；现使用 10000×10000 固定有界场景并限制节点位置，纵横滚动和边界回归均通过"
   - id: "VERSION-TREE-REAL-DRAG-001"
     status: "resolved-and-tested"
     summary: "根因是旧测试直接向节点 QWidget 发送事件，真实输入却先被 QGraphicsView 的 ScrollHandDrag 处理；现由视口识别节点拖动并暂停画布平移，真实视口回归已覆盖"
@@ -326,6 +337,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260816-027"
+    date: "2026-08-16"
+    status: "approved"
+    summary: "版本图谱改为较大有界画布，可上下左右自由平移且节点不得无限出界；专注模式隐藏除 Windows 标题栏和版本树自身标题栏/画布之外的全部应用区域，再次点击恢复原布局"
+    source: "用户当前会话提出需求并确认推荐显隐范围"
+    supersedes: "none"
+    impact: "版本图谱场景边界、画布平移与节点约束、VersionTreePanel 标题栏操作、主窗口区域显隐和布局恢复测试"
   - id: "DEC-20260815-026"
     date: "2026-08-15"
     status: "approved"
@@ -389,23 +407,24 @@ recent_decisions:
     source: "用户查看真实默认启动截图后明确确认校正方案，并补充初始窗口偏小"
     supersedes: "none"
     impact: "默认空状态、工具栏/面板图标与控件视觉、轻量 Fluent 层级、默认窗口尺寸和双场景截图验收"
-  - id: "DEC-20260815-017"
-    date: "2026-08-15"
-    status: "approved"
-    summary: "首个处理切片采用 Python 安全排序子集：单工作表 used range、首行表头、最多两个排序键、落盘临时预览、直接升级子版本并移动 HEAD"
-    source: "用户当前会话明确确认推荐方案 1"
-    supersedes: "none"
-    impact: "多列排序任务、临时预览生命周期、子版本事务、HEAD、版本树和主窗口状态机"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
   - "需求讨论记录.md"
+  - "src/hyacinth/app.py"
   - "src/hyacinth/ui/shell.py"
   - "tests/test_app.py"
   - "tests/versioning/test_widget.py"
 
 verification:
-  status: "version-tree-input-final-gate-passed"
+  status: "passed-awaiting-real-machine-validation"
   commands:
+    - "版本图谱与主窗口定向回归：16 passed"
+    - "uv run pytest -q：198 passed"
+    - "uv run ruff check .；uv run ruff format --check .；uv run mypy src；uv lock --check；uv build；git diff --check：全部通过"
+    - "只读核对原始需求：普通滚轮纵向、Shift+滚轮横向、Ctrl+滚轮缩放，版本树要求右侧和下方滚动条"
+    - "只读核对当前实现：场景在渲染和节点提交后收缩为 itemsBoundingRect，少量节点时没有纵向可滚范围"
+    - "只读核对当前主布局：应用页眉、命令栏、左侧双面板、版本树、编辑器和底部状态栏可独立控制显隐"
+    - "ui-ux-pro-max 设计系统与焦点、键盘可达性检索；保留既有 Fluent 视觉，不采纳冲突的通用配色"
     - "真实视口节点拖动与滚轮手势定向回归：2 passed"
     - "版本图谱及位置持久化回归：14 passed"
     - "uv run pytest：196 passed in 28.52s"
@@ -736,4 +755,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "版本图谱真实输入路径已修复：节点可通过 QGraphicsView 视口自由拖动，连线实时跟随并持久化位置；普通滚轮纵向、Shift+滚轮横向、Ctrl+滚轮缩放。最终 196 项测试和全部质量门通过，等待用户实机复验"
+  last_result: "版本图谱已使用 10000×10000 有界画布支持上下左右平移，节点拖动限制在画布内；专注按钮可隐藏其他区域并恢复原布局。最终 198 项测试和全部质量门通过，等待用户实机复验"

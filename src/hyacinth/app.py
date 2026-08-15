@@ -175,6 +175,9 @@ class HyacinthMainWindow(QMainWindow):
         self._previewed_version_id: str | None = None
         self._close_after_manual_save = False
         self._export_task_id: str | None = None
+        self._focus_restore_main_sizes: list[int] | None = None
+        self._focus_restore_left_sizes: list[int] | None = None
+        self._focus_restore_hidden: tuple[bool, ...] | None = None
 
         self._application_header = ApplicationHeader(workspace_root)
         self._command_bar = CommandBar(workspace_root)
@@ -209,30 +212,31 @@ class HyacinthMainWindow(QMainWindow):
         self._workbook_preview.edit_state_changed.connect(self._apply_edit_state)
         self._editor = WorkbookEditorFrame(self._workbook_preview, workspace_root)
 
-        left_splitter = QSplitter(Qt.Orientation.Vertical, workspace_root)
-        left_splitter.setObjectName("left-workspace-splitter")
-        left_splitter.addWidget(self._function_panel)
-        left_splitter.addWidget(self._file_library)
-        left_splitter.setStretchFactor(0, 4)
-        left_splitter.setStretchFactor(1, 2)
-        left_splitter.setSizes([420, 180])
+        self._left_splitter = QSplitter(Qt.Orientation.Vertical, workspace_root)
+        self._left_splitter.setObjectName("left-workspace-splitter")
+        self._left_splitter.addWidget(self._function_panel)
+        self._left_splitter.addWidget(self._file_library)
+        self._left_splitter.setStretchFactor(0, 4)
+        self._left_splitter.setStretchFactor(1, 2)
+        self._left_splitter.setSizes([420, 180])
 
-        main_splitter = QSplitter(Qt.Orientation.Horizontal, workspace_root)
-        main_splitter.setObjectName("main-workspace-splitter")
-        main_splitter.addWidget(left_splitter)
-        main_splitter.addWidget(self._version_tree)
-        main_splitter.addWidget(self._editor)
-        main_splitter.setStretchFactor(0, 0)
-        main_splitter.setStretchFactor(1, 0)
-        main_splitter.setStretchFactor(2, 1)
-        main_splitter.setSizes([260, 340, 680])
+        self._main_splitter = QSplitter(Qt.Orientation.Horizontal, workspace_root)
+        self._main_splitter.setObjectName("main-workspace-splitter")
+        self._main_splitter.addWidget(self._left_splitter)
+        self._main_splitter.addWidget(self._version_tree)
+        self._main_splitter.addWidget(self._editor)
+        self._main_splitter.setStretchFactor(0, 0)
+        self._main_splitter.setStretchFactor(1, 0)
+        self._main_splitter.setStretchFactor(2, 1)
+        self._main_splitter.setSizes([260, 340, 680])
+        self._version_tree.focus_mode_requested.connect(self._set_version_focus_mode)
 
         workspace_layout = QVBoxLayout(workspace_root)
         workspace_layout.setContentsMargins(0, 0, 0, 0)
         workspace_layout.setSpacing(0)
         workspace_layout.addWidget(self._application_header)
         workspace_layout.addWidget(self._command_bar)
-        workspace_layout.addWidget(main_splitter, 1)
+        workspace_layout.addWidget(self._main_splitter, 1)
 
         self._task_bridge = TaskQueueBridge(task_queue, parent=self)
         self._task_status = TaskStatusWidget(self)
@@ -256,6 +260,35 @@ class HyacinthMainWindow(QMainWindow):
         current_workbook = self._file_library.current_workbook()
         if current_workbook is not None:
             self._select_workbook(current_workbook)
+
+    def _set_version_focus_mode(self, enabled: bool) -> None:
+        hidden_widgets: tuple[QWidget, ...] = (
+            self._application_header,
+            self._command_bar,
+            self._left_splitter,
+            self._editor,
+            self.statusBar(),
+        )
+        if enabled:
+            self._focus_restore_main_sizes = self._main_splitter.sizes()
+            self._focus_restore_left_sizes = self._left_splitter.sizes()
+            self._focus_restore_hidden = tuple(widget.isHidden() for widget in hidden_widgets)
+            for widget in hidden_widgets:
+                widget.hide()
+            self._main_splitter.setSizes([0, self._main_splitter.width(), 0])
+            return
+
+        if self._focus_restore_hidden is None:
+            return
+        for widget, was_hidden in zip(hidden_widgets, self._focus_restore_hidden, strict=True):
+            widget.setVisible(not was_hidden)
+        if self._focus_restore_main_sizes is not None:
+            self._main_splitter.setSizes(self._focus_restore_main_sizes)
+        if self._focus_restore_left_sizes is not None:
+            self._left_splitter.setSizes(self._focus_restore_left_sizes)
+        self._focus_restore_main_sizes = None
+        self._focus_restore_left_sizes = None
+        self._focus_restore_hidden = None
 
     def _apply_initial_window_geometry(self) -> None:
         screen = QGuiApplication.primaryScreen()

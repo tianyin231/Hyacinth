@@ -302,6 +302,10 @@ QListWidget#library-file-list:focus { border: 2px solid #0f6cbd; }
 QStatusBar#main-status-bar { background: #f0f2f5; border-top: 1px solid #d8dde5; }
 """
 
+VERSION_CANVAS_RECT = QRectF(-5000.0, -5000.0, 10000.0, 10000.0)
+VERSION_NODE_WIDTH = 230.0
+VERSION_NODE_HEIGHT = 108.0
+
 
 def _panel_header(title: str, *, badge: str | None = None) -> QFrame:
     header = QFrame()
@@ -1407,6 +1411,7 @@ class _VersionNodeCard(QFrame):
 
 
 class VersionTreePanel(QFrame):
+    focus_mode_requested = Signal(bool)
     version_preview_requested = Signal(str)
     version_continue_requested = Signal(str)
     version_position_changed = Signal(str, float, float)
@@ -1470,7 +1475,7 @@ class VersionTreePanel(QFrame):
 
         self._scene = QGraphicsScene(self)
         self._scene.setObjectName("version-tree-scene")
-        self._scene.setSceneRect(0, 0, 320, 480)
+        self._scene.setSceneRect(VERSION_CANVAS_RECT)
         self._view = _VersionTreeView(self._scene, self)
         self._view.setObjectName("version-tree-view")
         self._view.setAccessibleName("版本演化树")
@@ -1485,10 +1490,22 @@ class VersionTreePanel(QFrame):
         self._content.addWidget(empty)
         self._content.addWidget(self._view)
 
+        header = _panel_header("版本演化树")
+        self._focus_button = QPushButton("专注", header)
+        self._focus_button.setObjectName("version-focus-button")
+        self._focus_button.setProperty("class", "tool-button")
+        self._focus_button.setCheckable(True)
+        self._focus_button.setAccessibleName("进入版本图谱专注模式")
+        self._focus_button.setToolTip("隐藏其他区域，只查看版本演化树")
+        self._focus_button.clicked.connect(self._toggle_focus_mode)
+        header_layout = header.layout()
+        assert header_layout is not None
+        header_layout.addWidget(self._focus_button)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(_panel_header("版本演化树"))
+        layout.addWidget(header)
         layout.addWidget(search_row)
         layout.addWidget(self._content, 1)
         self._cards: dict[str, _VersionNodeCard] = {}
@@ -1553,12 +1570,13 @@ class VersionTreePanel(QFrame):
         previous_scene = self._scene
         scene = QGraphicsScene(self)
         scene.setObjectName("version-tree-scene")
+        scene.setSceneRect(VERSION_CANVAS_RECT)
         positions: dict[str, tuple[float, float]] = {}
         depths: dict[str, int] = {}
         proxies: dict[str, QGraphicsProxyWidget] = {}
         self._cards = {}
         occupied = [
-            QRectF(layout.x, layout.y, 230.0, 108.0)
+            QRectF(layout.x, layout.y, VERSION_NODE_WIDTH, VERSION_NODE_HEIGHT)
             for version_id, layout in layouts.items()
             if layout.fixed and any(version.version_id == version_id for version in versions)
         ]
@@ -1575,12 +1593,13 @@ class VersionTreePanel(QFrame):
             else:
                 x = 28.0 + depth * 260.0
                 y = 42.0 + index * 126.0
-                candidate = QRectF(x, y, 230.0, 108.0)
+                candidate = QRectF(x, y, VERSION_NODE_WIDTH, VERSION_NODE_HEIGHT)
                 while any(candidate.adjusted(-8, -8, 8, 8).intersects(rect) for rect in occupied):
                     y += 126.0
                     candidate.moveTop(y)
                 position = (x, y)
                 occupied.append(candidate)
+            position = self._bounded_position(*position)
             positions[version.version_id] = position
             card = self._version_card(
                 display_name,
@@ -1616,7 +1635,6 @@ class VersionTreePanel(QFrame):
             )
             line.setZValue(-1)
             self._edge_relations.append((parent_id, version.version_id, line))
-        scene.setSceneRect(scene.itemsBoundingRect().adjusted(-20, -20, 40, 40))
         self._view.setScene(scene)
         self._scene = scene
         if versions:
@@ -1775,7 +1793,8 @@ class VersionTreePanel(QFrame):
         proxy = self._proxies.get(version_id)
         if proxy is None:
             return
-        proxy.setPos(x, y)
+        bounded_x, bounded_y = self._bounded_position(x, y)
+        proxy.setPos(bounded_x, bounded_y)
         for parent_id, child_id, line in self._edge_relations:
             if version_id not in {parent_id, child_id}:
                 continue
@@ -1789,8 +1808,31 @@ class VersionTreePanel(QFrame):
             )
 
     def _commit_version_position(self, version_id: str, x: float, y: float) -> None:
-        self._scene.setSceneRect(self._scene.itemsBoundingRect().adjusted(-20, -20, 40, 40))
         self.version_position_changed.emit(version_id, x, y)
+
+    def _toggle_focus_mode(self, enabled: bool) -> None:
+        if enabled:
+            self._focus_button.setText("退出专注")
+            self._focus_button.setAccessibleName("退出版本图谱专注模式")
+            self._focus_button.setToolTip("恢复完整工作台布局")
+        else:
+            self._focus_button.setText("专注")
+            self._focus_button.setAccessibleName("进入版本图谱专注模式")
+            self._focus_button.setToolTip("隐藏其他区域，只查看版本演化树")
+        self.focus_mode_requested.emit(enabled)
+
+    @staticmethod
+    def _bounded_position(x: float, y: float) -> tuple[float, float]:
+        return (
+            min(
+                max(x, VERSION_CANVAS_RECT.left()),
+                VERSION_CANVAS_RECT.right() - VERSION_NODE_WIDTH,
+            ),
+            min(
+                max(y, VERSION_CANVAS_RECT.top()),
+                VERSION_CANVAS_RECT.bottom() - VERSION_NODE_HEIGHT,
+            ),
+        )
 
 
 class WorkbookEditorFrame(QFrame):

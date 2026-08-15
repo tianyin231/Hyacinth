@@ -282,6 +282,48 @@ def test_main_window_matches_approved_workspace_shell(qtbot: QtBot, tmp_path: Pa
     assert not _child(window, QPushButton, "toolbar-save-version-button").isEnabled()
 
 
+def test_version_tree_focus_mode_hides_other_regions_and_restores_layout(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(library_root=tmp_path / "library")
+    qtbot.addWidget(window)
+    window.show()
+    main_splitter = _child(window, QSplitter, "main-workspace-splitter")
+    left_splitter = _child(window, QSplitter, "left-workspace-splitter")
+    version_tree = _child(window, QFrame, "version-tree-panel")
+    editor = _child(window, QFrame, "editor-frame")
+    header = _child(window, QFrame, "application-header")
+    command_bar = _child(window, QFrame, "top-toolbar")
+    focus_button = _child(window, QPushButton, "version-focus-button")
+    main_sizes = main_splitter.sizes()
+    left_sizes = left_splitter.sizes()
+
+    qtbot.mouseClick(focus_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    assert version_tree.isVisibleTo(window)
+    assert header.isHidden()
+    assert command_bar.isHidden()
+    assert left_splitter.isHidden()
+    assert editor.isHidden()
+    assert window.statusBar().isHidden()
+    assert focus_button.text() == "退出专注"
+    assert focus_button.accessibleName() == "退出版本图谱专注模式"
+
+    qtbot.mouseClick(focus_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    assert not header.isHidden()
+    assert not command_bar.isHidden()
+    assert not left_splitter.isHidden()
+    assert not editor.isHidden()
+    assert not window.statusBar().isHidden()
+    assert main_splitter.sizes() == main_sizes
+    assert left_splitter.sizes() == left_sizes
+    assert focus_button.text() == "专注"
+
+
 def test_empty_preview_import_button_uses_normal_import_flow(
     qtbot: QtBot,
     tmp_path: Path,
