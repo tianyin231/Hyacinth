@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T18:25:35.7096714+08:00"
+updated_at: "2026-08-15T18:27:26.1363307+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -135,6 +135,7 @@ last_completed:
   - "新增 scripts/capture_ui_states.py，可重复生成 1440x900 默认空状态和有数据状态原生 Qt 截图"
   - "原生截图目视确认空状态、有数据网格、组合框箭头、版本根节点、文件选择和状态栏无重叠或截断"
   - "默认界面视觉校正完整质量门通过：101 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
+  - "默认空状态与 Fluent 壳层精修已提交本地 main：3270760"
 
 next_actions:
   - "根据需求讨论记录选择下一个处理功能垂直切片，并在实现前向用户展示范围和方案"
@@ -342,6 +343,7 @@ verification:
     - "修正后的最终全量复验：98 passed in 23.19s；Ruff check/format、Mypy strict、uv lock、uv build 和 git diff --check 全部通过"
     - "原生 Qt 截图 sort-child-version-slice.png：1376x760，排序参数、排序后工作表、根/子版本及 HEAD 可见；版本树支持水平滚动"
     - "用户未跟踪的 追加需求.txt 未读取、未修改、未纳入提交；本次不推送"
+    - "视觉校正关键节点本地提交：3270760；提交后 main 领先 origin/main 39 个提交"
     - "第二关键节点本地提交：1263b73；提交后 main 领先 origin/main 34 个提交"
     - "用户报告本地正常启动界面与 sort-child-version-slice.png 不同，原 UI-FIDELITY 验证结论已重新打开"
     - "差异来源之一已证实：受控截图有测试夹具和已应用排序状态，真实默认文件库 files 表为空"
@@ -438,4 +440,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "默认空状态、Fluent 控件与统一线性图标、1440x900 自适应窗口和 Excel 逻辑网格已实现并通过 101 项测试与双场景截图验收，等待本地关键节点提交"
+  last_result: "默认空状态、Fluent 控件与统一线性图标、1440x900 自适应窗口和 Excel 逻辑网格已实现，通过 101 项测试与双场景截图验收，并提交本地 main 为 3270760；未推送"
