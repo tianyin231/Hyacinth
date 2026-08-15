@@ -1,0 +1,98 @@
+schema_version: 1
+updated_at: "2026-08-15T09:57:45.6500703+08:00"
+updated_by: "codex-sol"
+
+project:
+  name: "风信子"
+  root: "E:\\codex_work\\ExcelSorf"
+  status: "planning"
+  repository: "initializing: https://github.com/tianyin231/Hyacinth"
+  implementation: "no-application-code"
+
+sources:
+  canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
+  original_requirements: "E:\\codex_work\\ExcelSorf\\软件前端框架设计.md"
+  visual_prototypes: "E:\\codex_work\\ExcelSorf\\.superpowers\\brainstorm"
+  visual_evidence: "E:\\codex_work\\ExcelSorf\\output\\playwright"
+
+product:
+  summary: "Windows 10/11 本地 Excel 轻量编辑、批处理和 Git 风格版本管理工作台"
+  supported_formats_v1:
+    - "xls"
+    - "xlsx"
+  architecture:
+    ui: "PySide6，Windows Fluent，局部 Mica"
+    metadata: "SQLite"
+    background: "Python 后台进程，全局单任务队列"
+    excel_primary: "安装 Microsoft Excel 时使用 COM 增强引擎"
+    excel_fallback: "无 Microsoft Excel 时使用 openpyxl/xlrd 兼容引擎"
+    versioning: "不可变完整快照、软删除回收站、恢复生成新节点"
+
+delivery:
+  approach: "风险原型 + 垂直切片 + 阶段验收"
+  estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
+  current_phase: "项目资料与目标已复核，等待阶段 0/1 启动"
+  next_milestone: "阶段 0 工程基线与阶段 1 技术风险原型"
+
+current_task:
+  id: "GIT-INIT-001"
+  status: "in_progress"
+  goal: "将当前工作目录初始化为 Git 仓库并首次推送到 tianyin231/Hyacinth"
+  owner: "codex-sol"
+
+last_completed:
+  - "完成第一版开发拆分和工作量评估"
+  - "确认采用 AI 主导、Sol 统一控制、OpenCode DeepSeek Worker 辅助的研发路线"
+  - "确认采用风险原型后按垂直切片推进"
+  - "部署 excelsorf-continuity 项目 Skill、根目录强制触发规则和状态校验脚本"
+  - "三个无 Skill RED 场景和三个有 Skill GREEN 场景完成，GREEN 全部符合约束"
+  - "完整复核需求讨论记录、原始前端框架设计、项目状态和最终 Fluent 视觉原型"
+  - "使用 opencode-go/deepseek-v4-flash Worker 独立梳理项目目标，Codex/Sol 已交叉验证"
+
+next_actions:
+  - "完成本地 Git 初始化、初始提交并推送 main 分支"
+  - "推送完成后等待用户授权启动阶段 0 和阶段 1"
+
+blockers:
+  - id: "GIT-NET-001"
+    status: "active"
+    summary: "访问 github.com 连续出现连接重置或超时，需在本地提交后继续重试推送"
+  - id: "ENV-COM-001"
+    status: "future"
+    summary: "COM 引擎验收需要安装正版 Microsoft Excel 的 Windows 测试环境"
+  - id: "REQ-CLIENT-001"
+    status: "tracked"
+    summary: "需求讨论记录第 43 节中的项目仍需在后续与客户复核"
+
+recent_decisions:
+  - id: "DEC-20260815-001"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "研发由 Codex/Sol 主控，可多调用 OpenCode deepseek-v4-flash 子代理提高效率"
+    source: "用户当前会话明确确认"
+    supersedes: "未明确限定子代理类型的早期约定"
+    impact: "所有任务拆分、并行执行、复核和集成"
+  - id: "DEC-20260815-002"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "项目采用风险原型、垂直切片、阶段验收路线"
+    source: "用户当前会话明确确认"
+    supersedes: "none"
+    impact: "开发顺序和里程碑"
+
+changed_files:
+  - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
+
+verification:
+  status: "in_progress"
+  commands:
+    - "gh auth status"
+    - "git credential-manager github list"
+    - "递归文件清单与敏感信息模式扫描"
+    - "git ls-remote https://github.com/tianyin231/Hyacinth.git"
+  evidence:
+    - "Git Credential Manager 已保存 GitHub 账号 tianyin231，提交用户与邮箱已配置"
+    - "当前目录共 68 个文件、约 1.44 MB；敏感信息扫描未发现真实凭据"
+    - "GitHub 远端只读核验连续两次连接重置或超时"
+  worker_sessions: {}
+  last_result: "本地前置检查完成，等待初始化、提交和推送验证"

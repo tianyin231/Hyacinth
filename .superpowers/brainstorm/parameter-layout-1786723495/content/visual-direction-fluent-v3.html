@@ -1,0 +1,69 @@
+<div id="fluent-final-host"></div>
+
+<style>
+  body { background:#eef1f5 !important; }
+  #fluent-final-host .product-frame { border-color:rgba(116,126,142,.30); background:rgba(248,249,251,.88); box-shadow:0 16px 38px rgba(36,43,54,.15),0 1px 0 rgba(255,255,255,.88) inset; backdrop-filter:none; }
+  #fluent-final-host .window-bar { background:rgba(247,248,250,.96); color:#20242b; border-bottom:1px solid rgba(116,126,142,.20); }
+  #fluent-final-host .doc-title { color:#505865; }
+  #fluent-final-host .win-button { color:#4b535f; }
+  #fluent-final-host .win-button:hover { background:rgba(31,38,49,.08); color:#20242b; }
+  #fluent-final-host .win-button.close:hover { background:#c42b1c; color:#fff; }
+  #fluent-final-host .toolbar { background:rgba(251,252,253,.82); border-bottom-color:rgba(116,126,142,.20); backdrop-filter:blur(10px) saturate(1.05); }
+  #fluent-final-host .tool-button { border-color:rgba(126,136,150,.34); background:rgba(255,255,255,.82); box-shadow:0 1px 2px rgba(38,45,55,.06); }
+  #fluent-final-host .tool-button:hover { background:#fff; border-color:rgba(82,94,111,.44); }
+  #fluent-final-host .tool-button.primary,#fluent-final-host .accent-button { border-color:#0f6cbd; background:#0f6cbd; box-shadow:0 2px 8px rgba(15,108,189,.20); }
+  #fluent-final-host .tool-button.primary:hover { background:#115ea3; }
+  #fluent-final-host .column,#fluent-final-host .panel { background:rgba(246,248,251,.78); backdrop-filter:none; }
+  #fluent-final-host .panel-head { background:rgba(255,255,255,.44); }
+  #fluent-final-host .select-box,#fluent-final-host .compact-select,#fluent-final-host .tree-filter,#fluent-final-host .name-box,#fluent-final-host .formula-input { border-color:rgba(116,126,142,.34); box-shadow:0 1px 1px rgba(31,38,49,.04); }
+  #fluent-final-host .select-box:focus-within,#fluent-final-host .compact-select:focus-within { border-color:#0f6cbd; box-shadow:0 0 0 2px rgba(15,108,189,.14); }
+  #fluent-final-host .file-row.active { background:rgba(15,108,189,.10); box-shadow:inset 2px 0 #0f6cbd; }
+  #fluent-final-host .tree-canvas { background-color:rgba(251,252,253,.78); background-image:none; }
+  #fluent-final-host .tree-node { border-color:rgba(116,126,142,.28); box-shadow:0 3px 9px rgba(43,50,61,.075),0 1px 0 #fff inset; }
+  #fluent-final-host .tree-node:before { border-color:#0f6cbd; }
+  #fluent-final-host .tree-node.root:before { background:#0f6cbd; }
+  #fluent-final-host .tree-node.n5 { border-color:#0f6cbd; box-shadow:0 0 0 3px rgba(15,108,189,.12),0 4px 12px rgba(43,50,61,.09); }
+  #fluent-final-host .branch-line { background:#82a9c9; }
+  #fluent-final-host .node-tag.current { background:#e5f2fb; color:#0b5a9d; }
+  #fluent-final-host .editor { background:#fff; box-shadow:-5px 0 14px rgba(43,50,61,.035); }
+  #fluent-final-host .data-grid td.selected { background:#e6f2fb; outline-color:#0f6cbd; }
+  #fluent-final-host .sheet-tab.active { border-top-color:#0f6cbd; }
+  #fluent-final-host .zoom-track:after { background:#0f6cbd; }
+  #fluent-final-host .brand-mark:before { background:#64748b; }
+  #fluent-final-host .brand-mark:after { background:#0f6cbd; }
+  #fluent-final-host .quality-badge { background:rgba(255,255,255,.74); backdrop-filter:none; }
+  #fluent-final-host .style-choice:hover { border-color:#5b9bd0; background:#f7fbfe; }
+  #fluent-final-host .style-choice.selected { border-color:#0f6cbd; box-shadow:0 0 0 3px rgba(15,108,189,.11); }
+  #fluent-final-host .node-tag { font-size:10px; }
+  #fluent-final-host .node-meta { font-size:10px; color:#68717e; }
+  #fluent-final-host .statusbar,#fluent-final-host .tree-filter,#fluent-final-host .file-meta { font-size:11px; color:#596270; }
+  #fluent-final-host .tool-button,#fluent-final-host .small-icon,#fluent-final-host .ghost-button,#fluent-final-host .accent-button,#fluent-final-host .file-row,#fluent-final-host .tree-node,#fluent-final-host .sheet-tab,#fluent-final-host .format-control,#fluent-final-host .win-button { transition:background-color 150ms ease,border-color 150ms ease,color 150ms ease,box-shadow 180ms ease,opacity 150ms ease; }
+  #fluent-final-host .tool-button:active,#fluent-final-host .ghost-button:active,#fluent-final-host .accent-button:active { filter:brightness(.94); }
+  #fluent-final-host .tool-button:focus-visible,#fluent-final-host .ghost-button:focus-visible,#fluent-final-host .accent-button:focus-visible,#fluent-final-host .file-row:focus-visible,#fluent-final-host .tree-node:focus-visible,#fluent-final-host .sheet-tab:focus-visible,#fluent-final-host .format-control:focus-visible { outline:2px solid #0f6cbd; outline-offset:2px; }
+  #fluent-final-host button:disabled { opacity:.44; cursor:not-allowed; box-shadow:none; }
+  @media (prefers-reduced-motion:reduce) {
+    #fluent-final-host * { transition-duration:0ms !important; animation-duration:0ms !important; }
+  }
+</style>
+
+<script>
+  fetch('/files/visual-direction-hifi.html')
+    .then(response => response.text())
+    .then(html => {
+      const host = document.getElementById('fluent-final-host');
+      host.innerHTML = html;
+      host.querySelector('h2').textContent = '风信子：Windows Fluent 数据工作台';
+      host.querySelector('.direction-head p').textContent = '系统质感来自层级、控件和状态反馈；透明与模糊保持克制，Excel 网格始终清晰。';
+      host.querySelector('.quality-badge').textContent = 'Fluent · 轻量材质 · 低配设备友好';
+      const choices = host.querySelectorAll('.style-choice');
+      choices[0].dataset.choice = 'approve-fluent-final';
+      choices[0].querySelector('strong').textContent = '认可这个 Fluent 方向';
+      choices[0].querySelector('span').textContent = '系统质感更明显，但网格仍保持专业、克制和高对比。';
+      choices[1].dataset.choice = 'more-mica-final';
+      choices[1].querySelector('strong').textContent = '希望 Mica 更明显';
+      choices[1].querySelector('span').textContent = '进一步强化侧栏与标题栏材质，但会增加低配机器渲染压力。';
+      choices[2].dataset.choice = 'less-fluent-final';
+      choices[2].querySelector('strong').textContent = '希望更克制一些';
+      choices[2].querySelector('span').textContent = '保留 Fluent 控件语言，减少透明与阴影效果。';
+    });
+</script>

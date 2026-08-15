@@ -1,0 +1,32 @@
+<div id="fluent-v2-host"></div>
+
+<style>
+  #fluent-v2-host .product-frame { backdrop-filter:none; box-shadow:0 16px 38px rgba(36,43,54,.15),0 1px 0 rgba(255,255,255,.88) inset; }
+  #fluent-v2-host .toolbar { backdrop-filter:blur(10px) saturate(1.05); }
+  #fluent-v2-host .column,#fluent-v2-host .panel { backdrop-filter:none; }
+  #fluent-v2-host .quality-badge { backdrop-filter:none; }
+  #fluent-v2-host .editor { box-shadow:-5px 0 14px rgba(43,50,61,.035); }
+  #fluent-v2-host .tree-node { box-shadow:0 3px 9px rgba(43,50,61,.075),0 1px 0 #fff inset; }
+  #fluent-v2-host .node-tag { font-size:10px; }
+  #fluent-v2-host .node-meta { font-size:10px; color:#68717e; }
+  #fluent-v2-host .statusbar,#fluent-v2-host .tree-filter,#fluent-v2-host .file-meta { font-size:11px; color:#596270; }
+  #fluent-v2-host .tool-button,#fluent-v2-host .small-icon,#fluent-v2-host .ghost-button,#fluent-v2-host .accent-button,#fluent-v2-host .file-row,#fluent-v2-host .tree-node,#fluent-v2-host .sheet-tab,#fluent-v2-host .format-control,#fluent-v2-host .win-button { transition:background-color 150ms ease,border-color 150ms ease,color 150ms ease,box-shadow 180ms ease,opacity 150ms ease; }
+  #fluent-v2-host .tool-button:active,#fluent-v2-host .ghost-button:active,#fluent-v2-host .accent-button:active { filter:brightness(.94); }
+  #fluent-v2-host .tool-button:focus-visible,#fluent-v2-host .ghost-button:focus-visible,#fluent-v2-host .accent-button:focus-visible,#fluent-v2-host .file-row:focus-visible,#fluent-v2-host .tree-node:focus-visible,#fluent-v2-host .sheet-tab:focus-visible,#fluent-v2-host .format-control:focus-visible { outline:2px solid #0f6cbd; outline-offset:2px; }
+  #fluent-v2-host button:disabled { opacity:.44; cursor:not-allowed; box-shadow:none; }
+  #fluent-v2-host .tree-canvas { background-image:none; }
+  @media (prefers-reduced-motion:reduce) {
+    #fluent-v2-host * { transition-duration:0ms !important; animation-duration:0ms !important; }
+  }
+</style>
+
+<script>
+  fetch('/files/visual-direction-fluent.html')
+    .then(response => response.text())
+    .then(html => {
+      const host = document.getElementById('fluent-v2-host');
+      host.innerHTML = html;
+      host.querySelector('.quality-badge').textContent = 'Fluent · 轻量材质 · 低配设备友好';
+      host.querySelector('.direction-head p').textContent = '系统质感来自层级、控件和状态反馈；透明与模糊保持克制，Excel 网格始终清晰。';
+    });
+</script>

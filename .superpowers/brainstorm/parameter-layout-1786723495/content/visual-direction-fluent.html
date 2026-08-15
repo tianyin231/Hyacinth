@@ -1,0 +1,60 @@
+<div id="fluent-host"></div>
+
+<style>
+  body { background:#eef1f5 !important; }
+  #fluent-host .product-frame { border-color:rgba(116,126,142,.30); background:rgba(248,249,251,.86); box-shadow:0 22px 56px rgba(36,43,54,.19),0 1px 0 rgba(255,255,255,.88) inset; backdrop-filter:blur(24px) saturate(1.15); }
+  #fluent-host .window-bar { background:rgba(247,248,250,.94); color:#20242b; border-bottom:1px solid rgba(116,126,142,.20); }
+  #fluent-host .doc-title { color:#505865; }
+  #fluent-host .win-button { color:#4b535f; }
+  #fluent-host .win-button:hover { background:rgba(31,38,49,.08); color:#20242b; }
+  #fluent-host .win-button.close:hover { background:#c42b1c; color:#fff; }
+  #fluent-host .toolbar { background:rgba(251,252,253,.78); border-bottom-color:rgba(116,126,142,.20); backdrop-filter:blur(18px); }
+  #fluent-host .tool-button { border-color:rgba(126,136,150,.34); background:rgba(255,255,255,.76); box-shadow:0 1px 2px rgba(38,45,55,.06); }
+  #fluent-host .tool-button:hover { background:#fff; border-color:rgba(82,94,111,.44); }
+  #fluent-host .tool-button.primary { border-color:#0f6cbd; background:#0f6cbd; box-shadow:0 2px 8px rgba(15,108,189,.22); }
+  #fluent-host .tool-button.primary:hover { background:#115ea3; }
+  #fluent-host .column,#fluent-host .panel { background:rgba(246,248,251,.74); backdrop-filter:blur(16px); }
+  #fluent-host .panel-head { background:rgba(255,255,255,.40); }
+  #fluent-host .select-box,#fluent-host .compact-select,#fluent-host .tree-filter,#fluent-host .name-box,#fluent-host .formula-input { border-color:rgba(116,126,142,.34); box-shadow:0 1px 1px rgba(31,38,49,.04); }
+  #fluent-host .select-box:focus-within,#fluent-host .compact-select:focus-within { border-color:#0f6cbd; box-shadow:0 0 0 2px rgba(15,108,189,.14); }
+  #fluent-host .accent-button { border-color:#0f6cbd; background:#0f6cbd; box-shadow:0 2px 8px rgba(15,108,189,.20); }
+  #fluent-host .file-row.active { background:rgba(15,108,189,.10); box-shadow:inset 2px 0 #0f6cbd; }
+  #fluent-host .tree-canvas { background-color:rgba(251,252,253,.74); }
+  #fluent-host .tree-node { border-color:rgba(116,126,142,.28); box-shadow:0 4px 14px rgba(43,50,61,.10),0 1px 0 #fff inset; }
+  #fluent-host .tree-node:before { border-color:#0f6cbd; }
+  #fluent-host .tree-node.root:before { background:#0f6cbd; }
+  #fluent-host .tree-node.n5 { border-color:#0f6cbd; box-shadow:0 0 0 3px rgba(15,108,189,.12),0 5px 16px rgba(43,50,61,.10); }
+  #fluent-host .branch-line { background:#82a9c9; }
+  #fluent-host .node-tag.current { background:#e5f2fb; color:#0b5a9d; }
+  #fluent-host .editor { background:#fff; box-shadow:-8px 0 24px rgba(43,50,61,.05); }
+  #fluent-host .data-grid td.selected { background:#e6f2fb; outline-color:#0f6cbd; }
+  #fluent-host .sheet-tab.active { border-top-color:#0f6cbd; }
+  #fluent-host .zoom-track:after { background:#0f6cbd; }
+  #fluent-host .brand-mark:before { background:#6b5bd2; }
+  #fluent-host .brand-mark:after { background:#0f6cbd; }
+  #fluent-host .quality-badge { background:rgba(255,255,255,.68); backdrop-filter:blur(12px); }
+  #fluent-host .style-choice:hover { border-color:#5b9bd0; background:#f7fbfe; }
+  #fluent-host .style-choice.selected { border-color:#0f6cbd; box-shadow:0 0 0 3px rgba(15,108,189,.11); }
+</style>
+
+<script>
+  fetch('/files/visual-direction-hifi.html')
+    .then(response => response.text())
+    .then(html => {
+      const host = document.getElementById('fluent-host');
+      host.innerHTML = html;
+      host.querySelector('h2').textContent = '风信子：Windows Fluent 数据工作台';
+      host.querySelector('.direction-head p').textContent = '保留清晰的数据网格，在窗口框架、工具栏、侧栏和版本图谱中融入 Fluent 质感。';
+      host.querySelector('.quality-badge').textContent = 'Fluent · 局部 Mica · 高性能优先';
+      const choices = host.querySelectorAll('.style-choice');
+      choices[0].dataset.choice = 'approve-fluent';
+      choices[0].querySelector('strong').textContent = '认可这个 Fluent 方向';
+      choices[0].querySelector('span').textContent = '系统质感更明显，但网格仍保持专业、克制和高对比。';
+      choices[1].dataset.choice = 'more-mica';
+      choices[1].querySelector('strong').textContent = '希望 Mica 更明显';
+      choices[1].querySelector('span').textContent = '进一步强化侧栏与标题栏材质，但会增加低配机器渲染压力。';
+      choices[2].dataset.choice = 'less-fluent';
+      choices[2].querySelector('strong').textContent = '希望更克制一些';
+      choices[2].querySelector('span').textContent = '保留 Fluent 控件语言，减少透明与阴影效果。';
+    });
+</script>

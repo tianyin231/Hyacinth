@@ -1,0 +1,204 @@
+<style>
+  * { box-sizing:border-box; letter-spacing:0; }
+  .direction-head { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom:18px; }
+  .direction-head h2 { margin:0 0 6px; }
+  .direction-head p { margin:0; color:#68707d; }
+  .quality-badge { padding:7px 10px; border:1px solid #d8dce4; border-radius:6px; background:#fff; color:#3e4652; font-size:12px; white-space:nowrap; }
+  .product-frame { width:100%; min-height:660px; border:1px solid #cfd4dc; border-radius:8px; overflow:hidden; background:#f5f6f8; box-shadow:0 18px 50px rgba(31,38,49,.16); color:#20242b; font-family:"Segoe UI Variable","Segoe UI","Microsoft YaHei UI",sans-serif; }
+  .window-bar { height:44px; display:grid; grid-template-columns:300px 1fr 200px; align-items:center; background:#252931; color:#f8fafc; user-select:none; }
+  .brand { display:flex; align-items:center; gap:10px; padding:0 14px; font-size:13px; font-weight:650; }
+  .brand-mark { width:18px; height:18px; position:relative; }
+  .brand-mark:before,.brand-mark:after { content:""; position:absolute; width:8px; height:14px; border-radius:8px 8px 3px 8px; background:#8b7cf6; transform:rotate(34deg); }
+  .brand-mark:before { left:2px; top:1px; }
+  .brand-mark:after { right:1px; bottom:0; transform:rotate(-34deg); background:#5fa6a0; }
+  .doc-title { text-align:center; font-size:12px; color:#d8dbe1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .win-actions { height:44px; display:flex; justify-content:flex-end; align-items:stretch; }
+  .win-button { width:46px; display:grid; place-items:center; color:#d8dbe1; font-size:15px; }
+  .win-button:hover { background:#343a45; color:#fff; }
+  .win-button.close:hover { background:#c42b1c; }
+  .toolbar { height:42px; display:flex; align-items:center; gap:8px; padding:0 12px; border-bottom:1px solid #dfe3e8; background:#fafbfc; }
+  .tool-button { height:30px; display:inline-flex; align-items:center; gap:7px; padding:0 10px; border:1px solid #d4d8df; border-radius:6px; background:#fff; color:#343a45; font-size:12px; }
+  .tool-button.primary { border-color:#6558dd; background:#6558dd; color:#fff; }
+  .tool-button.icon { width:30px; padding:0; justify-content:center; font-size:16px; }
+  .tool-divider { width:1px; height:20px; background:#dfe3e8; margin:0 2px; }
+  .mode-pill { margin-left:auto; height:26px; display:flex; align-items:center; gap:6px; padding:0 9px; border:1px solid #bcd9d2; border-radius:13px; background:#eff9f6; color:#25695c; font-size:11px; }
+  .mode-dot { width:6px; height:6px; border-radius:50%; background:#2f9b7e; }
+  .workspace { display:grid; grid-template-columns:minmax(230px,260px) minmax(280px,340px) minmax(480px,1fr); height:528px; }
+  .column { min-width:0; border-right:1px solid #dfe3e8; background:#f7f8fa; }
+  .left-column { display:grid; grid-template-rows:328px 200px; }
+  .panel { min-width:0; min-height:0; overflow:hidden; background:#f7f8fa; }
+  .panel + .panel { border-top:1px solid #dfe3e8; }
+  .panel-head { height:38px; display:flex; align-items:center; justify-content:space-between; padding:0 11px; border-bottom:1px solid #e4e7eb; font-size:12px; font-weight:650; color:#343a45; }
+  .panel-actions { display:flex; gap:4px; }
+  .small-icon { width:26px; height:26px; display:grid; place-items:center; border-radius:5px; color:#69717e; font-size:14px; }
+  .small-icon:hover { background:#eaecf0; color:#2d333d; }
+  .parameter-body { height:247px; padding:10px 11px 8px; overflow:auto; }
+  .form-group { margin-bottom:10px; }
+  .form-label { display:flex; justify-content:space-between; margin-bottom:4px; color:#666e7a; font-size:11px; }
+  .select-box { height:31px; display:flex; align-items:center; justify-content:space-between; padding:0 9px; border:1px solid #d1d6dd; border-radius:5px; background:#fff; color:#303640; font-size:12px; }
+  .select-box:after { content:"⌄"; color:#747c88; font-size:13px; }
+  .sort-row { display:grid; grid-template-columns:22px 1fr 66px; gap:5px; align-items:center; margin-bottom:5px; }
+  .drag-handle { color:#99a0aa; text-align:center; font-size:13px; }
+  .compact-select { height:29px; display:flex; align-items:center; padding:0 8px; border:1px solid #d1d6dd; border-radius:5px; background:#fff; font-size:11px; }
+  .compact-select.align-right { justify-content:space-between; }
+  .parameter-footer { height:43px; display:flex; align-items:center; gap:7px; padding:0 10px; border-top:1px solid #e1e4e9; background:#fafbfc; }
+  .ghost-button,.accent-button { height:29px; border-radius:5px; font-size:11px; padding:0 10px; }
+  .ghost-button { border:1px solid #d2d7de; background:#fff; color:#4b535f; }
+  .accent-button { margin-left:auto; border:1px solid #6558dd; background:#6558dd; color:#fff; }
+  .file-list { padding:5px 6px; }
+  .file-row { height:36px; display:grid; grid-template-columns:24px 1fr 42px; align-items:center; gap:5px; padding:0 7px; border-radius:5px; color:#464d58; font-size:11px; }
+  .file-row.active { background:#eceafb; box-shadow:inset 2px 0 #6558dd; color:#2b3040; }
+  .file-glyph { width:18px; height:21px; display:grid; place-items:center; border:1px solid #91b8ae; border-radius:3px; background:#f2faf7; color:#2f7c69; font-size:8px; font-weight:700; }
+  .file-meta { color:#8a919b; font-size:10px; text-align:right; }
+  .tree-panel { position:relative; background:#fbfbfc; }
+  .tree-toolbar { height:34px; display:flex; align-items:center; gap:5px; padding:0 9px; border-bottom:1px solid #e4e7eb; }
+  .tree-filter { height:24px; flex:1; display:flex; align-items:center; padding:0 8px; border:1px solid #d8dce2; border-radius:5px; background:#fff; color:#8a919b; font-size:10px; }
+  .tree-canvas { position:relative; height:455px; overflow:hidden; background-color:#fbfbfc; background-image:radial-gradient(#d9dde4 0.6px,transparent 0.6px); background-size:16px 16px; }
+  .branch-line { position:absolute; height:2px; background:#b7aecf; transform-origin:left center; border-radius:2px; }
+  .branch-line.l1 { left:73px; top:88px; width:88px; transform:rotate(28deg); }
+  .branch-line.l2 { left:73px; top:88px; width:92px; transform:rotate(-24deg); }
+  .branch-line.l3 { left:174px; top:126px; width:64px; transform:rotate(22deg); }
+  .branch-line.l4 { left:174px; top:126px; width:72px; transform:rotate(-18deg); }
+  .tree-node { position:absolute; width:104px; min-height:58px; padding:7px 7px 6px 14px; border:1px solid #d7dae0; border-radius:7px; background:#fff; box-shadow:0 3px 10px rgba(36,42,52,.07); }
+  .tree-node:before { content:""; position:absolute; left:-6px; top:18px; width:10px; height:10px; border:2px solid #7669e6; border-radius:50%; background:#fff; }
+  .tree-node.root { left:18px; top:58px; border-color:#c8c2ee; }
+  .tree-node.root:before { background:#6558dd; }
+  .tree-node.n2 { left:124px; top:119px; }
+  .tree-node.n3 { left:132px; top:21px; }
+  .tree-node.n4 { right:12px; top:167px; }
+  .tree-node.n5 { right:6px; top:79px; border:2px solid #6558dd; box-shadow:0 0 0 3px rgba(101,88,221,.10); }
+  .node-title { font-size:11px; font-weight:650; color:#343a45; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .node-meta { margin-top:3px; color:#808793; font-size:9px; }
+  .node-tag { display:inline-flex; margin-top:4px; padding:1px 4px; border-radius:3px; background:#eef1f4; color:#5f6671; font-size:8px; }
+  .node-tag.current { background:#eceafb; color:#5549c7; }
+  .milestone { position:absolute; right:6px; top:5px; color:#c28a16; font-size:12px; }
+  .editor { display:grid; grid-template-rows:36px 36px 1fr 31px; background:#fff; min-width:0; }
+  .formula-bar { display:grid; grid-template-columns:72px 32px 1fr; align-items:center; border-bottom:1px solid #dfe3e8; background:#fafbfc; }
+  .name-box { height:26px; margin-left:6px; display:flex; align-items:center; padding:0 8px; border:1px solid #d5d9df; border-radius:4px; background:#fff; font:11px Consolas,monospace; }
+  .fx { text-align:center; color:#6558dd; font:italic 12px Georgia,serif; }
+  .formula-input { height:26px; margin-right:6px; display:flex; align-items:center; padding:0 8px; border:1px solid #d5d9df; border-radius:4px; background:#fff; font:11px Consolas,monospace; }
+  .format-bar { display:flex; align-items:center; gap:4px; padding:0 7px; border-bottom:1px solid #dfe3e8; background:#f8f9fb; }
+  .format-control { height:25px; min-width:26px; display:grid; place-items:center; padding:0 7px; border-radius:4px; color:#4d5560; font-size:11px; }
+  .format-control:hover { background:#e9ebef; }
+  .format-control.wide { min-width:78px; justify-content:start; border:1px solid #d5d9df; background:#fff; }
+  .grid-wrap { overflow:hidden; background:#fff; }
+  .data-grid { width:100%; border-collapse:collapse; table-layout:fixed; font-size:11px; }
+  .data-grid th,.data-grid td { height:27px; padding:0 7px; border-right:1px solid #e4e7eb; border-bottom:1px solid #e4e7eb; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .data-grid th { background:#f3f4f6; color:#6e7682; font-weight:500; text-align:center; }
+  .data-grid .row-head { width:38px; padding:0; text-align:center; background:#f3f4f6; color:#7c838e; }
+  .data-grid .header-cell { background:#fafbfc; font-weight:650; color:#343a45; }
+  .data-grid td.number { text-align:right; font-variant-numeric:tabular-nums; }
+  .data-grid td.selected { position:relative; background:#f0eefc; outline:2px solid #6558dd; outline-offset:-2px; }
+  .data-grid tr:hover td:not(.row-head) { background-color:#fafafe; }
+  .sheet-tabs { display:flex; align-items:center; gap:2px; padding:0 7px; border-top:1px solid #dfe3e8; background:#f5f6f8; }
+  .sheet-tab { height:30px; display:flex; align-items:center; padding:0 11px; border-top:2px solid transparent; color:#68707b; font-size:10px; }
+  .sheet-tab.active { border-top-color:#6558dd; background:#fff; color:#3d4450; font-weight:600; }
+  .statusbar { height:28px; display:flex; align-items:center; gap:16px; padding:0 12px; border-top:1px solid #d9dde3; background:#f0f2f5; color:#69717c; font-size:10px; }
+  .statusbar .save-state { color:#2f7c69; }
+  .zoom { margin-left:auto; display:flex; align-items:center; gap:8px; }
+  .zoom-track { width:74px; height:3px; border-radius:2px; background:#cfd4dc; position:relative; }
+  .zoom-track:after { content:""; position:absolute; left:42px; top:-4px; width:11px; height:11px; border-radius:50%; background:#6558dd; }
+  .style-choices { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:16px; }
+  .style-choice { min-height:58px; padding:10px 12px; border:1px solid #d6dae1; border-radius:7px; background:#fff; cursor:pointer; }
+  .style-choice:hover { border-color:#8a82d8; background:#fafafe; }
+  .style-choice.selected { border-color:#6558dd; box-shadow:0 0 0 3px rgba(101,88,221,.10); }
+  .style-choice strong { display:block; margin-bottom:3px; font-size:13px; color:#333946; }
+  .style-choice span { color:#68707c; font-size:11px; line-height:1.4; }
+  @media(max-width:1050px){ .workspace{grid-template-columns:220px 270px minmax(430px,1fr)} .product-frame{overflow:auto} .style-choices{grid-template-columns:1fr} }
+</style>
+
+<div class="direction-head">
+  <div>
+    <h2>风信子：现代数据工作台方向稿</h2>
+    <p>A 布局的高保真视觉方向。网格优先、界面克制，版本图谱承担产品辨识度。</p>
+  </div>
+  <div class="quality-badge">Windows 10/11 · 浅色主题 · 1080p 密度</div>
+</div>
+
+<div class="product-frame">
+  <div class="window-bar">
+    <div class="brand"><span class="brand-mark"></span><span>风信子</span></div>
+    <div class="doc-title">水果店铺销售报表.xlsx · 手动编辑未保存</div>
+    <div class="win-actions"><div class="win-button">—</div><div class="win-button">□</div><div class="win-button close">×</div></div>
+  </div>
+  <div class="toolbar">
+    <button class="tool-button primary"><span>＋</span><span>导入文件</span></button>
+    <button class="tool-button">保存为新版本</button>
+    <div class="tool-divider"></div>
+    <button class="tool-button icon">↶</button>
+    <button class="tool-button icon">↷</button>
+    <button class="tool-button">对比版本</button>
+    <button class="tool-button">回收站</button>
+    <div class="mode-pill"><span class="mode-dot"></span>Excel 增强模式</div>
+    <button class="tool-button">设置</button>
+  </div>
+  <div class="workspace">
+    <div class="column left-column">
+      <section class="panel">
+        <div class="panel-head"><span>多列排序</span><div class="panel-actions"><span class="small-icon">?</span><span class="small-icon">×</span></div></div>
+        <div class="parameter-body">
+          <div class="form-group"><div class="form-label"><span>处理工作表</span></div><div class="select-box">销售明细</div></div>
+          <div class="form-group"><div class="form-label"><span>处理范围</span><span>A1:F248</span></div><div class="select-box">当前数据区域</div></div>
+          <div class="form-group">
+            <div class="form-label"><span>排序优先级</span><span>拖动调整</span></div>
+            <div class="sort-row"><span class="drag-handle">⋮⋮</span><span class="compact-select">销售额</span><span class="compact-select align-right">降序⌄</span></div>
+            <div class="sort-row"><span class="drag-handle">⋮⋮</span><span class="compact-select">日期</span><span class="compact-select align-right">升序⌄</span></div>
+          </div>
+          <div class="form-group"><div class="form-label"><span>空值位置</span></div><div class="select-box">始终排在末尾</div></div>
+        </div>
+        <div class="parameter-footer"><button class="ghost-button">返回</button><button class="ghost-button">重置</button><button class="accent-button">预览结果</button></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><span>已上传文件</span><div class="panel-actions"><span class="small-icon">⌕</span><span class="small-icon">⋯</span></div></div>
+        <div class="file-list">
+          <div class="file-row active"><span class="file-glyph">X</span><span>水果店铺销售报表.xlsx</span><span class="file-meta">8 个版本</span></div>
+          <div class="file-row"><span class="file-glyph">X</span><span>仓库库存明细.xlsx</span><span class="file-meta">3 个版本</span></div>
+          <div class="file-row"><span class="file-glyph">X</span><span>供应商名录.xls</span><span class="file-meta">兼容</span></div>
+        </div>
+      </section>
+    </div>
+    <section class="column tree-panel">
+      <div class="panel-head"><span>版本演化树</span><div class="panel-actions"><span class="small-icon">−</span><span class="small-icon">＋</span><span class="small-icon">⌂</span></div></div>
+      <div class="tree-toolbar"><div class="tree-filter">搜索版本名称、功能或备注</div><span class="small-icon">⌕</span></div>
+      <div class="tree-canvas">
+        <span class="branch-line l1"></span><span class="branch-line l2"></span><span class="branch-line l3"></span><span class="branch-line l4"></span>
+        <div class="tree-node root"><div class="node-title">导入原始文件</div><div class="node-meta">08-14 14:21 · XLSX</div><span class="node-tag">根版本</span></div>
+        <div class="tree-node n2"><div class="node-title">删除空白行</div><div class="node-meta">08-14 14:32 · Python</div><span class="node-tag">处理</span></div>
+        <div class="tree-node n3"><div class="node-title">按日期筛选</div><div class="node-meta">08-14 14:29 · Excel</div><span class="node-tag">处理</span></div>
+        <div class="tree-node n4"><div class="node-title">历史恢复</div><div class="node-meta">08-14 15:08 · 来自 V2</div><span class="node-tag">恢复</span></div>
+        <div class="tree-node n5"><span class="milestone">★</span><div class="node-title">手动编辑</div><div class="node-meta">08-14 15:40 · Excel</div><span class="node-tag current">当前版本</span></div>
+      </div>
+    </section>
+    <section class="editor">
+      <div class="formula-bar"><div class="name-box">E4</div><div class="fx">fx</div><div class="formula-input">=C4*D4</div></div>
+      <div class="format-bar"><span class="format-control wide">Segoe UI⌄</span><span class="format-control">11⌄</span><span class="format-control"><b>B</b></span><span class="format-control"><i>I</i></span><span class="format-control">≡</span><span class="format-control">$</span><span class="format-control">%</span><span class="format-control">.00</span></div>
+      <div class="grid-wrap">
+        <table class="data-grid">
+          <thead><tr><th class="row-head"></th><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th><th>F</th></tr></thead>
+          <tbody>
+            <tr><td class="row-head">1</td><td class="header-cell">日期</td><td class="header-cell">商品</td><td class="header-cell">单价</td><td class="header-cell">数量</td><td class="header-cell">销售额</td><td class="header-cell">门店</td></tr>
+            <tr><td class="row-head">2</td><td>2026/08/12</td><td>苹果</td><td class="number">30.00</td><td class="number">12</td><td class="number">360.00</td><td>人民路店</td></tr>
+            <tr><td class="row-head">3</td><td>2026/08/12</td><td>蓝莓</td><td class="number">48.00</td><td class="number">5</td><td class="number">240.00</td><td>城南店</td></tr>
+            <tr><td class="row-head">4</td><td>2026/08/13</td><td>西瓜</td><td class="number">26.80</td><td class="number">18</td><td class="number selected">482.40</td><td>人民路店</td></tr>
+            <tr><td class="row-head">5</td><td>2026/08/13</td><td>葡萄</td><td class="number">35.00</td><td class="number">9</td><td class="number">315.00</td><td>大学城店</td></tr>
+            <tr><td class="row-head">6</td><td>2026/08/13</td><td>橙子</td><td class="number">18.50</td><td class="number">16</td><td class="number">296.00</td><td>城南店</td></tr>
+            <tr><td class="row-head">7</td><td>2026/08/14</td><td>香蕉</td><td class="number">12.80</td><td class="number">22</td><td class="number">281.60</td><td>大学城店</td></tr>
+            <tr><td class="row-head">8</td><td>2026/08/14</td><td>草莓</td><td class="number">56.00</td><td class="number">6</td><td class="number">336.00</td><td>人民路店</td></tr>
+            <tr><td class="row-head">9</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+            <tr><td class="row-head">10</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+            <tr><td class="row-head">11</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+            <tr><td class="row-head">12</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="sheet-tabs"><span class="sheet-tab active">销售明细</span><span class="sheet-tab">商品汇总</span><span class="sheet-tab">门店信息</span><span class="sheet-tab">＋</span></div>
+    </section>
+  </div>
+  <div class="statusbar"><span class="save-state">草稿已自动保存</span><span>当前版本 V8</span><span>选择：1 个单元格</span><div class="zoom"><span>100%</span><span>−</span><span class="zoom-track"></span><span>＋</span></div></div>
+</div>
+
+<div class="style-choices">
+  <div class="style-choice" data-choice="approve-hybrid" onclick="toggleSelect(this)"><strong>认可这个方向</strong><span>中性数据工作台 + 强化版本图谱 + 局部精致材质。</span></div>
+  <div class="style-choice" data-choice="more-fluent" onclick="toggleSelect(this)"><strong>希望更偏 Windows Fluent</strong><span>增加局部 Mica、柔和阴影和更明显的系统材质感。</span></div>
+  <div class="style-choice" data-choice="more-expressive" onclick="toggleSelect(this)"><strong>希望更明亮、更有品牌感</strong><span>保持数据区清晰，同时提高强调色和版本树的视觉表现力。</span></div>
+</div>

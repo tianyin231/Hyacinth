@@ -1,0 +1,5 @@
+[     452ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:51853/favicon.ico:0
+[  534757ms] TypeError: Cannot set properties of null (setting 'textContent')
+    at http://localhost:51853/:233:56
+[  544950ms] TypeError: Cannot set properties of null (setting 'textContent')
+    at http://localhost:51853/:233:56

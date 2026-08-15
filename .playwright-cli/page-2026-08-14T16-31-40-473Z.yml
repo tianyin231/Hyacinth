@@ -1,0 +1,7 @@
+- generic [active] [ref=f6e1]:
+  - generic [ref=f6e2]:
+    - heading [level=1] [ref=f6e3]:
+      - link "Superpowers Brainstorming" [ref=f6e4] [cursor=pointer]:
+        - /url: https://github.com/obra/superpowers
+    - generic [ref=f6e5]: Connected
+  - generic [ref=f6e8]: Click an option above, then return to the terminal

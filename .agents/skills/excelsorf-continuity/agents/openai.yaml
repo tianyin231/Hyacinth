@@ -1,0 +1,4 @@
+interface:
+  display_name: "风信子项目接续"
+  short_description: "保持风信子项目需求、进度、验证证据和后续任务跨会话持续一致"
+  default_prompt: "Use $excelsorf-continuity to resume and update the ExcelSorf project safely."

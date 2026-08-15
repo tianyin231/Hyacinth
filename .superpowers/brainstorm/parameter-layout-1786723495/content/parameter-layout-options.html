@@ -1,0 +1,90 @@
+<style>
+  .layout-grid { display:grid; grid-template-columns:repeat(3,minmax(280px,1fr)); gap:18px; margin-top:20px; }
+  .layout-card { cursor:pointer; border:2px solid #d7dce2; border-radius:8px; overflow:hidden; background:#fff; transition:.15s ease; }
+  .layout-card:hover { border-color:#6b7280; transform:translateY(-2px); }
+  .layout-card.selected { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.12); }
+  .app-shell { height:310px; background:#f4f5f7; color:#20242a; font-size:10px; position:relative; overflow:hidden; }
+  .app-top { height:28px; display:flex; align-items:center; justify-content:space-between; padding:0 9px; background:#20242a; color:#fff; }
+  .app-body { display:grid; grid-template-columns:31% 29% 40%; height:282px; }
+  .pane { border-right:1px solid #bcc3ca; background:#fff; position:relative; overflow:hidden; }
+  .pane-title { height:24px; padding:0 7px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #d7dce2; font-weight:700; }
+  .pane-content { padding:7px; }
+  .left-stack { display:grid; grid-template-rows:63% 37%; }
+  .left-stack > .pane { border-bottom:1px solid #bcc3ca; }
+  .field { margin:6px 0; }
+  .field label { display:block; color:#646b74; margin-bottom:2px; }
+  .input { height:22px; border:1px solid #c8ced5; background:#fff; display:flex; align-items:center; padding:0 6px; }
+  .row { display:flex; gap:4px; }
+  .chip { border:1px solid #b9c0c8; padding:3px 6px; background:#f5f6f8; }
+  .primary { background:#2563eb; color:#fff; border:0; padding:5px 8px; }
+  .secondary { background:#fff; color:#31363d; border:1px solid #b9c0c8; padding:5px 8px; }
+  .tree { padding:12px 8px; line-height:2.4; }
+  .node { display:inline-block; border:1px solid #9da6af; background:#fff; padding:2px 6px; }
+  .node.active { border-color:#2563eb; background:#eef5ff; }
+  .sheet { margin:9px; border:1px solid #c8ced5; background:#fff; }
+  .sheet-row { display:grid; grid-template-columns:22px repeat(4,1fr); }
+  .cell { min-height:21px; border-right:1px solid #e0e3e7; border-bottom:1px solid #e0e3e7; padding:3px; }
+  .muted { color:#727981; }
+  .modal-layer { position:absolute; inset:28px 0 0; background:rgba(20,24,28,.28); display:flex; align-items:center; justify-content:center; }
+  .modal { width:48%; background:#fff; border:1px solid #9da6af; box-shadow:0 8px 24px rgba(0,0,0,.22); padding:10px; }
+  .drawer { position:absolute; top:28px; right:0; bottom:0; width:38%; background:#fff; border-left:2px solid #8e98a3; box-shadow:-8px 0 18px rgba(0,0,0,.12); padding:8px; }
+  .card-copy { padding:12px 14px 14px; }
+  .card-copy h3 { margin:0 0 5px; font-size:16px; }
+  .card-copy p { margin:0; color:#606872; font-size:13px; line-height:1.5; }
+  .recommended { display:inline-block; margin-left:6px; padding:2px 5px; background:#e8f2ff; color:#165eb8; font-size:11px; font-weight:600; }
+  @media(max-width:1050px){ .layout-grid{grid-template-columns:1fr;} }
+</style>
+
+<h2>功能参数放在哪里更合适？</h2>
+<p class="subtitle">三种方案都保留客户草图中的四面板布局。点击一个方案进行选择。</p>
+
+<div class="layout-grid">
+  <div class="layout-card" data-choice="inline-left" onclick="toggleSelect(this)">
+    <div class="app-shell">
+      <div class="app-top"><span>风信子 - 销售报表.xlsx</span><span>导入　设置　-　□　x</span></div>
+      <div class="app-body">
+        <div class="left-stack">
+          <div class="pane">
+            <div class="pane-title"><span>← 多列排序</span><span>?</span></div>
+            <div class="pane-content">
+              <div class="field"><label>处理工作表</label><div class="input">销售明细</div></div>
+              <div class="field"><label>排序列</label><div class="input">销售额　降序</div></div>
+              <div class="field"><label>次级排序</label><div class="input">日期　升序</div></div>
+              <div class="row"><button class="secondary">重置</button><button class="primary">预览结果</button></div>
+            </div>
+          </div>
+          <div class="pane"><div class="pane-title">已上传文件</div><div class="pane-content">销售报表.xlsx<br><span class="muted">库存明细.xlsx</span></div></div>
+        </div>
+        <div class="pane"><div class="pane-title">版本演化树</div><div class="tree"><span class="node">导入文件</span><br>　└─ <span class="node active">删除空行</span></div></div>
+        <div class="pane"><div class="pane-title">Excel 编辑区</div><div class="sheet"><div class="sheet-row"><div class="cell"></div><div class="cell">A</div><div class="cell">B</div><div class="cell">C</div><div class="cell">D</div></div><div class="sheet-row"><div class="cell">1</div><div class="cell">日期</div><div class="cell">商品</div><div class="cell">数量</div><div class="cell">销售额</div></div><div class="sheet-row"><div class="cell">2</div><div class="cell">8/12</div><div class="cell">苹果</div><div class="cell">12</div><div class="cell">360</div></div></div></div>
+      </div>
+    </div>
+    <div class="card-copy"><h3>A. 左侧就地参数面板 <span class="recommended">推荐</span></h3><p>点击功能后，功能列表原位切换为参数表单。预览和版本树始终可见，对现有布局改动最小。</p></div>
+  </div>
+
+  <div class="layout-card" data-choice="modal" onclick="toggleSelect(this)">
+    <div class="app-shell">
+      <div class="app-top"><span>风信子 - 销售报表.xlsx</span><span>导入　设置　-　□　x</span></div>
+      <div class="app-body">
+        <div class="left-stack"><div class="pane"><div class="pane-title">功能选择</div><div class="pane-content">多列排序<br>条件筛选<br>删除重复行<br>查找替换</div></div><div class="pane"><div class="pane-title">已上传文件</div></div></div>
+        <div class="pane"><div class="pane-title">版本演化树</div></div>
+        <div class="pane"><div class="pane-title">Excel 编辑区</div></div>
+      </div>
+      <div class="modal-layer"><div class="modal"><strong>多列排序</strong><div class="field"><label>工作表</label><div class="input">销售明细</div></div><div class="field"><label>排序列</label><div class="input">销售额　降序</div></div><div class="row"><button class="secondary">取消</button><button class="primary">预览结果</button></div></div></div>
+    </div>
+    <div class="card-copy"><h3>B. 居中参数弹窗</h3><p>操作焦点集中，但会遮挡表格，配置复杂筛选条件时无法同时核对数据。</p></div>
+  </div>
+
+  <div class="layout-card" data-choice="right-drawer" onclick="toggleSelect(this)">
+    <div class="app-shell">
+      <div class="app-top"><span>风信子 - 销售报表.xlsx</span><span>导入　设置　-　□　x</span></div>
+      <div class="app-body">
+        <div class="left-stack"><div class="pane"><div class="pane-title">功能选择</div><div class="pane-content">多列排序<br>条件筛选<br>删除重复行<br>查找替换</div></div><div class="pane"><div class="pane-title">已上传文件</div></div></div>
+        <div class="pane"><div class="pane-title">版本演化树</div><div class="tree"><span class="node active">当前版本</span></div></div>
+        <div class="pane"><div class="pane-title">Excel 编辑区</div><div class="sheet"><div class="sheet-row"><div class="cell"></div><div class="cell">A</div><div class="cell">B</div><div class="cell">C</div><div class="cell">D</div></div></div></div>
+      </div>
+      <div class="drawer"><strong>多列排序</strong><div class="field"><label>处理工作表</label><div class="input">销售明细</div></div><div class="field"><label>排序列</label><div class="input">销售额　降序</div></div><div class="row"><button class="secondary">重置</button><button class="primary">预览</button></div></div>
+    </div>
+    <div class="card-copy"><h3>C. 右侧滑出抽屉</h3><p>功能列表保持可见，但占用 Excel 编辑空间，并与“设置”抽屉产生位置竞争。</p></div>
+  </div>
+</div>
