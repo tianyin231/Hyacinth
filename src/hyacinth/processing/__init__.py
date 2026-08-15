@@ -4,6 +4,15 @@ from hyacinth.processing.apply_version import (
     apply_version_handlers,
     run_apply_sort_preview_task,
 )
+from hyacinth.processing.deduplicate_preview import (
+    DEDUPLICATE_PREVIEW_OPERATION,
+    DeduplicatePreviewResult,
+    DuplicateGroup,
+    KeepDuplicate,
+    deduplicate_preview_handlers,
+    deduplicate_preview_task,
+    run_deduplicate_preview_task,
+)
 from hyacinth.processing.sort_preview import (
     SORT_PREVIEW_OPERATION,
     SortDirection,
@@ -16,12 +25,19 @@ from hyacinth.processing.sort_preview import (
 
 __all__ = [
     "APPLY_SORT_PREVIEW_OPERATION",
+    "DEDUPLICATE_PREVIEW_OPERATION",
     "SORT_PREVIEW_OPERATION",
+    "DeduplicatePreviewResult",
+    "DuplicateGroup",
+    "KeepDuplicate",
     "SortDirection",
     "SortKey",
     "SortPreviewResult",
     "apply_sort_preview_task",
     "apply_version_handlers",
+    "deduplicate_preview_handlers",
+    "deduplicate_preview_task",
+    "run_deduplicate_preview_task",
     "run_apply_sort_preview_task",
     "run_sort_preview_task",
     "sort_preview_handlers",
