@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T17:24:07.3954673+08:00"
+updated_at: "2026-08-15T17:24:46.1037465+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -116,6 +116,7 @@ last_completed:
   - "真实端到端 Qt 流程覆盖基础索引、排序临时结果、临时索引、精确应用、双节点版本树和临时目录清理"
   - "Windows 原生 Qt 截图确认参数面板、排序后表格、根/子节点与 HEAD 处于批准的 Fluent 四区壳层"
   - "排序预览与子版本闭环完整质量门通过：98 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
+  - "排序预览与子版本闭环已提交本地 main：1263b73"
 
 next_actions:
   - "根据需求讨论记录选择下一个处理功能垂直切片，并在实现前向用户展示范围和方案"
@@ -304,6 +305,7 @@ verification:
     - "修正后的最终全量复验：98 passed in 23.19s；Ruff check/format、Mypy strict、uv lock、uv build 和 git diff --check 全部通过"
     - "原生 Qt 截图 sort-child-version-slice.png：1376x760，排序参数、排序后工作表、根/子版本及 HEAD 可见；版本树支持水平滚动"
     - "用户未跟踪的 追加需求.txt 未读取、未修改、未纳入提交；本次不推送"
+    - "第二关键节点本地提交：1263b73；提交后 main 领先 origin/main 34 个提交"
   worker_sessions:
     STAGE-1-SORT-PREVIEW-CORE-001:
       session_id: "ses_ffb6eb165ffeExum72T3S31KLf"
@@ -383,4 +385,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "Python 安全排序预览、临时结果、直接应用、不可变子版本、HEAD、恢复和父子版本树完整闭环已实现并通过全部质量门，等待本地关键节点提交"
+  last_result: "Python 安全排序预览、临时结果、直接应用、不可变子版本、HEAD、恢复和父子版本树完整闭环已实现、通过全部质量门并提交本地 main 为 1263b73；未推送"
