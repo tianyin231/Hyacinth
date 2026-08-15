@@ -1,0 +1,1 @@
+"""Hyacinth desktop application."""
