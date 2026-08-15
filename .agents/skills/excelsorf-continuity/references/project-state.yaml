@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T19:37:28.7677616+08:00"
+updated_at: "2026-08-15T19:38:32.9094173+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -162,6 +162,7 @@ last_completed:
   - "真实 Qt 端到端贯通删除空白行预览、临时索引、精确应用、双节点版本树和临时目录清理"
   - "原生 1440x900 截图确认删除空白行配置页与 Fluent 四区壳层一致，无重叠或截断"
   - "删除空白行完整质量门通过：129 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
+  - "删除空白行完整版本闭环已提交本地 main：c9927d2；本地 main 领先 origin/main 46 个提交，未推送"
 
 next_actions:
   - "删除空白行之后评估条件筛选的 Excel AutoFilter 保真方案"
@@ -287,15 +288,6 @@ recent_decisions:
     impact: "阶段 1 下一切片的代码边界、UI 范围和测试范围"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
-  - "output/playwright/delete-blank-rows-configured.png"
-  - "scripts/capture_ui_states.py"
-  - "src/hyacinth/app.py"
-  - "src/hyacinth/processing/__init__.py"
-  - "src/hyacinth/processing/apply_version.py"
-  - "src/hyacinth/ui/shell.py"
-  - "tests/processing/test_apply_version.py"
-  - "tests/test_app.py"
-  - "tests/versioning/test_widget.py"
 
 verification:
   status: "delete-blank-rows-slice-complete"
@@ -356,6 +348,7 @@ verification:
     - "OpenCode DeepSeek session ses_ffb779869ffetPKJvDGwsXSdcX 导出并核验 provider/model/finish/files changed"
     - "OpenCode DeepSeek session ses_ffb6eb165ffeExum72T3S31KLf 导出并核验 provider/model/finish 与实际写入范围"
   evidence:
+    - "完整闭环关键节点本地提交：c9927d2；预览核心提交：c65941d；均未推送"
     - "删除空白行核心、应用、控件和主窗口定向回归：35 passed in 4.78s"
     - "主窗口端到端确认原始第 3 行被删除，应用 operation 为 delete-blank-rows，新 HEAD 指向子版本且临时目录清理"
     - "delete-blank-rows-configured.png：1440x900，关键列多选、兼容模式、规则说明、行号明细和操作栏完整可见"
@@ -511,4 +504,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "删除空白行两阶段版本闭环已完成：整行/关键列规则、原始行号预览、兼容提示、精确应用、子版本、HEAD、截图和完整质量门全部通过；等待提交本地 main，不推送"
+  last_result: "删除空白行两阶段版本闭环已完成并提交本地 main：c65941d（预览核心）、c9927d2（完整闭环）；129 项测试和全部质量门通过，用户未跟踪的追加需求.txt 保持原样，未推送"
