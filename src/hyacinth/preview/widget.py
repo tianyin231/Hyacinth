@@ -32,6 +32,13 @@ class EmptyWorkbookCanvas(QFrame):
         painter.end()
 
 
+class ReadOnlyWorkbookTableView(QTableView):
+    """只读预览表格，不执行 Qt 默认的百万行键盘搜索。"""
+
+    def keyboardSearch(self, search: str) -> None:
+        return
+
+
 class WorkbookPreviewWidget(QFrame):
     import_requested = Signal()
 
@@ -82,9 +89,11 @@ class WorkbookPreviewWidget(QFrame):
         empty_layout.addWidget(state_card, 0, Qt.AlignmentFlag.AlignCenter)
         empty_layout.addStretch()
 
-        self._table = QTableView(self)
+        self._table = ReadOnlyWorkbookTableView(self)
         self._table.setObjectName("preview-table")
         self._table.setAccessibleName("Excel 工作表预览")
+        self._table.setAccessibleDescription("当前为只读预览，单元格编辑功能尚未开放")
+        self._table.setToolTip("当前为只读预览，单元格编辑功能尚未开放")
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(False)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)

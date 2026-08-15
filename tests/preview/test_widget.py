@@ -25,6 +25,21 @@ class PreviewTaskContext:
         yield
 
 
+class CountingGridSource:
+    row_count = 1_048_576
+    column_count = 256
+
+    def __init__(self) -> None:
+        self.read_count = 0
+
+    def value_at(self, row: int, column: int) -> object:
+        self.read_count += 1
+        return ""
+
+    def set_value(self, row: int, column: int, value: object) -> None:
+        raise AssertionError("只读表格不应写入数据源")
+
+
 def _preview(tmp_path: Path):  # type: ignore[no-untyped-def]
     from hyacinth.preview import run_preview_index_task
 
@@ -101,3 +116,19 @@ def test_preview_widget_has_stable_loading_and_error_states(qtbot: QtBot) -> Non
     widget.set_error("工作簿损坏")
     assert state.text() == "无法加载预览\n工作簿损坏"
     assert not import_button.isHidden()
+
+
+def test_read_only_table_does_not_scan_million_rows_for_typed_text(qtbot: QtBot) -> None:
+    from hyacinth.grid.model import WorkbookTableModel
+    from hyacinth.preview.widget import ReadOnlyWorkbookTableView
+
+    source = CountingGridSource()
+    table = ReadOnlyWorkbookTableView()
+    qtbot.addWidget(table)
+    model = WorkbookTableModel(source, table, editable=False)
+    table.setModel(model)
+    table.setCurrentIndex(model.index(0, 0))
+
+    table.keyboardSearch("不存在的内容")
+
+    assert source.read_count == 0

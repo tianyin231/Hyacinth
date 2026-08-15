@@ -122,13 +122,13 @@ def _seed_versioned_workbook(library_root: Path) -> ImportedWorkbook:
     return record
 
 
-def test_create_main_window_uses_product_identity(qtbot: QtBot) -> None:
+def test_create_main_window_uses_product_identity(qtbot: QtBot, tmp_path: Path) -> None:
     try:
         from hyacinth.app import create_main_window
     except ModuleNotFoundError:
         pytest.fail("hyacinth.app.create_main_window is not implemented")
 
-    window = create_main_window()
+    window = create_main_window(library_root=tmp_path / "library")
     qtbot.addWidget(window)
 
     assert isinstance(window, QMainWindow)
@@ -144,10 +144,10 @@ def test_initial_window_size_prefers_1440x900_and_adapts_to_available_screen() -
     assert initial_window_size(QSize(900, 600)) == QSize(1024, 640)
 
 
-def test_main_window_matches_approved_workspace_shell(qtbot: QtBot) -> None:
+def test_main_window_matches_approved_workspace_shell(qtbot: QtBot, tmp_path: Path) -> None:
     from hyacinth.app import create_main_window
 
-    window = create_main_window()
+    window = create_main_window(library_root=tmp_path / "library")
     qtbot.addWidget(window)
 
     main_splitter = _child(window, QSplitter, "main-workspace-splitter")
