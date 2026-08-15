@@ -10,7 +10,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     app = QApplication.instance() or QApplication(list(argv) if argv is not None else sys.argv)
     window = create_main_window()
     window.show()
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        window.close()
 
 
 if __name__ == "__main__":
