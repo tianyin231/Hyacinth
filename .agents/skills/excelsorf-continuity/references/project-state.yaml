@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T10:45:08.0982364+08:00"
+updated_at: "2026-08-15T10:53:05.4251239+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 双引擎与格式保真风险原型已完成"
+  current_phase: "阶段 1 大表格模型与交互性能风险原型已启动"
   next_milestone: "阶段 1 大表格模型与交互性能风险原型"
 
 current_task:
-  id: "STAGE-1-ENGINE-PROTOTYPE-001"
-  status: "completed"
-  goal: "已验证 Excel COM/Python 双引擎探测、xls/xlsx 转换和关键内容保真边界"
+  id: "STAGE-1-GRID-PERFORMANCE-001"
+  status: "in_progress"
+  goal: "验证 QAbstractTableModel 在大规模逻辑数据下的按需访问、内存和滚动性能"
   owner: "codex-sol"
 
 last_completed:
@@ -58,7 +58,7 @@ last_completed:
   - "确认 Excel COM 会改写打开的源 xls 内部内容，已使用临时副本隔离并增加回归测试"
 
 next_actions:
-  - "确认阶段 1 第二个风险原型：大表格 QAbstractTableModel 按需访问与滚动性能"
+  - "在隔离 worktree 中按 TDD 实施双层合成数据性能原型"
   - "每完成一个可独立验收的关键开发节点提交本地 Git"
   - "后续普通更改默认不推送远端，用户明确要求时再推送"
 
@@ -74,6 +74,13 @@ blockers:
     summary: "需求讨论记录第 43 节中的项目仍需在后续与客户复核"
 
 recent_decisions:
+  - id: "DEC-20260815-009"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "大表格原型采用方案 A：100000x50 功能规模与 1048576x256 极限虚拟化规模"
+    source: "用户当前会话明确确认"
+    supersedes: "none"
+    impact: "表格模型边界、性能测试数据规模与暂定验收阈值"
   - id: "DEC-20260815-008"
     date: "2026-08-15"
     status: "approved"
@@ -139,20 +146,11 @@ changed_files:
 verification:
   status: "passed"
   commands:
-    - "uv lock --check"
-    - "uv sync --locked --python 3.12"
-    - "$env:QT_QPA_PLATFORM='offscreen'; uv run pytest"
-    - "uv run ruff check ."
-    - "uv run ruff format --check ."
-    - "uv run mypy"
-    - "uv build"
-    - "Get-Process EXCEL -ErrorAction SilentlyContinue"
+    - "读取需求讨论记录第 3、16、18 节的大表格与交互性能要求"
+    - "核验 Python、PySide6、Windows 内存与处理器环境"
   evidence:
-    - "pytest：10 passed，包含真实 Excel COM 转换集成测试"
-    - "COM 转换保留公式表达式、数字格式、粗体表头、合并区域和 Sheet 顺序"
-    - "Python 转换保留基础值、日期、合并区域和 Sheet 顺序，并返回明确保真警告"
-    - "Ruff check/format、Mypy strict 和 uv build 全部通过"
-    - "COM 测试后无 EXCEL 进程残留"
-    - "源 xls 保护回归测试通过，测试前后夹具 Git 哈希保持 5642f80dbefe132c40650a1fe5d23559ef67dca7"
+    - "需求要求 QTableView/QAbstractTableModel 只渲染可见区域，不为每个单元格创建控件"
+    - "交互反馈目标 100ms，具体大表格上限必须通过原型校准"
+    - "当前验证环境：Python 3.12.13、PySide6 6.11.1、16 GB 内存、20 逻辑处理器"
   worker_sessions: {}
-  last_result: "阶段 1 双引擎原型已合并到本地 main，源文件保护修复完成并通过全部验证"
+  last_result: "大表格性能原型方案 A 已确认并开始执行"
