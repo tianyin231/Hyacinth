@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T10:02:26.5999033+08:00"
+updated_at: "2026-08-15T10:10:20.7076775+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "Git 仓库已初始化，等待阶段 0/1 启动"
+  current_phase: "阶段 0 工程基线开发已启动"
   next_milestone: "阶段 0 工程基线与阶段 1 技术风险原型"
 
 current_task:
-  id: "GIT-INIT-001"
-  status: "completed"
-  goal: "当前工作目录已初始化为 Git 仓库并首次推送到 tianyin231/Hyacinth"
+  id: "STAGE-0-BASELINE-001"
+  status: "in_progress"
+  goal: "使用 uv 与 Python 3.12 建立可运行、可测试、可静态检查的 PySide6 工程基线"
   owner: "codex-sol"
 
 last_completed:
@@ -51,8 +51,9 @@ last_completed:
   - "初始化 main 分支并将当前 68 个文件首次推送到 tianyin231/Hyacinth"
 
 next_actions:
-  - "等待用户授权启动阶段 0 和阶段 1"
-  - "后续普通更改默认只提交到本地仓库，用户明确要求时再推送远端"
+  - "在 stage-0-baseline 隔离 worktree 中完成工程基线"
+  - "每完成一个可独立验收的关键开发节点提交本地 Git"
+  - "后续普通更改默认不推送远端，用户明确要求时再推送"
 
 blockers:
   - id: "ENV-COM-001"
@@ -63,6 +64,27 @@ blockers:
     summary: "需求讨论记录第 43 节中的项目仍需在后续与客户复核"
 
 recent_decisions:
+  - id: "DEC-20260815-006"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "阶段 0 使用 .worktrees/stage-0-baseline 隔离工作区开发"
+    source: "用户当前会话明确确认"
+    supersedes: "none"
+    impact: "阶段 0 分支与工作区组织"
+  - id: "DEC-20260815-005"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "阶段 0/1 采用方案 A 串行推进，工程环境使用 uv 管理 Python 3.12"
+    source: "用户当前会话明确确认"
+    supersedes: "none"
+    impact: "工程基线、依赖管理和阶段实施顺序"
+  - id: "DEC-20260815-004"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "授权启动后续开发；每完成一个关键开发节点提交 Git"
+    source: "用户当前会话明确确认"
+    supersedes: "none"
+    impact: "阶段 0/1 启动与本地提交节奏"
   - id: "DEC-20260815-003"
     date: "2026-08-15"
     status: "approved"
@@ -86,21 +108,22 @@ recent_decisions:
     impact: "开发顺序和里程碑"
 
 changed_files:
+  - ".gitignore"
+  - "需求讨论记录.md"
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
 
 verification:
   status: "passed"
   commands:
-    - "gh auth status"
-    - "git credential-manager github list"
-    - "递归文件清单与敏感信息模式扫描"
-    - "git push -u origin main"
-    - "git status --short --branch"
-    - "git ls-remote origin refs/heads/main"
+    - "py -0p"
+    - "python --version"
+    - "python -m pip show PySide6 openpyxl xlrd pywin32 pytest ruff mypy"
+    - "检查 Microsoft Excel 注册表安装路径和 Windows 硬件基线"
+    - "读取需求讨论记录第 16-18 节及 Git 最近提交"
   evidence:
-    - "Git Credential Manager 已保存 GitHub 账号 tianyin231，提交用户与邮箱已配置"
-    - "当前目录共 68 个文件、约 1.44 MB；敏感信息扫描未发现真实凭据"
-    - "初始提交 ea2e28b 已成功推送，main 正在跟踪 origin/main"
-    - "远端 main 指向 40c2e0cfcf6a3622a04fc8e173f97424e03d8244，与收尾提交一致"
+    - "Windows 11、16 GB 内存、20 逻辑处理器，满足当前暂定原型环境"
+    - "Microsoft Excel 安装于 C:\\Program Files\\Microsoft Office\\Root\\Office16\\EXCEL.EXE"
+    - "默认 Python 3.9，缺少 PySide6、pytest、ruff、mypy、xlrd，需建立项目隔离环境"
+    - "当前仍无应用代码、pyproject.toml、tests 或 src 目录"
   worker_sessions: {}
-  last_result: "Git 仓库初始化、首次远端推送及远端分支指针核验全部成功"
+  last_result: "方案 A、uv/Python 3.12 与隔离 worktree 已确认，阶段 0 开始执行"
