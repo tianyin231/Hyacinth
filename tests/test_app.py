@@ -1,13 +1,15 @@
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QObject, Qt
-from PySide6.QtWidgets import QLabel, QMainWindow, QPushButton
+from PySide6.QtWidgets import QLabel, QListWidget, QMainWindow, QPushButton
 from pytestqt.qtbot import QtBot
 
 from hyacinth.excel.contracts import EngineName
+from hyacinth.library import IMPORT_WORKBOOK_OPERATION, ImportedWorkbook
 from hyacinth.tasks import TaskEvent, TaskRequest, TaskState, TaskStatusWidget
 
 
@@ -26,6 +28,9 @@ class FakeApplicationTaskQueue:
 
     def submit(self, request: TaskRequest) -> None:
         self.submitted.append(request)
+
+    def push_event(self, event: TaskEvent) -> None:
+        self._events.append(event)
 
     def poll_events(self) -> tuple[TaskEvent, ...]:
         events = tuple(self._events)
@@ -112,3 +117,97 @@ def test_main_window_connects_task_queue_to_status_bar(qtbot: QtBot) -> None:
 
     assert task_queue.cancelled == ["convert-1"]
     assert task_queue.shutdown_called is True
+
+
+def test_import_button_submits_task_and_lists_successful_result(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "销售报表.xlsx"
+    source.write_bytes(b"source")
+    library_root = tmp_path / "library"
+    task_queue = FakeApplicationTaskQueue([])
+
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(
+        task_queue=task_queue,
+        library_root=library_root,
+        file_picker=lambda _parent: source,
+    )
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        _child(window, QPushButton, "library-import-button"),
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert len(task_queue.submitted) == 1
+    request = task_queue.submitted[0]
+    assert request.operation == IMPORT_WORKBOOK_OPERATION
+    assert request.payload == {
+        "source_path": str(source),
+        "library_root": str(library_root),
+    }
+
+    directory = library_root / "files" / request.file_id
+    result = ImportedWorkbook(
+        file_id=request.file_id,
+        display_name=source.name,
+        original_path=directory / "original" / source.name,
+        working_path=directory / "working" / "current.xlsx",
+    )
+    task_queue.push_event(
+        TaskEvent(
+            task_id=request.task_id,
+            state=TaskState.SUCCEEDED,
+            name=request.name,
+            file_id=request.file_id,
+            engine=None,
+            result=result,
+        )
+    )
+    file_list = _child(window, QListWidget, "library-file-list")
+    qtbot.waitUntil(lambda: file_list.count() == 1, timeout=500)
+
+    assert file_list.item(0).text() == source.name
+    assert file_list.currentRow() == 0
+
+
+def test_failed_import_shows_reason_and_keeps_import_available(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "损坏.xlsx"
+    source.write_bytes(b"invalid")
+    task_queue = FakeApplicationTaskQueue([])
+    errors: list[str] = []
+
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(
+        task_queue=task_queue,
+        library_root=tmp_path / "library",
+        file_picker=lambda _parent: source,
+        error_presenter=lambda _parent, message: errors.append(message),
+    )
+    qtbot.addWidget(window)
+    window.show()
+    button = _child(window, QPushButton, "library-import-button")
+    qtbot.mouseClick(button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    request = task_queue.submitted[0]
+    task_queue.push_event(
+        TaskEvent(
+            task_id=request.task_id,
+            state=TaskState.FAILED,
+            name=request.name,
+            file_id=request.file_id,
+            engine=None,
+            message="工作簿无法打开",
+        )
+    )
+
+    qtbot.waitUntil(lambda: errors == ["工作簿无法打开"], timeout=500)
+    qtbot.mouseClick(button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    assert len(task_queue.submitted) == 2
