@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T10:39:05.5913865+08:00"
+updated_at: "2026-08-15T10:45:08.0982364+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -54,6 +54,8 @@ last_completed:
   - "用户的 ui-ux-pro-max Skill 目录迁移已提交，阶段 0 临时 worktree 与分支已清理"
   - "完成双引擎能力合同、自动选择器、Python 降级转换和 Excel COM 子进程转换原型"
   - "确认 COM 保留公式与基础格式；Python 降级保留基础数据但不保留 xls 公式表达式和复杂样式"
+  - "阶段 1 双引擎原型已快进合并到本地 main，临时 worktree 与分支已清理"
+  - "确认 Excel COM 会改写打开的源 xls 内部内容，已使用临时副本隔离并增加回归测试"
 
 next_actions:
   - "确认阶段 1 第二个风险原型：大表格 QAbstractTableModel 按需访问与滚动性能"
@@ -131,20 +133,8 @@ recent_decisions:
 
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
-  - "pyproject.toml"
-  - "src/hyacinth/excel/__init__.py"
   - "src/hyacinth/excel/com_engine.py"
-  - "src/hyacinth/excel/com_worker.py"
-  - "src/hyacinth/excel/contracts.py"
-  - "src/hyacinth/excel/python_engine.py"
-  - "src/hyacinth/excel/selection.py"
-  - "tests/excel/test_com_availability.py"
   - "tests/excel/test_com_conversion.py"
-  - "tests/excel/test_contracts.py"
-  - "tests/excel/test_python_engine.py"
-  - "tests/excel/test_selection.py"
-  - "tests/fixtures/legacy-fidelity.xls"
-  - "uv.lock"
 
 verification:
   status: "passed"
@@ -163,5 +153,6 @@ verification:
     - "Python 转换保留基础值、日期、合并区域和 Sheet 顺序，并返回明确保真警告"
     - "Ruff check/format、Mypy strict 和 uv build 全部通过"
     - "COM 测试后无 EXCEL 进程残留"
+    - "源 xls 保护回归测试通过，测试前后夹具 Git 哈希保持 5642f80dbefe132c40650a1fe5d23559ef67dca7"
   worker_sessions: {}
-  last_result: "阶段 1 双引擎与格式保真风险原型全部验证通过，等待关键节点提交"
+  last_result: "阶段 1 双引擎原型已合并到本地 main，源文件保护修复完成并通过全部验证"

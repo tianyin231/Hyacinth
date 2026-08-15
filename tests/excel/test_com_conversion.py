@@ -19,9 +19,11 @@ def test_com_engine_preserves_formula_and_basic_formatting(tmp_path: Path) -> No
     if not is_excel_com_available():
         pytest.skip("Microsoft Excel COM is unavailable")
 
+    source = FIXTURES / "legacy-fidelity.xls"
+    source_before = source.read_bytes()
     destination = tmp_path / "com-working-copy.xlsx"
     result = ComExcelEngine().convert_xls_to_xlsx(
-        FIXTURES / "legacy-fidelity.xls",
+        source,
         destination,
     )
 
@@ -36,3 +38,4 @@ def test_com_engine_preserves_formula_and_basic_formatting(tmp_path: Path) -> No
     assert data["B2"].number_format == "0.00"
     assert data["A1"].font.bold is True
     assert "A4:B4" in data.merged_cells
+    assert source.read_bytes() == source_before

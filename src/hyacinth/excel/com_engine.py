@@ -1,7 +1,9 @@
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Protocol, cast
 
 from win32com.client import DispatchEx  # type: ignore[import-untyped]
@@ -45,7 +47,10 @@ class ComExcelEngine:
 
     def convert_xls_to_xlsx(self, source: Path, destination: Path) -> ConversionResult:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        completed = _run_worker(str(source.resolve()), str(destination.resolve()))
+        with TemporaryDirectory(prefix="hyacinth-com-") as temporary_directory:
+            safe_source = Path(temporary_directory) / source.name
+            shutil.copy2(source, safe_source)
+            completed = _run_worker(str(safe_source), str(destination.resolve()))
         if completed.returncode != 0:
             raise RuntimeError(completed.stderr.strip() or "Excel COM conversion failed")
 
