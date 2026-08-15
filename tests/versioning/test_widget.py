@@ -3,12 +3,14 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFrame,
     QGraphicsLineItem,
     QGraphicsProxyWidget,
     QGraphicsView,
     QLabel,
+    QListWidget,
     QPushButton,
     QStackedWidget,
 )
@@ -145,3 +147,60 @@ def test_function_panel_emits_accessible_sort_parameters(qtbot: QtBot) -> None:
     panel.set_preview_ready()
     assert apply.isEnabled()
     assert cancel.isEnabled()
+
+
+def test_function_panel_emits_deduplicate_parameters_and_shows_mapping(
+    qtbot: QtBot,
+) -> None:
+    from hyacinth.ui import FunctionPanel
+    from hyacinth.ui.shell import DuplicateMappingModel
+
+    panel = FunctionPanel()
+    qtbot.addWidget(panel)
+    panel.set_workbook({"销售": ("A · 名称", "B · 数量")})
+    operation = panel.findChild(QComboBox, "processing-operation")
+    parameter_stack = panel.findChild(QStackedWidget, "processing-parameter-stack")
+    columns = panel.findChild(QListWidget, "deduplicate-key-columns")
+    keep = panel.findChild(QComboBox, "deduplicate-keep")
+    ignore_case = panel.findChild(QCheckBox, "deduplicate-ignore-case")
+    trim = panel.findChild(QCheckBox, "deduplicate-trim-whitespace")
+    preview = panel.findChild(QPushButton, "function-preview-button")
+    details = panel.findChild(QPushButton, "deduplicate-details-button")
+    state = panel.findChild(QLabel, "sort-state")
+    assert operation is not None
+    assert parameter_stack is not None
+    assert columns is not None
+    assert keep is not None
+    assert ignore_case is not None
+    assert trim is not None
+    assert preview is not None
+    assert details is not None
+    assert state is not None
+    operation.setCurrentIndex(operation.findData("deduplicate"))
+    assert parameter_stack.currentIndex() == 1
+    columns.item(0).setSelected(True)
+    keep.setCurrentIndex(keep.findData("last"))
+    ignore_case.setChecked(True)
+    trim.setChecked(True)
+
+    with qtbot.waitSignal(panel.deduplicate_preview_requested) as signal:
+        qtbot.mouseClick(preview, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    assert signal.args == [
+        "销售",
+        {
+            "key_columns": [0],
+            "keep": "last",
+            "ignore_case": True,
+            "trim_whitespace": True,
+        },
+    ]
+    panel.set_deduplicate_preview_ready(1, 2, ((4, (2, 3)),))
+    assert "1 个重复组" in state.text()
+    assert "删除 2 行" in state.text()
+    assert details.isEnabled()
+
+    model = DuplicateMappingModel(((4, (2, 3)),))
+    assert model.rowCount() == 1
+    assert model.data(model.index(0, 0)) == "第 4 行"
+    assert model.data(model.index(0, 1)) == "第 2 行、第 3 行"

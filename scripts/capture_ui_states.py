@@ -8,7 +8,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 from PySide6.QtCore import QEventLoop, QTimer
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QComboBox
 
 from hyacinth.app import ApplicationTaskQueue, create_main_window
 from hyacinth.excel.contracts import EngineName
@@ -100,7 +100,7 @@ def _wait(milliseconds: int) -> None:
     loop.exec()
 
 
-def capture_ui_states(output_directory: Path) -> tuple[Path, Path]:
+def capture_ui_states(output_directory: Path) -> tuple[Path, Path, Path]:
     app = QApplication.instance() or QApplication([])
     output_directory.mkdir(parents=True, exist_ok=True)
     with (
@@ -144,12 +144,20 @@ def capture_ui_states(output_directory: Path) -> tuple[Path, Path]:
         populated_path = output_directory / "fluent-shell-populated.png"
         if not populated_window.grab().save(str(populated_path)):
             raise RuntimeError("无法保存有数据状态截图")
+        operation = populated_window.findChild(QComboBox, "processing-operation")
+        if operation is None:
+            raise RuntimeError("找不到处理功能选择器")
+        operation.setCurrentIndex(operation.findData("deduplicate"))
+        app.processEvents()
+        deduplicate_path = output_directory / "deduplicate-configured.png"
+        if not populated_window.grab().save(str(deduplicate_path)):
+            raise RuntimeError("无法保存删除重复行配置截图")
         populated_window.close()
-    return empty_path, populated_path
+    return empty_path, populated_path, deduplicate_path
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="抓取风信子默认与有数据界面状态")
+    parser = argparse.ArgumentParser(description="抓取风信子默认、有数据与去重配置界面状态")
     parser.add_argument(
         "--output",
         type=Path,

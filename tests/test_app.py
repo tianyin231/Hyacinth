@@ -11,6 +11,7 @@ import pytest
 from openpyxl import Workbook
 from PySide6.QtCore import QObject, QSize, Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFrame,
     QGraphicsProxyWidget,
@@ -30,9 +31,13 @@ from hyacinth.excel.contracts import EngineName
 from hyacinth.library import IMPORT_WORKBOOK_OPERATION, ImportedWorkbook
 from hyacinth.preview import BUILD_PREVIEW_INDEX_OPERATION, run_preview_index_task
 from hyacinth.processing import (
+    APPLY_DEDUPLICATE_PREVIEW_OPERATION,
     APPLY_SORT_PREVIEW_OPERATION,
+    DEDUPLICATE_PREVIEW_OPERATION,
     SORT_PREVIEW_OPERATION,
+    run_apply_deduplicate_preview_task,
     run_apply_sort_preview_task,
+    run_deduplicate_preview_task,
     run_sort_preview_task,
 )
 from hyacinth.tasks import TaskEvent, TaskRequest, TaskState, TaskStatusWidget
@@ -90,7 +95,10 @@ class PreviewTaskContext:
         yield
 
 
-def _seed_versioned_workbook(library_root: Path) -> ImportedWorkbook:
+def _seed_versioned_workbook(
+    library_root: Path,
+    rows: list[list[object]] | None = None,
+) -> ImportedWorkbook:
     directory = library_root / "files/file-1"
     original = directory / "original/销售.xlsx"
     working = directory / "working/current.xlsx"
@@ -101,9 +109,8 @@ def _seed_versioned_workbook(library_root: Path) -> ImportedWorkbook:
         sheet = workbook.active
         assert sheet is not None
         sheet.title = "销售"
-        sheet.append(["名称", "数量"])
-        sheet.append(["apple", 2])
-        sheet.append(["banana", 1])
+        for row in rows or [["名称", "数量"], ["apple", 2], ["banana", 1]]:
+            sheet.append(row)
         workbook.save(path)
         workbook.close()
     version = VersionRecord(
@@ -556,3 +563,111 @@ def test_sort_preview_apply_creates_child_and_refreshes_tree(
     assert not sort_result.preview_path.parent.exists()
     assert _child(window, QFrame, "top-toolbar").isEnabled()
     assert _child(window, QListWidget, "library-file-list").isEnabled()
+
+
+def test_deduplicate_preview_apply_creates_child_and_shows_statistics(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(
+        library_root,
+        [
+            ["名称", "类别"],
+            [" Apple ", "水果"],
+            ["apple", "水果"],
+            ["banana", "水果"],
+        ],
+    )
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    initial_request = task_queue.submitted[0]
+    base_preview = run_preview_index_task(initial_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            initial_request.task_id,
+            TaskState.SUCCEEDED,
+            initial_request.name,
+            initial_request.file_id,
+            None,
+            result=base_preview,
+        )
+    )
+    preview_button = _child(window, QPushButton, "function-preview-button")
+    qtbot.waitUntil(preview_button.isEnabled, timeout=500)
+    operation = _child(window, QComboBox, "processing-operation")
+    operation.setCurrentIndex(operation.findData("deduplicate"))
+    columns = _child(window, QListWidget, "deduplicate-key-columns")
+    columns.item(0).setSelected(True)
+    _child(window, QCheckBox, "deduplicate-ignore-case").setChecked(True)
+    _child(window, QCheckBox, "deduplicate-trim-whitespace").setChecked(True)
+    qtbot.mouseClick(preview_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    deduplicate_request = task_queue.submitted[-1]
+    assert deduplicate_request.operation == DEDUPLICATE_PREVIEW_OPERATION
+    assert deduplicate_request.payload["key_columns"] == [0]
+    assert deduplicate_request.payload["ignore_case"] is True
+    assert deduplicate_request.payload["trim_whitespace"] is True
+    parent = record.head_version
+    assert parent is not None
+    assert deduplicate_request.payload["source_path"] == str(parent.snapshot_path)
+    result = run_deduplicate_preview_task(deduplicate_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            deduplicate_request.task_id,
+            TaskState.SUCCEEDED,
+            deduplicate_request.name,
+            deduplicate_request.file_id,
+            EngineName.PYTHON,
+            result=result,
+        )
+    )
+    qtbot.waitUntil(lambda: len(task_queue.submitted) == 3, timeout=500)
+    temporary_index_request = task_queue.submitted[-1]
+    temporary_preview = run_preview_index_task(temporary_index_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            temporary_index_request.task_id,
+            TaskState.SUCCEEDED,
+            temporary_index_request.name,
+            temporary_index_request.file_id,
+            None,
+            result=temporary_preview,
+        )
+    )
+    apply_button = _child(window, QPushButton, "function-apply-button")
+    state = _child(window, QLabel, "sort-state")
+    details = _child(window, QPushButton, "deduplicate-details-button")
+    qtbot.waitUntil(apply_button.isEnabled, timeout=500)
+    assert "1 个重复组" in state.text()
+    assert "删除 1 行" in state.text()
+    assert details.isEnabled()
+    qtbot.mouseClick(apply_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    apply_request = task_queue.submitted[-1]
+    assert apply_request.operation == APPLY_DEDUPLICATE_PREVIEW_OPERATION
+    assert apply_request.payload["deleted_rows"] == 1
+    applied = run_apply_deduplicate_preview_task(apply_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            apply_request.task_id,
+            TaskState.SUCCEEDED,
+            apply_request.name,
+            apply_request.file_id,
+            EngineName.PYTHON,
+            result=applied,
+        )
+    )
+    qtbot.waitUntil(lambda: len(task_queue.submitted) == 5, timeout=500)
+    head = MetadataStore(library_root).get_workbook("file-1").head_version
+    tree = _child(window, QGraphicsView, "version-tree-view")
+    proxies = [item for item in tree.scene().items() if isinstance(item, QGraphicsProxyWidget)]
+
+    assert head is not None and head.operation == "delete-duplicates"
+    assert head.parent_version_id == "version-1"
+    assert len(proxies) == 2
+    assert not result.preview_path.parent.exists()

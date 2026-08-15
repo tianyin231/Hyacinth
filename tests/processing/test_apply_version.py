@@ -11,9 +11,12 @@ from openpyxl import Workbook, load_workbook
 
 from hyacinth.excel.contracts import EngineName
 from hyacinth.processing import (
+    APPLY_DEDUPLICATE_PREVIEW_OPERATION,
     APPLY_SORT_PREVIEW_OPERATION,
+    apply_deduplicate_preview_task,
     apply_sort_preview_task,
     apply_version_handlers,
+    run_apply_deduplicate_preview_task,
     run_apply_sort_preview_task,
 )
 from hyacinth.tasks import TaskEvent, TaskQueue, TaskRequest, TaskState
@@ -109,8 +112,35 @@ def _request(root: Path, preview: Path) -> TaskRequest:
     )
 
 
+def _deduplicate_request(root: Path, preview: Path) -> TaskRequest:
+    return TaskRequest(
+        task_id="apply-deduplicate-1",
+        name="应用删除重复行结果",
+        file_id="file-1",
+        engine=None,
+        operation=APPLY_DEDUPLICATE_PREVIEW_OPERATION,
+        payload={
+            "library_root": str(root),
+            "preview_path": str(preview),
+            "preview_hash": hashlib.sha256(preview.read_bytes()).hexdigest(),
+            "parent_version_id": "version-1",
+            "version_id": "version-2",
+            "sheet_name": "销售",
+            "key_columns": [0],
+            "keep": "first",
+            "ignore_case": True,
+            "trim_whitespace": True,
+            "duplicate_groups": 1,
+            "deleted_rows": 1,
+        },
+    )
+
+
 def test_apply_handler_is_registered() -> None:
-    assert apply_version_handlers() == {APPLY_SORT_PREVIEW_OPERATION: apply_sort_preview_task}
+    assert apply_version_handlers() == {
+        APPLY_SORT_PREVIEW_OPERATION: apply_sort_preview_task,
+        APPLY_DEDUPLICATE_PREVIEW_OPERATION: apply_deduplicate_preview_task,
+    }
 
 
 def test_apply_promotes_exact_preview_to_child_snapshot_and_head(tmp_path: Path) -> None:
@@ -139,6 +169,35 @@ def test_apply_promotes_exact_preview_to_child_snapshot_and_head(tmp_path: Path)
     assert json.loads(child.parameters_json) == {
         "sheet_name": "销售",
         "sort_keys": [{"column_index": 1, "direction": "asc"}],
+    }
+
+
+def test_apply_deduplicate_preview_records_operation_and_statistics(tmp_path: Path) -> None:
+    root = tmp_path / "library"
+    _seed_library(root)
+    preview = root / "files/file-1/.previews/preview-1/result.xlsx"
+    _create_xlsx(preview, [["名称", "数量"], ["apple", 2]])
+    preview_bytes = preview.read_bytes()
+
+    result = run_apply_deduplicate_preview_task(
+        _deduplicate_request(root, preview),
+        RecordingContext(),
+    )
+
+    child = result.head_version
+    assert child is not None
+    assert child.name == "删除重复行"
+    assert child.operation == "delete-duplicates"
+    assert child.snapshot_path.read_bytes() == preview_bytes
+    assert result.working_path.read_bytes() == preview_bytes
+    assert json.loads(child.parameters_json) == {
+        "sheet_name": "销售",
+        "key_columns": [0],
+        "keep": "first",
+        "ignore_case": True,
+        "trim_whitespace": True,
+        "duplicate_groups": 1,
+        "deleted_rows": 1,
     }
 
 

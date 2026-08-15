@@ -33,10 +33,14 @@ from hyacinth.preview import (
     preview_task_handlers,
 )
 from hyacinth.processing import (
+    APPLY_DEDUPLICATE_PREVIEW_OPERATION,
     APPLY_SORT_PREVIEW_OPERATION,
+    DEDUPLICATE_PREVIEW_OPERATION,
     SORT_PREVIEW_OPERATION,
+    DeduplicatePreviewResult,
     SortPreviewResult,
     apply_version_handlers,
+    deduplicate_preview_handlers,
     sort_preview_handlers,
 )
 from hyacinth.tasks import (
@@ -114,8 +118,8 @@ class HyacinthMainWindow(QMainWindow):
         self._preview_task_id: str | None = None
         self._preview_is_temporary = False
         self._current_workbook: ImportedWorkbook | None = None
-        self._sort_task_id: str | None = None
-        self._sort_result: SortPreviewResult | None = None
+        self._processing_task_id: str | None = None
+        self._processing_result: SortPreviewResult | DeduplicatePreviewResult | None = None
         self._temporary_preview: WorkbookPreview | None = None
         self._apply_task_id: str | None = None
         self._apply_version_id: str | None = None
@@ -125,8 +129,9 @@ class HyacinthMainWindow(QMainWindow):
         self._command_bar.import_requested.connect(self._choose_import_file)
         self._function_panel = FunctionPanel(workspace_root)
         self._function_panel.preview_requested.connect(self._submit_sort_preview)
-        self._function_panel.cancel_requested.connect(self._cancel_sort_workflow)
-        self._function_panel.apply_requested.connect(self._submit_apply_sort_preview)
+        self._function_panel.deduplicate_preview_requested.connect(self._submit_deduplicate_preview)
+        self._function_panel.cancel_requested.connect(self._cancel_processing_workflow)
+        self._function_panel.apply_requested.connect(self._submit_apply_processing_preview)
         self._file_library = FileLibraryWidget(
             discover_imported_workbooks(library_root),
             workspace_root,
@@ -167,7 +172,7 @@ class HyacinthMainWindow(QMainWindow):
         self._task_bridge.event_received.connect(self._task_status.apply_event)
         self._task_bridge.event_received.connect(self._apply_import_event)
         self._task_bridge.event_received.connect(self._apply_preview_event)
-        self._task_bridge.event_received.connect(self._apply_sort_event)
+        self._task_bridge.event_received.connect(self._apply_processing_event)
         self._task_bridge.event_received.connect(self._apply_apply_event)
         self._task_status.cancel_requested.connect(self._task_bridge.cancel)
 
@@ -233,7 +238,7 @@ class HyacinthMainWindow(QMainWindow):
             self._current_workbook is not None
             and self._current_workbook.file_id != workbook.file_id
         ):
-            self._cancel_sort_workflow(reload_base=False)
+            self._cancel_processing_workflow(reload_base=False)
         if self._preview_task_id is not None:
             self._task_queue.cancel(self._preview_task_id)
         self._current_workbook = workbook
@@ -272,8 +277,8 @@ class HyacinthMainWindow(QMainWindow):
             if self._preview_is_temporary:
                 self._temporary_preview = event.result
                 self._editor.set_temporary_result(True)
-                self._function_panel.set_preview_ready()
-                self._set_sort_navigation_enabled(True)
+                self._show_processing_preview_ready()
+                self._set_processing_navigation_enabled(True)
             else:
                 self._editor.set_temporary_result(False)
                 self._function_panel.set_workbook(self._headers_for_preview(event.result))
@@ -282,15 +287,15 @@ class HyacinthMainWindow(QMainWindow):
             self._workbook_preview.set_error(event.message or "工作簿无法打开")
             if self._preview_is_temporary:
                 self._function_panel.set_error(event.message or "临时结果无法打开")
-                self._set_sort_navigation_enabled(True)
+                self._set_processing_navigation_enabled(True)
             self._preview_task_id = None
         elif event.state is TaskState.CANCELLED:
             was_temporary = self._preview_is_temporary
             self._preview_task_id = None
             if was_temporary:
-                self._set_sort_navigation_enabled(True)
+                self._set_processing_navigation_enabled(True)
                 workbook = self._current_workbook
-                self._discard_sort_result()
+                self._discard_processing_result()
                 if workbook is not None:
                     self._load_preview(
                         workbook.working_path,
@@ -301,62 +306,97 @@ class HyacinthMainWindow(QMainWindow):
                 self._workbook_preview.set_error("加载已取消，可重新选择文件")
 
     def _submit_sort_preview(self, sheet_name: str, sort_keys: object) -> None:
+        if not isinstance(sort_keys, list):
+            self._function_panel.set_error("排序参数无效，请重新选择")
+            return
+        self._submit_processing_preview(
+            operation=SORT_PREVIEW_OPERATION,
+            task_name="生成排序预览",
+            busy_message="正在生成临时排序结果…",
+            sheet_name=sheet_name,
+            parameters={"sort_keys": sort_keys},
+        )
+
+    def _submit_deduplicate_preview(self, sheet_name: str, parameters: object) -> None:
+        if not isinstance(parameters, dict):
+            self._function_panel.set_error("去重参数无效，请重新选择")
+            return
+        self._submit_processing_preview(
+            operation=DEDUPLICATE_PREVIEW_OPERATION,
+            task_name="生成删除重复行预览",
+            busy_message="正在检查并删除临时结果中的重复行…",
+            sheet_name=sheet_name,
+            parameters=parameters,
+        )
+
+    def _submit_processing_preview(
+        self,
+        *,
+        operation: str,
+        task_name: str,
+        busy_message: str,
+        sheet_name: str,
+        parameters: dict[str, object],
+    ) -> None:
         workbook = self._current_workbook
         parent = workbook.head_version if workbook is not None else None
-        if workbook is None or parent is None or not isinstance(sort_keys, list):
+        if workbook is None or parent is None:
             self._function_panel.set_error("当前文件尚未建立可处理的根版本")
             return
-        self._discard_sort_result()
+        self._discard_processing_result()
         task_id = uuid4().hex
         preview_id = uuid4().hex
         preview_path = (
             workbook.working_path.parent.parent / ".previews" / preview_id / "result.xlsx"
         )
-        self._sort_task_id = task_id
-        self._function_panel.set_busy("正在生成临时排序结果…")
-        self._set_sort_navigation_enabled(False)
+        self._processing_task_id = task_id
+        self._function_panel.set_busy(busy_message)
+        self._set_processing_navigation_enabled(False)
         self._task_queue.submit(
             TaskRequest(
                 task_id=task_id,
-                name="生成排序预览",
+                name=task_name,
                 file_id=workbook.file_id,
                 engine=None,
-                operation=SORT_PREVIEW_OPERATION,
+                operation=operation,
                 payload={
                     "source_path": str(parent.snapshot_path),
                     "preview_path": str(preview_path),
                     "parent_version_id": parent.version_id,
                     "sheet_name": sheet_name,
-                    "sort_keys": sort_keys,
+                    **parameters,
                 },
             )
         )
 
-    def _apply_sort_event(self, event: TaskEvent) -> None:
-        if event.task_id != self._sort_task_id:
+    def _apply_processing_event(self, event: TaskEvent) -> None:
+        if event.task_id != self._processing_task_id:
             return
-        if event.state is TaskState.SUCCEEDED and isinstance(event.result, SortPreviewResult):
-            self._sort_result = event.result
-            self._sort_task_id = None
+        if event.state is TaskState.SUCCEEDED and isinstance(
+            event.result,
+            (SortPreviewResult, DeduplicatePreviewResult),
+        ):
+            self._processing_result = event.result
+            self._processing_task_id = None
             display_name = (
                 self._current_workbook.display_name if self._current_workbook else "临时结果"
             )
             self._load_preview(event.result.preview_path, display_name, temporary=True)
         elif event.state is TaskState.FAILED:
-            self._sort_task_id = None
-            self._set_sort_navigation_enabled(True)
-            self._function_panel.set_error(event.message or "排序预览生成失败")
+            self._processing_task_id = None
+            self._set_processing_navigation_enabled(True)
+            self._function_panel.set_error(event.message or "处理预览生成失败")
         elif event.state is TaskState.CANCELLED:
-            self._sort_task_id = None
-            self._set_sort_navigation_enabled(True)
+            self._processing_task_id = None
+            self._set_processing_navigation_enabled(True)
             workbook = self._current_workbook
-            self._discard_sort_result()
+            self._discard_processing_result()
             if workbook is not None:
                 self._load_preview(workbook.working_path, workbook.display_name, temporary=False)
 
-    def _submit_apply_sort_preview(self) -> None:
+    def _submit_apply_processing_preview(self) -> None:
         workbook = self._current_workbook
-        result = self._sort_result
+        result = self._processing_result
         if workbook is None or result is None:
             self._function_panel.set_error("没有可应用的临时结果")
             return
@@ -366,14 +406,34 @@ class HyacinthMainWindow(QMainWindow):
         self._apply_version_id = version_id
         self._workbook_preview.clear_preview("正在应用临时结果…")
         self._function_panel.set_busy("正在创建不可变子版本…")
-        self._set_sort_navigation_enabled(False)
+        self._set_processing_navigation_enabled(False)
+        if isinstance(result, SortPreviewResult):
+            operation = APPLY_SORT_PREVIEW_OPERATION
+            task_name = "应用排序结果"
+            parameters: dict[str, object] = {
+                "sort_keys": [
+                    {"column_index": key.column_index, "direction": key.direction.value}
+                    for key in result.sort_keys
+                ]
+            }
+        else:
+            operation = APPLY_DEDUPLICATE_PREVIEW_OPERATION
+            task_name = "应用删除重复行结果"
+            parameters = {
+                "key_columns": list(result.key_columns),
+                "keep": result.keep.value,
+                "ignore_case": result.ignore_case,
+                "trim_whitespace": result.trim_whitespace,
+                "duplicate_groups": len(result.duplicate_groups),
+                "deleted_rows": result.deleted_rows,
+            }
         self._task_queue.submit(
             TaskRequest(
                 task_id=task_id,
-                name="应用排序结果",
+                name=task_name,
                 file_id=workbook.file_id,
                 engine=None,
-                operation=APPLY_SORT_PREVIEW_OPERATION,
+                operation=operation,
                 payload={
                     "library_root": str(self._library_root),
                     "preview_path": str(result.preview_path),
@@ -381,10 +441,7 @@ class HyacinthMainWindow(QMainWindow):
                     "parent_version_id": result.parent_version_id,
                     "version_id": version_id,
                     "sheet_name": result.sheet_name,
-                    "sort_keys": [
-                        {"column_index": key.column_index, "direction": key.direction.value}
-                        for key in result.sort_keys
-                    ],
+                    **parameters,
                 },
             )
         )
@@ -404,10 +461,10 @@ class HyacinthMainWindow(QMainWindow):
             self._restore_temporary_preview("应用已取消，可重试或取消临时结果")
 
     def _finish_applied_version(self, workbook: ImportedWorkbook) -> None:
-        self._discard_sort_result()
+        self._discard_processing_result()
         self._apply_task_id = None
         self._apply_version_id = None
-        self._set_sort_navigation_enabled(True)
+        self._set_processing_navigation_enabled(True)
         self._current_workbook = workbook
         self._file_library.replace_workbook(workbook)
         self._show_versions(workbook)
@@ -433,38 +490,53 @@ class HyacinthMainWindow(QMainWindow):
     def _restore_temporary_preview(self, message: str) -> None:
         self._apply_task_id = None
         self._apply_version_id = None
-        self._set_sort_navigation_enabled(True)
+        self._set_processing_navigation_enabled(True)
         if self._temporary_preview is not None:
             self._workbook_preview.show_preview(self._temporary_preview)
             self._editor.set_temporary_result(True)
-            self._function_panel.set_preview_ready(message)
+            self._show_processing_preview_ready(message)
         else:
             self._function_panel.set_error(message)
 
-    def _cancel_sort_workflow(self, *, reload_base: bool = True) -> None:
+    def _show_processing_preview_ready(self, message: str | None = None) -> None:
+        result = self._processing_result
+        if isinstance(result, DeduplicatePreviewResult):
+            mapping = tuple(
+                (group.kept_row, group.deleted_rows) for group in result.duplicate_groups
+            )
+            self._function_panel.set_deduplicate_preview_ready(
+                len(result.duplicate_groups),
+                result.deleted_rows,
+                mapping,
+                message,
+            )
+            return
+        self._function_panel.set_preview_ready(message or "临时结果已就绪，尚未生成版本")
+
+    def _cancel_processing_workflow(self, *, reload_base: bool = True) -> None:
         if self._apply_task_id is not None:
             self._task_queue.cancel(self._apply_task_id)
             self._function_panel.set_busy("正在请求取消应用…")
             return
-        if self._sort_task_id is not None:
-            self._task_queue.cancel(self._sort_task_id)
-            self._function_panel.set_busy("正在请求取消排序预览…")
+        if self._processing_task_id is not None:
+            self._task_queue.cancel(self._processing_task_id)
+            self._function_panel.set_busy("正在请求取消处理预览…")
             return
         if self._preview_task_id is not None and self._preview_is_temporary:
             self._task_queue.cancel(self._preview_task_id)
             self._function_panel.set_busy("正在请求取消临时结果加载…")
             return
         workbook = self._current_workbook
-        self._discard_sort_result()
+        self._discard_processing_result()
         if reload_base and workbook is not None:
             self._load_preview(workbook.working_path, workbook.display_name, temporary=False)
 
-    def _discard_sort_result(self) -> None:
+    def _discard_processing_result(self) -> None:
         self._workbook_preview.clear_preview()
         self._editor.set_temporary_result(False)
-        if self._sort_result is not None:
-            shutil.rmtree(self._sort_result.preview_path.parent, ignore_errors=True)
-        self._sort_result = None
+        if self._processing_result is not None:
+            shutil.rmtree(self._processing_result.preview_path.parent, ignore_errors=True)
+        self._processing_result = None
         self._temporary_preview = None
 
     def _show_versions(self, workbook: ImportedWorkbook) -> None:
@@ -475,7 +547,7 @@ class HyacinthMainWindow(QMainWindow):
         versions = MetadataStore(self._library_root).list_versions(workbook.file_id)
         self._version_tree.set_workbook(workbook.display_name, versions, head.version_id)
 
-    def _set_sort_navigation_enabled(self, enabled: bool) -> None:
+    def _set_processing_navigation_enabled(self, enabled: bool) -> None:
         self._command_bar.setEnabled(enabled)
         self._file_library.setEnabled(enabled)
 
@@ -517,7 +589,7 @@ class HyacinthMainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._task_bridge.shutdown(timeout=1.0):
-            self._discard_sort_result()
+            self._discard_processing_result()
             self._workbook_preview.close()
             event.accept()
         else:
@@ -535,6 +607,7 @@ def create_main_window(
     handlers.update(import_task_handlers())
     handlers.update(preview_task_handlers())
     handlers.update(sort_preview_handlers())
+    handlers.update(deduplicate_preview_handlers())
     handlers.update(apply_version_handlers())
     return HyacinthMainWindow(
         task_queue or TaskQueue(handlers),

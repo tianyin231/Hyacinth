@@ -1,9 +1,19 @@
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QModelIndex,
+    QPersistentModelIndex,
+    QSize,
+    Qt,
+    Signal,
+)
 from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFrame,
     QGraphicsProxyWidget,
     QGraphicsScene,
@@ -11,9 +21,11 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QPushButton,
     QSizePolicy,
     QStackedWidget,
+    QTableView,
     QVBoxLayout,
     QWidget,
 )
@@ -108,6 +120,20 @@ QComboBox[class="field-control"]:disabled, QLineEdit[class="field-control"]:disa
 QComboBox[class="field-control"]:focus, QLineEdit[class="field-control"]:focus {
     border: 2px solid #0f6cbd;
 }
+QListWidget#deduplicate-key-columns {
+    color: #343a45;
+    background: #ffffff;
+    border: 1px solid #bdc6d2;
+    border-radius: 6px;
+    outline: none;
+}
+QListWidget#deduplicate-key-columns::item { min-height: 25px; padding: 0 6px; }
+QListWidget#deduplicate-key-columns::item:selected {
+    color: #0b5a9d;
+    background: #e5f2fb;
+}
+QCheckBox { color: #46515f; spacing: 7px; }
+QCheckBox:disabled { color: #9099a5; }
 QFrame#function-footer { background: #fafbfc; border-top: 1px solid #dfe3e8; }
 QLabel#function-empty-title, QLabel#tree-empty-title {
     color: #303844;
@@ -375,6 +401,7 @@ class CommandBar(QFrame):
 
 class FunctionPanel(QFrame):
     preview_requested = Signal(str, object)
+    deduplicate_preview_requested = Signal(str, object)
     cancel_requested = Signal()
     apply_requested = Signal()
 
@@ -396,7 +423,7 @@ class FunctionPanel(QFrame):
         empty_title = QLabel("先导入一个 Excel 文件", empty_body)
         empty_title.setObjectName("function-empty-title")
         empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        empty_detail = QLabel("导入后即可配置排序条件\n并在应用前预览完整结果", empty_body)
+        empty_detail = QLabel("导入后即可配置排序或去重\n并在应用前预览完整结果", empty_body)
         empty_detail.setObjectName("function-empty-detail")
         empty_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         empty_detail.setWordWrap(True)
@@ -410,28 +437,83 @@ class FunctionPanel(QFrame):
         body_layout.setContentsMargins(11, 10, 11, 10)
         body_layout.setSpacing(5)
         self._headers_by_sheet: dict[str, tuple[str, ...]] = {}
+        self._operation = self._field(body_layout, "处理功能", "processing-operation")
+        self._operation.addItem("多列排序", "sort")
+        self._operation.addItem("删除重复行", "deduplicate")
+        self._operation.currentIndexChanged.connect(self._switch_operation)
         self._sheet = self._field(body_layout, "处理工作表", "sort-sheet")
         self._sheet.currentTextChanged.connect(self._refresh_columns)
-        self._primary = self._field(body_layout, "第一优先级", "sort-primary-column")
+
+        sort_page = QWidget(body)
+        sort_layout = QVBoxLayout(sort_page)
+        sort_layout.setContentsMargins(0, 0, 0, 0)
+        sort_layout.setSpacing(5)
+        self._primary = self._field(sort_layout, "第一优先级", "sort-primary-column")
         self._primary_direction = self._direction_field(
-            body_layout, "第一排序方向", "sort-primary-direction"
+            sort_layout, "第一排序方向", "sort-primary-direction"
         )
-        self._secondary = self._field(body_layout, "第二优先级", "sort-secondary-column")
+        self._secondary = self._field(sort_layout, "第二优先级", "sort-secondary-column")
         self._secondary_direction = self._direction_field(
-            body_layout, "第二排序方向", "sort-secondary-direction"
+            sort_layout, "第二排序方向", "sort-secondary-direction"
         )
-        self._range = QLabel("当前 used range · 首行作为表头", body)
+        self._range = QLabel("当前 used range · 首行作为表头", sort_page)
         self._range.setObjectName("sort-range-note")
-        self._empty = QLabel("空值始终排在末尾", body)
+        self._empty = QLabel("空值始终排在末尾", sort_page)
         self._empty.setObjectName("sort-empty-note")
-        self._state = QLabel("选择文件后可配置排序", body)
+        sort_layout.addWidget(self._range)
+        sort_layout.addWidget(self._empty)
+        sort_layout.addStretch()
+
+        deduplicate_page = QWidget(body)
+        deduplicate_layout = QVBoxLayout(deduplicate_page)
+        deduplicate_layout.setContentsMargins(0, 0, 0, 0)
+        deduplicate_layout.setSpacing(5)
+        key_label = QLabel("判断重复的关键列", deduplicate_page)
+        key_label.setProperty("class", "form-label")
+        self._deduplicate_columns = QListWidget(deduplicate_page)
+        self._deduplicate_columns.setObjectName("deduplicate-key-columns")
+        self._deduplicate_columns.setAccessibleName("判断重复的关键列")
+        self._deduplicate_columns.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        self._deduplicate_columns.setMaximumHeight(92)
+        self._deduplicate_keep = self._field(
+            deduplicate_layout,
+            "重复时保留",
+            "deduplicate-keep",
+        )
+        self._deduplicate_keep.addItem("第一次出现", "first")
+        self._deduplicate_keep.addItem("最后一次出现", "last")
+        self._deduplicate_ignore_case = QCheckBox("忽略英文字母大小写", deduplicate_page)
+        self._deduplicate_ignore_case.setObjectName("deduplicate-ignore-case")
+        self._deduplicate_trim = QCheckBox("忽略文本首尾空格", deduplicate_page)
+        self._deduplicate_trim.setObjectName("deduplicate-trim-whitespace")
+        deduplicate_note = QLabel("未选择关键列时按整行判断 · 空值参与比较", deduplicate_page)
+        deduplicate_note.setObjectName("deduplicate-note")
+        deduplicate_note.setWordWrap(True)
+        self._deduplicate_details = QPushButton("查看保留 / 删除对应关系", deduplicate_page)
+        self._deduplicate_details.setObjectName("deduplicate-details-button")
+        self._deduplicate_details.setProperty("class", "tool-button")
+        self._deduplicate_details.setEnabled(False)
+        self._deduplicate_details.clicked.connect(self._show_duplicate_details)
+        deduplicate_layout.insertWidget(0, key_label)
+        deduplicate_layout.insertWidget(1, self._deduplicate_columns)
+        deduplicate_layout.addWidget(self._deduplicate_ignore_case)
+        deduplicate_layout.addWidget(self._deduplicate_trim)
+        deduplicate_layout.addWidget(deduplicate_note)
+        deduplicate_layout.addWidget(self._deduplicate_details)
+        deduplicate_layout.addStretch()
+
+        self._parameter_stack = QStackedWidget(body)
+        self._parameter_stack.setObjectName("processing-parameter-stack")
+        self._parameter_stack.addWidget(sort_page)
+        self._parameter_stack.addWidget(deduplicate_page)
+        body_layout.addWidget(self._parameter_stack, 1)
+
+        self._state = QLabel("选择文件后可配置处理功能", body)
         self._state.setObjectName("sort-state")
         self._state.setWordWrap(True)
-        self._state.setAccessibleName("排序状态")
-        body_layout.addWidget(self._range)
-        body_layout.addWidget(self._empty)
+        self._state.setAccessibleName("处理状态")
         body_layout.addWidget(self._state)
-        body_layout.addStretch()
+        self._duplicate_mapping: tuple[tuple[int, tuple[int, ...]], ...] = ()
 
         self._footer = QFrame(self)
         self._footer.setObjectName("function-footer")
@@ -449,7 +531,7 @@ class FunctionPanel(QFrame):
         footer_layout.addStretch()
         self._preview = _tool_button("预览", "function-preview-button", self._footer, enabled=False)
         self._apply = _tool_button("应用", "function-apply-button", self._footer, enabled=False)
-        self._preview.setAccessibleName("预览排序结果")
+        self._preview.setAccessibleName("预览处理结果")
         self._apply.setAccessibleName("应用临时结果为新版本")
         self._preview.clicked.connect(self._emit_preview)
         self._apply.clicked.connect(self.apply_requested)
@@ -464,16 +546,21 @@ class FunctionPanel(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(_panel_header("多列排序", badge="Python 安全模式"))
+        layout.addWidget(_panel_header("数据处理", badge="Python 安全模式"))
         layout.addWidget(self._body_stack, 1)
         layout.addWidget(self._footer)
 
         self._controls = (
+            self._operation,
             self._sheet,
             self._primary,
             self._primary_direction,
             self._secondary,
             self._secondary_direction,
+            self._deduplicate_columns,
+            self._deduplicate_keep,
+            self._deduplicate_ignore_case,
+            self._deduplicate_trim,
         )
         self.clear_workbook()
 
@@ -484,11 +571,12 @@ class FunctionPanel(QFrame):
         self._sheet.addItems(tuple(headers_by_sheet))
         self._sheet.blockSignals(False)
         self._refresh_columns(self._sheet.currentText())
+        self._switch_operation()
         enabled = bool(headers_by_sheet)
         self._body_stack.setCurrentIndex(1 if enabled else 0)
         self._footer.setVisible(enabled)
         self._set_config_enabled(enabled)
-        self._state.setText("配置排序条件后预览完整数据行")
+        self._state.setText(self._ready_message())
         self._state.setProperty("error", False)
         self._state.style().unpolish(self._state)
         self._state.style().polish(self._state)
@@ -498,10 +586,13 @@ class FunctionPanel(QFrame):
         self._sheet.clear()
         self._primary.clear()
         self._secondary.clear()
+        self._deduplicate_columns.clear()
+        self._duplicate_mapping = ()
+        self._deduplicate_details.setEnabled(False)
         self._set_config_enabled(False)
         self._body_stack.setCurrentIndex(0)
         self._footer.setVisible(False)
-        self._state.setText("选择文件后可配置排序")
+        self._state.setText("选择文件后可配置处理功能")
 
     def set_busy(self, message: str) -> None:
         self._set_config_enabled(False)
@@ -519,10 +610,25 @@ class FunctionPanel(QFrame):
         self._state.setText(message)
         self._set_state_error(False)
 
+    def set_deduplicate_preview_ready(
+        self,
+        duplicate_groups: int,
+        deleted_rows: int,
+        mapping: tuple[tuple[int, tuple[int, ...]], ...],
+        message: str | None = None,
+    ) -> None:
+        self._duplicate_mapping = mapping
+        summary = f"{duplicate_groups} 个重复组 · 将删除 {deleted_rows} 行"
+        self.set_preview_ready(
+            f"{message} · {summary}" if message else f"临时结果已就绪 · {summary}"
+        )
+        self._deduplicate_details.setEnabled(bool(mapping))
+
     def set_error(self, message: str) -> None:
         self._set_config_enabled(bool(self._headers_by_sheet))
         self._cancel.setEnabled(False)
         self._apply.setEnabled(False)
+        self._deduplicate_details.setEnabled(False)
         self._state.setText(message)
         self._set_state_error(True)
 
@@ -553,25 +659,39 @@ class FunctionPanel(QFrame):
         self._primary.clear()
         self._secondary.clear()
         self._secondary.addItem("不使用", None)
+        self._deduplicate_columns.clear()
         for index, header in enumerate(headers):
             label = header or f"第 {index + 1} 列"
             self._primary.addItem(label, index)
             self._secondary.addItem(label, index)
+            self._deduplicate_columns.addItem(label)
+            self._deduplicate_columns.item(index).setData(Qt.ItemDataRole.UserRole, index)
+        self._set_config_enabled(bool(self._headers_by_sheet))
 
     def _reset_fields(self) -> None:
         self._primary.setCurrentIndex(0)
         self._primary_direction.setCurrentIndex(0)
         self._secondary.setCurrentIndex(0)
         self._secondary_direction.setCurrentIndex(0)
-        self._state.setText("已重置排序条件")
+        self._deduplicate_columns.clearSelection()
+        self._deduplicate_keep.setCurrentIndex(0)
+        self._deduplicate_ignore_case.setChecked(False)
+        self._deduplicate_trim.setChecked(False)
+        self._state.setText("已重置处理条件")
 
     def _set_config_enabled(self, enabled: bool) -> None:
         for control in getattr(self, "_controls", ()):
             control.setEnabled(enabled)
         self._reset.setEnabled(enabled)
         self._preview.setEnabled(enabled and self._primary.count() > 0)
+        self._deduplicate_details.setEnabled(
+            enabled and bool(self._duplicate_mapping) and self._apply.isEnabled()
+        )
 
     def _emit_preview(self) -> None:
+        if self._operation.currentData() == "deduplicate":
+            self._emit_deduplicate_preview()
+            return
         primary = self._primary.currentData()
         if not isinstance(primary, int):
             self.set_error("请选择第一排序列")
@@ -591,6 +711,93 @@ class FunctionPanel(QFrame):
                 }
             )
         self.preview_requested.emit(self._sheet.currentText(), sort_keys)
+
+    def _emit_deduplicate_preview(self) -> None:
+        key_columns = [
+            item.data(Qt.ItemDataRole.UserRole)
+            for item in self._deduplicate_columns.selectedItems()
+        ]
+        self.deduplicate_preview_requested.emit(
+            self._sheet.currentText(),
+            {
+                "key_columns": key_columns,
+                "keep": self._deduplicate_keep.currentData(),
+                "ignore_case": self._deduplicate_ignore_case.isChecked(),
+                "trim_whitespace": self._deduplicate_trim.isChecked(),
+            },
+        )
+
+    def _switch_operation(self, _index: int = -1) -> None:
+        deduplicate = self._operation.currentData() == "deduplicate"
+        self._parameter_stack.setCurrentIndex(1 if deduplicate else 0)
+        if self._headers_by_sheet:
+            self._state.setText(self._ready_message())
+        self._preview.setAccessibleName("预览删除重复行结果" if deduplicate else "预览排序结果")
+
+    def _ready_message(self) -> str:
+        if self._operation.currentData() == "deduplicate":
+            return "选择关键列后预览；未选择时按整行判断"
+        return "配置排序条件后预览完整数据行"
+
+    def _show_duplicate_details(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("重复行对应关系")
+        dialog.resize(560, 420)
+        table = QTableView(dialog)
+        table.setObjectName("deduplicate-mapping-table")
+        table.setModel(DuplicateMappingModel(self._duplicate_mapping, table))
+        table.horizontalHeader().setStretchLastSection(True)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dialog)
+        buttons.rejected.connect(dialog.reject)
+        buttons.accepted.connect(dialog.accept)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(table)
+        layout.addWidget(buttons)
+        dialog.exec()
+
+
+class DuplicateMappingModel(QAbstractTableModel):
+    def __init__(
+        self,
+        mapping: tuple[tuple[int, tuple[int, ...]], ...],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._mapping = mapping
+
+    def rowCount(
+        self,
+        parent: QModelIndex | QPersistentModelIndex = QModelIndex(),
+    ) -> int:
+        return 0 if parent.isValid() else len(self._mapping)
+
+    def columnCount(
+        self,
+        parent: QModelIndex | QPersistentModelIndex = QModelIndex(),
+    ) -> int:
+        return 0 if parent.isValid() else 2
+
+    def data(
+        self,
+        index: QModelIndex | QPersistentModelIndex,
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> object | None:
+        if not index.isValid() or role != Qt.ItemDataRole.DisplayRole:
+            return None
+        kept_row, deleted_rows = self._mapping[index.row()]
+        if index.column() == 0:
+            return f"第 {kept_row} 行"
+        return "、".join(f"第 {row} 行" for row in deleted_rows)
+
+    def headerData(
+        self,
+        section: int,
+        orientation: Qt.Orientation,
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> object | None:
+        if orientation is not Qt.Orientation.Horizontal or role != Qt.ItemDataRole.DisplayRole:
+            return None
+        return ("保留行", "删除行")[section]
 
 
 class VersionTreePanel(QFrame):

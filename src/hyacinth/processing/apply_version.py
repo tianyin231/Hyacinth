@@ -21,6 +21,7 @@ from hyacinth.versioning import (
 )
 
 APPLY_SORT_PREVIEW_OPERATION = "apply-sort-preview"
+APPLY_DEDUPLICATE_PREVIEW_OPERATION = "apply-deduplicate-preview"
 COPY_CHUNK_SIZE = 1024 * 1024
 
 
@@ -55,15 +56,75 @@ def run_apply_sort_preview_task(
     *,
     metadata_store_factory: MetadataStoreFactory = MetadataStore,
 ) -> ImportedWorkbook:
+    sheet_name = _payload_string(request, "sheet_name")
+    sort_keys = request.payload.get("sort_keys")
+    if not isinstance(sort_keys, list) or not sort_keys:
+        raise ValueError("任务参数缺少排序键：sort_keys")
+    return _run_apply_preview_task(
+        request,
+        context,
+        metadata_store_factory=metadata_store_factory,
+        version_name="多列排序",
+        operation="sort",
+        parameters={"sheet_name": sheet_name, "sort_keys": sort_keys},
+    )
+
+
+def run_apply_deduplicate_preview_task(
+    request: TaskRequest,
+    context: ApplyVersionTaskContext,
+    *,
+    metadata_store_factory: MetadataStoreFactory = MetadataStore,
+) -> ImportedWorkbook:
+    sheet_name = _payload_string(request, "sheet_name")
+    key_columns = request.payload.get("key_columns")
+    keep = request.payload.get("keep")
+    ignore_case = request.payload.get("ignore_case")
+    trim_whitespace = request.payload.get("trim_whitespace")
+    duplicate_groups = request.payload.get("duplicate_groups")
+    deleted_rows = request.payload.get("deleted_rows")
+    if not isinstance(key_columns, list):
+        raise ValueError("任务参数缺少去重关键列：key_columns")
+    if keep not in {"first", "last"}:
+        raise ValueError("任务参数 keep 必须为 first 或 last")
+    if not isinstance(ignore_case, bool) or not isinstance(trim_whitespace, bool):
+        raise ValueError("去重文本选项必须是布尔值")
+    if not isinstance(duplicate_groups, int) or isinstance(duplicate_groups, bool):
+        raise ValueError("任务参数 duplicate_groups 必须是整数")
+    if not isinstance(deleted_rows, int) or isinstance(deleted_rows, bool) or deleted_rows < 1:
+        raise ValueError("任务参数 deleted_rows 必须是大于 0 的整数")
+    return _run_apply_preview_task(
+        request,
+        context,
+        metadata_store_factory=metadata_store_factory,
+        version_name="删除重复行",
+        operation="delete-duplicates",
+        parameters={
+            "sheet_name": sheet_name,
+            "key_columns": key_columns,
+            "keep": keep,
+            "ignore_case": ignore_case,
+            "trim_whitespace": trim_whitespace,
+            "duplicate_groups": duplicate_groups,
+            "deleted_rows": deleted_rows,
+        },
+    )
+
+
+def _run_apply_preview_task(
+    request: TaskRequest,
+    context: ApplyVersionTaskContext,
+    *,
+    metadata_store_factory: MetadataStoreFactory,
+    version_name: str,
+    operation: str,
+    parameters: dict[str, object],
+) -> ImportedWorkbook:
     library_root = _payload_path(request, "library_root")
     preview_path = _payload_path(request, "preview_path")
     preview_hash = _payload_string(request, "preview_hash")
     parent_version_id = _payload_string(request, "parent_version_id")
     version_id = _payload_string(request, "version_id")
-    sheet_name = _payload_string(request, "sheet_name")
-    sort_keys = request.payload.get("sort_keys")
-    if not isinstance(sort_keys, list) or not sort_keys:
-        raise ValueError("任务参数缺少排序键：sort_keys")
 
     context.set_engine(EngineName.PYTHON)
     context.check_cancelled()
@@ -77,7 +138,7 @@ def run_apply_sort_preview_task(
     if actual_hash != preview_hash:
         raise ValueError("临时预览已变化，请重新生成预览")
     if actual_hash == parent.content_hash:
-        raise ValueError("排序结果没有变化，无需生成新版本")
+        raise ValueError("处理结果没有变化，无需生成新版本")
     preview_workbook = load_workbook(preview_path, read_only=True)
     preview_workbook.close()
 
@@ -94,14 +155,14 @@ def run_apply_sort_preview_task(
         version_id=version_id,
         file_id=request.file_id,
         parent_version_id=parent_version_id,
-        name="多列排序",
+        name=version_name,
         created_at=datetime.now(UTC),
-        operation="sort",
+        operation=operation,
         engine=EngineName.PYTHON,
         snapshot_path=final_snapshot,
         content_hash=actual_hash,
         parameters_json=json.dumps(
-            {"sheet_name": sheet_name, "sort_keys": sort_keys},
+            parameters,
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
@@ -141,8 +202,15 @@ def apply_sort_preview_task(request: TaskRequest, context: TaskContext) -> objec
     return run_apply_sort_preview_task(request, context)
 
 
+def apply_deduplicate_preview_task(request: TaskRequest, context: TaskContext) -> object:
+    return run_apply_deduplicate_preview_task(request, context)
+
+
 def apply_version_handlers() -> dict[str, TaskHandler]:
-    return {APPLY_SORT_PREVIEW_OPERATION: apply_sort_preview_task}
+    return {
+        APPLY_SORT_PREVIEW_OPERATION: apply_sort_preview_task,
+        APPLY_DEDUPLICATE_PREVIEW_OPERATION: apply_deduplicate_preview_task,
+    }
 
 
 def _copy_file(source: Path, destination: Path, context: ApplyVersionTaskContext) -> None:
