@@ -57,10 +57,12 @@ from hyacinth.ui import VersionTreePanel
 from hyacinth.versioning import (
     CHECKOUT_VERSION_OPERATION,
     DELETE_VERSION_OPERATION,
+    EXPORT_VERSION_OPERATION,
     MetadataStore,
     VersionRecord,
     run_checkout_version_task,
     run_delete_version_task,
+    run_export_version_task,
 )
 
 
@@ -400,6 +402,52 @@ def test_unsaved_cell_edits_block_close_until_discarded(qtbot: QtBot, tmp_path: 
     assert _child(window, QPushButton, "toolbar-save-version-button").isEnabled()
     assert window.close()
     assert task_queue.shutdown_called
+
+
+def test_version_node_save_as_exports_and_reports_destination(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    version = record.head_version
+    assert version is not None
+    destination = tmp_path / "exports" / "自定义名称.xlsx"
+    exported_paths: list[Path] = []
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(
+        task_queue=task_queue,
+        library_root=library_root,
+        save_as_picker=lambda _parent, _suggested: destination,
+        export_presenter=lambda _parent, path: exported_paths.append(path),
+    )
+    qtbot.addWidget(window)
+    window.show()
+    export_button = _child(window, QPushButton, "toolbar-export-button")
+    assert export_button.isEnabled()
+    version_tree = _child(window, VersionTreePanel, "version-tree-panel")
+    version_tree.version_export_requested.emit(version.version_id, True)
+    request = task_queue.submitted[-1]
+    assert request.operation == EXPORT_VERSION_OPERATION
+    assert request.payload["destination_path"] == str(destination)
+
+    result = run_export_version_task(request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            task_id=request.task_id,
+            state=TaskState.SUCCEEDED,
+            name=request.name,
+            file_id=record.file_id,
+            engine=None,
+            result=result,
+        )
+    )
+    qtbot.waitUntil(lambda: bool(exported_paths), timeout=500)
+
+    assert exported_paths == [destination]
+    assert destination.read_bytes() == record.original_path.read_bytes()
 
 
 def test_main_runs_qt_event_loop() -> None:

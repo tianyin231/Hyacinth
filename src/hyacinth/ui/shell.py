@@ -376,6 +376,7 @@ class CommandBar(QFrame):
     save_version_requested = Signal()
     undo_requested = Signal()
     redo_requested = Signal()
+    export_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -391,6 +392,11 @@ class CommandBar(QFrame):
         self._save_button.setShortcut(QKeySequence.StandardKey.Save)
         self._save_button.setToolTip("将当前未保存修改创建为新的子版本 (Ctrl+S)")
         self._save_button.clicked.connect(self.save_version_requested)
+        self._export_button = _tool_button(
+            "导出版本", "toolbar-export-button", self, enabled=False, icon="download"
+        )
+        self._export_button.setToolTip("导出当前预览的不可变版本")
+        self._export_button.clicked.connect(self.export_requested)
         self._undo_button = _tool_button(
             "撤销", "toolbar-undo-button", self, enabled=False, icon="undo"
         )
@@ -427,6 +433,7 @@ class CommandBar(QFrame):
         layout.setSpacing(7)
         layout.addWidget(import_button)
         layout.addWidget(self._save_button)
+        layout.addWidget(self._export_button)
         layout.addWidget(divider)
         layout.addWidget(self._undo_button)
         layout.addWidget(self._redo_button)
@@ -440,6 +447,9 @@ class CommandBar(QFrame):
         self._save_button.setEnabled(dirty)
         self._undo_button.setEnabled(can_undo)
         self._redo_button.setEnabled(can_redo)
+
+    def set_version_available(self, available: bool) -> None:
+        self._export_button.setEnabled(available)
 
 
 class FunctionPanel(QFrame):
@@ -1344,6 +1354,7 @@ class VersionTreePanel(QFrame):
     version_position_changed = Signal(str, float, float)
     version_delete_requested = Signal(str)
     version_restore_requested = Signal(str)
+    version_export_requested = Signal(str, bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1669,6 +1680,11 @@ class VersionTreePanel(QFrame):
         if record is not None and record.deleted_at is not None:
             self.version_restore_requested.emit(version_id)
 
+    def _request_export(self, version_id: str, save_as: bool) -> None:
+        record = self._records.get(version_id)
+        if record is not None and record.deleted_at is None:
+            self.version_export_requested.emit(version_id, save_as)
+
     def _restore_recently_deleted(self) -> None:
         if self._recently_deleted_version_id is not None:
             self.version_restore_requested.emit(self._recently_deleted_version_id)
@@ -1684,6 +1700,10 @@ class VersionTreePanel(QFrame):
         else:
             preview = menu.addAction("预览版本")
             preview.triggered.connect(lambda: self._select_version(version_id))
+            download = menu.addAction("下载该节点")
+            download.triggered.connect(lambda: self._request_export(version_id, False))
+            save_as = menu.addAction("另存为…")
+            save_as.triggered.connect(lambda: self._request_export(version_id, True))
             if version_id != self._head_version_id:
                 continue_action = menu.addAction("从此继续")
                 continue_action.triggered.connect(lambda: self._request_continue(version_id))

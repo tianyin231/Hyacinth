@@ -15,6 +15,7 @@ def fluent_icon(name: str, *, color: str = "#4d5663", size: int = 18) -> QIcon:
     drawings: dict[str, Callable[[QPainter, float], None]] = {
         "plus": _draw_plus,
         "save": _draw_save,
+        "download": _draw_download,
         "undo": _draw_undo,
         "redo": _draw_redo,
         "compare": _draw_compare,
@@ -44,6 +45,13 @@ def _draw_save(painter: QPainter, size: float) -> None:
     painter.drawRoundedRect(QRectF(size * 0.2, size * 0.16, size * 0.6, size * 0.68), 1.8, 1.8)
     painter.drawRect(QRectF(size * 0.31, size * 0.16, size * 0.34, size * 0.22))
     painter.drawRoundedRect(QRectF(size * 0.31, size * 0.55, size * 0.38, size * 0.2), 1.5, 1.5)
+
+
+def _draw_download(painter: QPainter, size: float) -> None:
+    painter.drawLine(QPointF(size * 0.5, size * 0.18), QPointF(size * 0.5, size * 0.62))
+    painter.drawLine(QPointF(size * 0.34, size * 0.48), QPointF(size * 0.5, size * 0.64))
+    painter.drawLine(QPointF(size * 0.66, size * 0.48), QPointF(size * 0.5, size * 0.64))
+    painter.drawLine(QPointF(size * 0.24, size * 0.78), QPointF(size * 0.76, size * 0.78))
 
 
 def _draw_undo(painter: QPainter, size: float) -> None:

@@ -10,6 +10,14 @@ from hyacinth.versioning.delete_task import (
     delete_version_task,
     run_delete_version_task,
 )
+from hyacinth.versioning.export_task import (
+    EXPORT_VERSION_OPERATION,
+    ExportedVersion,
+    export_version_handlers,
+    export_version_task,
+    run_export_version_task,
+    suggested_export_filename,
+)
 from hyacinth.versioning.models import (
     ImportedWorkbook,
     VersionDeletionPlan,
@@ -25,6 +33,8 @@ from hyacinth.versioning.store import (
 __all__ = [
     "CHECKOUT_VERSION_OPERATION",
     "DELETE_VERSION_OPERATION",
+    "EXPORT_VERSION_OPERATION",
+    "ExportedVersion",
     "ImportedWorkbook",
     "MetadataStore",
     "VersionDeletionPlan",
@@ -34,8 +44,12 @@ __all__ = [
     "checkout_version_task",
     "delete_version_handlers",
     "delete_version_task",
+    "export_version_handlers",
+    "export_version_task",
     "read_recovery_manifest",
     "run_checkout_version_task",
     "run_delete_version_task",
+    "run_export_version_task",
+    "suggested_export_filename",
     "write_recovery_manifest",
 ]

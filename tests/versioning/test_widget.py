@@ -364,6 +364,36 @@ def test_version_card_delete_key_requests_soft_delete(qtbot: QtBot, tmp_path: Pa
     assert delete_signal.args == [root.version_id]
 
 
+def test_version_tree_requests_download_and_save_as_for_active_node(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    from hyacinth.ui import VersionTreePanel
+
+    root = VersionRecord(
+        "version-1",
+        "file-1",
+        None,
+        "导入原始文件",
+        datetime(2026, 8, 15, 7, 30, tzinfo=UTC),
+        "import",
+        None,
+        tmp_path / "root.xlsx",
+        "a" * 64,
+    )
+    panel = VersionTreePanel()
+    qtbot.addWidget(panel)
+    panel.set_workbook("销售报表.xlsx", root, root.version_id)
+
+    with qtbot.waitSignal(panel.version_export_requested) as download:
+        panel._request_export(root.version_id, False)
+    with qtbot.waitSignal(panel.version_export_requested) as save_as:
+        panel._request_export(root.version_id, True)
+
+    assert download.args == [root.version_id, False]
+    assert save_as.args == [root.version_id, True]
+
+
 def test_function_panel_emits_accessible_sort_parameters(qtbot: QtBot) -> None:
     from hyacinth.ui import FunctionPanel
 

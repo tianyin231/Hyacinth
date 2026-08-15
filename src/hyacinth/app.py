@@ -5,8 +5,8 @@ from typing import Protocol
 from uuid import uuid4
 
 from openpyxl.utils import get_column_letter
-from PySide6.QtCore import QPoint, QSize, QStandardPaths, Qt
-from PySide6.QtGui import QCloseEvent, QGuiApplication
+from PySide6.QtCore import QPoint, QSize, QStandardPaths, Qt, QUrl
+from PySide6.QtGui import QCloseEvent, QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QFileDialog,
     QInputDialog,
@@ -73,10 +73,14 @@ from hyacinth.ui import (
 from hyacinth.versioning import (
     CHECKOUT_VERSION_OPERATION,
     DELETE_VERSION_OPERATION,
+    EXPORT_VERSION_OPERATION,
+    ExportedVersion,
     MetadataStore,
     VersionRecord,
     checkout_version_handlers,
     delete_version_handlers,
+    export_version_handlers,
+    suggested_export_filename,
 )
 
 
@@ -89,6 +93,8 @@ ErrorPresenter = Callable[[QWidget, str], None]
 ConfirmationPresenter = Callable[[QWidget, str, str], bool]
 VersionChoicePresenter = Callable[[QWidget, tuple[VersionRecord, ...]], str | None]
 UnsavedChangesPresenter = Callable[[QWidget, str], str]
+SaveAsPicker = Callable[[QWidget, str], Path | None]
+ExportPresenter = Callable[[QWidget, Path], None]
 
 DEFAULT_WINDOW_SIZE = QSize(1440, 900)
 MINIMUM_WINDOW_SIZE = QSize(1024, 640)
@@ -121,6 +127,8 @@ class HyacinthMainWindow(QMainWindow):
         confirmation_presenter: ConfirmationPresenter,
         version_choice_presenter: VersionChoicePresenter,
         unsaved_changes_presenter: UnsavedChangesPresenter,
+        save_as_picker: SaveAsPicker,
+        export_presenter: ExportPresenter,
     ) -> None:
         super().__init__()
         self.setObjectName("main-window")
@@ -139,6 +147,8 @@ class HyacinthMainWindow(QMainWindow):
         self._confirmation_presenter = confirmation_presenter
         self._version_choice_presenter = version_choice_presenter
         self._unsaved_changes_presenter = unsaved_changes_presenter
+        self._save_as_picker = save_as_picker
+        self._export_presenter = export_presenter
         self._task_queue = task_queue
         self._import_task_ids: set[str] = set()
         self._preview_task_id: str | None = None
@@ -162,6 +172,7 @@ class HyacinthMainWindow(QMainWindow):
         self._delete_version_id: str | None = None
         self._previewed_version_id: str | None = None
         self._close_after_manual_save = False
+        self._export_task_id: str | None = None
 
         self._application_header = ApplicationHeader(workspace_root)
         self._command_bar = CommandBar(workspace_root)
@@ -169,6 +180,7 @@ class HyacinthMainWindow(QMainWindow):
         self._command_bar.save_version_requested.connect(self._submit_manual_save)
         self._command_bar.undo_requested.connect(self._workbook_preview_undo)
         self._command_bar.redo_requested.connect(self._workbook_preview_redo)
+        self._command_bar.export_requested.connect(self._export_current_version)
         self._function_panel = FunctionPanel(workspace_root)
         self._function_panel.preview_requested.connect(self._submit_sort_preview)
         self._function_panel.deduplicate_preview_requested.connect(self._submit_deduplicate_preview)
@@ -189,6 +201,7 @@ class HyacinthMainWindow(QMainWindow):
         self._version_tree.version_position_changed.connect(self._save_version_position)
         self._version_tree.version_delete_requested.connect(self._request_delete_version)
         self._version_tree.version_restore_requested.connect(self._restore_deleted_version)
+        self._version_tree.version_export_requested.connect(self._request_export_version)
         self._workbook_preview = WorkbookPreviewWidget(workspace_root)
         self._workbook_preview.import_requested.connect(self._choose_import_file)
         self._workbook_preview.edit_state_changed.connect(self._apply_edit_state)
@@ -229,6 +242,7 @@ class HyacinthMainWindow(QMainWindow):
         self._task_bridge.event_received.connect(self._apply_manual_save_event)
         self._task_bridge.event_received.connect(self._apply_checkout_event)
         self._task_bridge.event_received.connect(self._apply_delete_event)
+        self._task_bridge.event_received.connect(self._apply_export_event)
         self._task_status.cancel_requested.connect(self._task_bridge.cancel)
 
         status_bar = self.statusBar()
@@ -996,8 +1010,10 @@ class HyacinthMainWindow(QMainWindow):
     def _show_versions(self, workbook: ImportedWorkbook) -> None:
         head = workbook.head_version
         if head is None:
+            self._command_bar.set_version_available(False)
             self._version_tree.set_workbook(workbook.display_name, None)
             return
+        self._command_bar.set_version_available(True)
         store = MetadataStore(self._library_root)
         versions = store.list_versions(workbook.file_id)
         layouts = store.list_version_layouts(workbook.file_id)
@@ -1007,6 +1023,74 @@ class HyacinthMainWindow(QMainWindow):
             head.version_id,
             layouts,
         )
+
+    def _export_current_version(self) -> None:
+        workbook = self._current_workbook
+        head = workbook.head_version if workbook is not None else None
+        version_id = self._previewed_version_id or (head.version_id if head is not None else None)
+        if version_id is not None:
+            self._request_export_version(version_id, False)
+
+    def _request_export_version(self, version_id: str, save_as: bool) -> None:
+        workbook = self._current_workbook
+        if workbook is None or self._export_task_id is not None:
+            return
+        try:
+            version = MetadataStore(self._library_root).get_version(workbook.file_id, version_id)
+        except ValueError as error:
+            self._error_presenter(self, str(error))
+            return
+        if version.deleted_at is not None:
+            self._error_presenter(self, "已删除版本不能导出，请先恢复")
+            return
+        extension = (
+            workbook.original_path.suffix
+            if version.parent_version_id is None
+            else version.snapshot_path.suffix
+        )
+        filename = suggested_export_filename(
+            workbook.display_name,
+            version.name,
+            version.created_at.astimezone().strftime("%Y%m%d-%H%M%S"),
+            extension,
+        )
+        payload: dict[str, object] = {
+            "library_root": str(self._library_root),
+            "version_id": version_id,
+        }
+        if save_as:
+            destination = self._save_as_picker(self, filename)
+            if destination is None:
+                return
+            payload["destination_path"] = str(destination)
+        else:
+            payload["destination_directory"] = str(default_export_directory())
+        task_id = uuid4().hex
+        self._export_task_id = task_id
+        self._task_queue.submit(
+            TaskRequest(
+                task_id=task_id,
+                name=f"导出 {version.name}",
+                file_id=workbook.file_id,
+                engine=None,
+                operation=EXPORT_VERSION_OPERATION,
+                payload=payload,
+            )
+        )
+
+    def _apply_export_event(self, event: TaskEvent) -> None:
+        if event.task_id != self._export_task_id:
+            return
+        if event.state is TaskState.SUCCEEDED and isinstance(event.result, ExportedVersion):
+            self._export_task_id = None
+            self._export_presenter(self, event.result.path)
+        elif event.state in {TaskState.FAILED, TaskState.CANCELLED}:
+            self._export_task_id = None
+            self._error_presenter(
+                self,
+                event.message
+                or ("导出已取消" if event.state is TaskState.CANCELLED else "导出失败"),
+            )
 
     def _save_version_position(self, version_id: str, x: float, y: float) -> None:
         workbook = self._current_workbook
@@ -1104,6 +1188,8 @@ def create_main_window(
     confirmation_presenter: ConfirmationPresenter | None = None,
     version_choice_presenter: VersionChoicePresenter | None = None,
     unsaved_changes_presenter: UnsavedChangesPresenter | None = None,
+    save_as_picker: SaveAsPicker | None = None,
+    export_presenter: ExportPresenter | None = None,
 ) -> HyacinthMainWindow:
     handlers = conversion_task_handlers()
     handlers.update(import_task_handlers())
@@ -1115,6 +1201,7 @@ def create_main_window(
     handlers.update(apply_version_handlers())
     handlers.update(checkout_version_handlers())
     handlers.update(delete_version_handlers())
+    handlers.update(export_version_handlers())
     return HyacinthMainWindow(
         task_queue or TaskQueue(handlers),
         library_root or default_library_root(),
@@ -1123,12 +1210,19 @@ def create_main_window(
         confirmation_presenter or confirm_action,
         version_choice_presenter or choose_replacement_version,
         unsaved_changes_presenter or ask_unsaved_changes,
+        save_as_picker or select_export_path,
+        export_presenter or show_export_success,
     )
 
 
 def default_library_root() -> Path:
     documents = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation)
     return Path(documents) / "Hyacinth"
+
+
+def default_export_directory() -> Path:
+    downloads = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DownloadLocation)
+    return Path(downloads) if downloads else Path.home() / "Downloads"
 
 
 def select_workbook_file(parent: QWidget) -> Path | None:
@@ -1141,8 +1235,35 @@ def select_workbook_file(parent: QWidget) -> Path | None:
     return Path(file_name) if file_name else None
 
 
+def select_export_path(parent: QWidget, filename: str) -> Path | None:
+    initial = default_export_directory() / filename
+    file_name, _selected_filter = QFileDialog.getSaveFileName(
+        parent,
+        "另存版本为",
+        str(initial),
+        "Excel 工作簿 (*.xlsx *.xls)",
+    )
+    return Path(file_name) if file_name else None
+
+
 def show_import_error(parent: QWidget, message: str) -> None:
     QMessageBox.warning(parent, "导入失败", message)
+
+
+def show_export_success(parent: QWidget, path: Path) -> None:
+    dialog = QMessageBox(parent)
+    dialog.setWindowTitle("导出完成")
+    dialog.setText(f"版本已导出为 {path.name}")
+    dialog.setInformativeText(str(path))
+    dialog.setIcon(QMessageBox.Icon.Information)
+    open_file = dialog.addButton("打开文件", QMessageBox.ButtonRole.AcceptRole)
+    open_folder = dialog.addButton("打开所在位置", QMessageBox.ButtonRole.ActionRole)
+    dialog.addButton("关闭", QMessageBox.ButtonRole.RejectRole)
+    dialog.exec()
+    if dialog.clickedButton() is open_file:
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+    elif dialog.clickedButton() is open_folder:
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
 
 
 def confirm_action(parent: QWidget, title: str, message: str) -> bool:
