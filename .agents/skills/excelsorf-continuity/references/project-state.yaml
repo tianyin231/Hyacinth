@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T10:20:55.5574215+08:00"
+updated_at: "2026-08-15T10:21:51.7983651+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -51,6 +51,7 @@ last_completed:
   - "初始化 main 分支并将当前 68 个文件首次推送到 tianyin231/Hyacinth"
   - "完成 uv/Python 3.12、PySide6 最小应用、测试、静态检查和构建工程基线"
   - "阶段 0 工程基线已快进合并到本地 main"
+  - "用户的 ui-ux-pro-max Skill 目录迁移已提交，阶段 0 临时 worktree 与分支已清理"
 
 next_actions:
   - "确认阶段 1 首个风险原型方案：Excel COM/Python 双引擎探测与 xls/xlsx 格式保真验证"
@@ -117,17 +118,7 @@ recent_decisions:
     impact: "开发顺序和里程碑"
 
 changed_files:
-  - ".agent/skills/ui-ux-pro-max/（删除）"
-  - ".agents/skills/ui-ux-pro-max/（新增）"
-  - ".gitignore"
-  - ".python-version"
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
-  - "pyproject.toml"
-  - "src/hyacinth/__init__.py"
-  - "src/hyacinth/__main__.py"
-  - "src/hyacinth/app.py"
-  - "tests/test_app.py"
-  - "uv.lock"
 
 verification:
   status: "passed"
@@ -146,5 +137,6 @@ verification:
     - "uv build：成功生成 hyacinth-0.1.0 源码包和 wheel"
     - "阶段 0 合并到 main 后复验：pytest、Ruff、Mypy、build 和状态校验全部通过"
     - "ui-ux-pro-max 迁移目录共 33 个文件；敏感扫描未发现真实凭据"
+    - "阶段 0 提交 43e3cbc 与用户目录迁移提交 ce8d9b6 已进入本地 main；工作树干净"
   worker_sessions: {}
-  last_result: "阶段 0 已合并到本地 main 并复验通过，用户目录迁移可提交"
+  last_result: "阶段 0 与用户目录迁移均已提交到本地 main，临时 worktree 和分支已清理"
