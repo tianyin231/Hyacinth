@@ -1,12 +1,23 @@
 from pathlib import Path
 
-from hyacinth.library.import_task import ImportedWorkbook
+from hyacinth.versioning import ImportedWorkbook, MetadataStore
 
 
 def discover_imported_workbooks(library_root: Path) -> tuple[ImportedWorkbook, ...]:
+    store = MetadataStore(library_root)
+    store.reconcile_manifests()
+    stored_records = [
+        record
+        for record in store.list_workbooks()
+        if record.original_path.is_file()
+        and record.working_path.is_file()
+        and record.root_version is not None
+        and record.root_version.snapshot_path.is_file()
+    ]
+    stored_ids = {record.file_id for record in stored_records}
     files_root = library_root / "files"
     if not files_root.is_dir():
-        return ()
+        return tuple(stored_records)
 
     records: list[ImportedWorkbook] = []
     directories = sorted(
@@ -15,6 +26,8 @@ def discover_imported_workbooks(library_root: Path) -> tuple[ImportedWorkbook, .
         reverse=True,
     )
     for directory in directories:
+        if directory.name in stored_ids:
+            continue
         original_directory = directory / "original"
         working = directory / "working" / "current.xlsx"
         if not directory.is_dir() or not original_directory.is_dir() or not working.is_file():
@@ -31,4 +44,4 @@ def discover_imported_workbooks(library_root: Path) -> tuple[ImportedWorkbook, .
                 working_path=working,
             )
         )
-    return tuple(records)
+    return tuple((*stored_records, *records))

@@ -9,6 +9,7 @@ from hyacinth.excel.contracts import ConversionProgress, ConversionResult, Engin
 from hyacinth.library.import_task import _copy_file, run_import_task
 from hyacinth.tasks import TaskRequest
 from hyacinth.tasks.worker import TaskCancelled
+from hyacinth.versioning import MetadataStore
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
 
@@ -98,7 +99,17 @@ def test_xlsx_import_publishes_original_and_working_copy(tmp_path: Path) -> None
     assert result.working_path == working
     assert original.exists()
     assert working.exists()
+    assert result.root_version is not None
+    assert result.root_version.parent_version_id is None
+    assert result.root_version.name == "导入原始文件"
+    assert result.root_version.snapshot_path.exists()
+    assert result.root_version.snapshot_path != working
+    assert (result.root_version.snapshot_path.parent / "manifest.json").exists()
+    assert MetadataStore(library_root).list_workbooks() == (result,)
     assert _read_a1(working) == "风信子"
+    assert _read_a1(result.root_version.snapshot_path) == "风信子"
+    _create_xlsx(working, "工作副本已修改")
+    assert _read_a1(result.root_version.snapshot_path) == "风信子"
     assert list((library_root / ".staging").iterdir()) == []
     assert context.committed is True
     assert context.progress[-1] == (1.0, "导入完成")
@@ -193,3 +204,33 @@ def test_file_copy_checks_cancellation_between_chunks(tmp_path: Path) -> None:
         _copy_file(source, destination, context)
 
     assert 0 < destination.stat().st_size < source.stat().st_size
+
+
+def test_metadata_failure_preserves_published_directory_for_recovery(tmp_path: Path) -> None:
+    source = tmp_path / "销售报表.xlsx"
+    library_root = tmp_path / "library"
+    _create_xlsx(source)
+    request = TaskRequest(
+        task_id="import-metadata-failure",
+        name="导入工作簿",
+        file_id="file-metadata-failure",
+        engine=None,
+        operation="import-workbook",
+        payload={"source_path": str(source), "library_root": str(library_root)},
+    )
+
+    class FailingStore:
+        def record_import(self, _record: object) -> None:
+            raise OSError("数据库写入失败")
+
+    with pytest.raises(OSError, match="数据库写入失败"):
+        run_import_task(
+            request,
+            RecordingContext(),
+            metadata_store_factory=lambda _root: FailingStore(),
+        )
+
+    published_directory = library_root / "files" / request.file_id
+    assert published_directory.is_dir()
+    assert MetadataStore(library_root).reconcile_manifests() == 1
+    assert MetadataStore(library_root).list_workbooks()[0].file_id == request.file_id

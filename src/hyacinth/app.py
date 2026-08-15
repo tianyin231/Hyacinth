@@ -178,7 +178,7 @@ class HyacinthMainWindow(QMainWindow):
             self._task_queue.cancel(self._preview_task_id)
         self.setWindowTitle(f"风信子 — {workbook.display_name}")
         self._application_header.set_document_name(workbook.display_name)
-        self._version_tree.set_workbook(workbook.display_name)
+        self._version_tree.set_workbook(workbook.display_name, workbook.root_version)
         task_id = uuid4().hex
         self._preview_task_id = task_id
         self._workbook_preview.set_loading(workbook.display_name)

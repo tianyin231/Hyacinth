@@ -1,15 +1,24 @@
+from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
+    QGraphicsProxyWidget,
+    QGraphicsScene,
+    QGraphicsView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
     QSizePolicy,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
+
+from hyacinth.versioning import VersionRecord
 
 APP_STYLESHEET = """
 QMainWindow#main-window, QWidget#workspace-root {
@@ -102,7 +111,16 @@ QFrame#root-version-card {
     border-radius: 7px;
 }
 QLabel#root-version-name { color: #343a45; font-weight: 600; }
+QLabel#root-version-file { color: #343a45; font-size: 11px; }
 QLabel#root-version-meta { color: #68717e; font-size: 10px; }
+QLabel#root-version-head {
+    color: #0b5a9d;
+    background: #e5f2fb;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 10px;
+}
+QGraphicsView#version-tree-view { background: #fbfcfd; border: 0; }
 QFrame#editor-frame { background: #ffffff; }
 QFrame#formula-bar, QFrame#format-bar {
     background: #fafbfc;
@@ -334,52 +352,113 @@ class VersionTreePanel(QFrame):
         search_layout.setContentsMargins(9, 5, 9, 5)
         search_layout.addWidget(search)
 
-        canvas = QFrame(self)
-        canvas.setObjectName("version-tree-canvas")
-        canvas_layout = QVBoxLayout(canvas)
-        canvas_layout.setContentsMargins(22, 22, 22, 22)
-        canvas_layout.addStretch()
-        self._empty_title = QLabel("选择文件查看版本演化树", canvas)
+        empty = QWidget(self)
+        empty_layout = QVBoxLayout(empty)
+        empty_layout.setContentsMargins(22, 22, 22, 22)
+        empty_layout.addStretch()
+        self._empty_title = QLabel("选择文件查看版本演化树", empty)
         self._empty_title.setObjectName("tree-empty-title")
         self._empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_detail = QLabel("版本记录功能将在下一阶段启用", canvas)
+        self._empty_detail = QLabel("根版本会在文件导入完成后显示", empty)
         self._empty_detail.setObjectName("tree-empty-detail")
         self._empty_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._root_card = QFrame(canvas)
-        self._root_card.setObjectName("root-version-card")
-        self._root_card.setMaximumWidth(220)
-        card_layout = QVBoxLayout(self._root_card)
-        card_layout.setContentsMargins(12, 10, 12, 10)
-        card_layout.setSpacing(3)
-        self._root_name = QLabel("导入原始文件", self._root_card)
-        self._root_name.setObjectName("root-version-name")
-        self._root_meta = QLabel("根版本", self._root_card)
-        self._root_meta.setObjectName("root-version-meta")
-        card_layout.addWidget(self._root_name)
-        card_layout.addWidget(self._root_meta)
-        canvas_layout.addWidget(self._empty_title)
-        canvas_layout.addWidget(self._empty_detail)
-        canvas_layout.addWidget(self._root_card, 0, Qt.AlignmentFlag.AlignHCenter)
-        canvas_layout.addStretch()
-        self._root_card.hide()
+        empty_layout.addWidget(self._empty_title)
+        empty_layout.addWidget(self._empty_detail)
+        empty_layout.addStretch()
+
+        self._scene = QGraphicsScene(self)
+        self._scene.setObjectName("version-tree-scene")
+        self._scene.setSceneRect(0, 0, 320, 480)
+        self._view = QGraphicsView(self._scene, self)
+        self._view.setObjectName("version-tree-view")
+        self._view.setAccessibleName("版本演化树")
+        self._view.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self._view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self._view.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        self._content = QStackedWidget(self)
+        self._content.addWidget(empty)
+        self._content.addWidget(self._view)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(_panel_header("版本演化树", badge="布局占位"))
+        layout.addWidget(_panel_header("版本演化树"))
         layout.addWidget(search_row)
-        layout.addWidget(canvas, 1)
+        layout.addWidget(self._content, 1)
 
-    def set_workbook(self, display_name: str | None) -> None:
-        has_workbook = display_name is not None
-        self._empty_title.setVisible(not has_workbook)
-        self._empty_detail.setText(
-            "版本记录功能将在下一阶段启用" if not has_workbook else "版本树功能待接入"
+    def set_workbook(
+        self,
+        display_name: str | None,
+        root_version: VersionRecord | None = None,
+    ) -> None:
+        if display_name is None:
+            self._empty_title.setText("选择文件查看版本演化树")
+            self._empty_detail.setText("根版本会在文件导入完成后显示")
+            self._content.setCurrentIndex(0)
+            return
+        if root_version is None:
+            self._empty_title.setText("旧记录尚未建立根版本")
+            self._empty_detail.setText("文件仍可预览，后续可安全补建版本记录")
+            self._content.setCurrentIndex(0)
+            return
+
+        self._scene.clear()
+        card = self._root_version_card(display_name, root_version)
+        proxy = self._scene.addWidget(card)
+        assert isinstance(proxy, QGraphicsProxyWidget)
+        proxy.setPos(28, 42)
+        self._content.setCurrentIndex(1)
+
+    def _root_version_card(self, display_name: str, version: VersionRecord) -> QFrame:
+        card = QFrame()
+        card.setObjectName("root-version-card")
+        card.setFixedSize(230, 108)
+        card.setStyleSheet(
+            """
+            QFrame#root-version-card {
+                background: #ffffff;
+                border: 1px solid #cfd5de;
+                border-left: 3px solid #0f6cbd;
+                border-radius: 7px;
+            }
+            QLabel { border: 0; background: transparent; }
+            QLabel#root-version-name { color: #343a45; font-weight: 600; }
+            QLabel#root-version-file { color: #343a45; font-size: 11px; }
+            QLabel#root-version-meta { color: #68717e; font-size: 10px; }
+            QLabel#root-version-head {
+                color: #0b5a9d;
+                background: #e5f2fb;
+                border-radius: 4px;
+                padding: 2px 6px;
+                font-size: 10px;
+            }
+            """
         )
-        self._root_card.setVisible(has_workbook)
-        if display_name is not None:
-            self._root_name.setText("导入原始文件")
-            self._root_meta.setText(f"{display_name} · 根版本")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(12, 9, 12, 9)
+        layout.setSpacing(3)
+
+        title = QLabel(version.name, card)
+        title.setObjectName("root-version-name")
+        file_name = QLabel(display_name, card)
+        file_name.setObjectName("root-version-file")
+        file_name.setToolTip(display_name)
+        metadata = QLabel(
+            f"{version.created_at.astimezone().strftime('%Y-%m-%d %H:%M')} · "
+            f"{Path(display_name).suffix.removeprefix('.').upper()}",
+            card,
+        )
+        metadata.setObjectName("root-version-meta")
+        head = QLabel("HEAD · 根版本", card)
+        head.setObjectName("root-version-head")
+        head.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        head.setMaximumWidth(82)
+        layout.addWidget(title)
+        layout.addWidget(file_name)
+        layout.addWidget(metadata)
+        layout.addWidget(head)
+        return card
 
 
 class WorkbookEditorFrame(QFrame):

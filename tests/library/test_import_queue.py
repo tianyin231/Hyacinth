@@ -5,11 +5,11 @@ from openpyxl import Workbook
 
 from hyacinth.library.import_task import (
     IMPORT_WORKBOOK_OPERATION,
-    ImportedWorkbook,
     import_task_handlers,
     import_workbook_task,
 )
 from hyacinth.tasks import TaskEvent, TaskQueue, TaskRequest, TaskState
+from hyacinth.versioning import ImportedWorkbook
 
 
 def test_import_handler_is_registered() -> None:

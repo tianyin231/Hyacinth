@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from hyacinth.library.import_task import ImportedWorkbook
+from hyacinth.versioning import ImportedWorkbook
 
 
 class FileLibraryWidget(QFrame):

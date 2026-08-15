@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T15:31:17.5533374+08:00"
+updated_at: "2026-08-15T16:10:27.3042717+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-1-ui-shell-fidelity-corrected"
+  implementation: "stage-1-root-version-tree-completed"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 主界面 Fluent 壳层校正已完成"
-  next_milestone: "阶段 1 根版本记录与版本树展示垂直切片（待方案确认）"
+  current_phase: "阶段 1 根版本记录与版本树展示已完成"
+  next_milestone: "阶段 1 首个处理操作与子版本生成方案确认"
 
 current_task:
-  id: "STAGE-1-UI-FIDELITY-001"
+  id: "STAGE-1-ROOT-VERSION-TREE-001"
   status: "completed"
-  goal: "对照最终 Fluent 预览图恢复完整工作台壳层，并复用现有导入、预览和任务状态功能"
+  goal: "导入成功时建立可恢复的根版本元数据，并在版本演化树中展示当前文件根节点和 HEAD 状态"
   owner: "codex-sol"
 
 last_completed:
@@ -91,14 +91,30 @@ last_completed:
   - "将既有导入入口移回顶部工具栏，并保持文件选择、后台索引、工作表切换和任务状态行为不变"
   - "统一主窗口 Fluent 颜色、字体、边框、选中态、焦点态和分隔条样式，未完成功能以禁用控件和明确占位呈现"
   - "原生 Qt 截图确认主界面区域位置与 260/340/其余编辑区比例接近批准稿，完整质量门 65 项测试通过"
+  - "核对版本管理、HEAD、SQLite 元数据、快照恢复清单、原子写入和 QGraphicsView 图谱要求，确认根版本切片必须同时建立数据库记录与旁路恢复清单"
+  - "OpenCode DeepSeek 只读比较 SQLite 与清单方案；Codex/Sol 未采纳其清单单独作为权威数据源的建议，保留其事务风险与测试清单"
+  - "检查默认 Documents\\Hyacinth 文件库当前不存在，因此本机没有需要立即迁移的旧格式记录；实现仍保留旧目录只读发现兼容"
+  - "完成 SQLite WAL 文件与根版本元数据仓库，文件、HEAD、版本和相对路径可持久化查询"
+  - "导入成功时生成不可变 versions/<version_id>/snapshot.xlsx 与恢复清单，发布后 SQLite 失败仍保留目录供启动补登记"
+  - "启动恢复会跳过缺失、不可读或哈希不符的清单；旧目录继续以无根版本记录只读发现"
+  - "版本演化树改为 QGraphicsView/QGraphicsScene，当前文件显示真实根节点、HEAD、时间与原格式"
+  - "Windows 原生 Qt 截图确认根版本卡片位于批准稿的中部版本树区域，边框、强调色和信息层级清晰"
+  - "OpenCode DeepSeek 只读审查完成且零文件改动；Codex/Sol 修复恢复目录误删和不可读清单启动失败，并否决可能覆盖已有 HEAD 的建议"
+  - "根版本切片完整质量门通过：72 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
 
 next_actions:
-  - "下一切片核对导入根版本、版本元数据和版本树展示需求，提出最小方案供用户确认"
+  - "对照需求提出首个处理操作、子版本快照提交和父子节点展示的最小方案，获得用户确认后实施"
   - "后续将 COM 子进程扩展为结构化阶段事件，把安全关键范围从整段转换收窄到 SaveAs"
   - "每完成一个可独立验收的关键开发节点提交本地 Git"
   - "后续普通更改默认不推送远端，用户明确要求时再推送"
 
 blockers:
+  - id: "VERSION-METADATA-ATOMICITY-001"
+    status: "resolved-and-tested"
+    summary: "SQLite 与文件目录无法组成单一原子事务；已采用完整暂存快照/清单、原子发布目录、再提交 SQLite，并在提交失败或崩溃窗口保留目录由启动清单补登记"
+  - id: "LEGACY-LIBRARY-ROOT-001"
+    status: "no-current-data-preserve-fallback"
+    summary: "默认 Documents\\Hyacinth 当前不存在，无需本轮迁移真实旧记录；catalog 仍保留无清单旧目录的只读发现，不静默丢失"
   - id: "UI-FIDELITY-001"
     status: "resolved-and-verified"
     summary: "完整工作台壳层已按最终 Fluent 预览稿恢复；未完成功能保留明确占位，既有导入、预览和任务状态已嵌入正确区域"
@@ -125,6 +141,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260815-016"
+    date: "2026-08-15"
+    status: "approved-and-implemented"
+    summary: "根版本切片采用 SQLite 权威元数据、不可变 xlsx 完整快照、快照旁恢复清单和 QGraphicsView 根节点/HEAD 展示"
+    source: "用户当前会话明确确认推荐方案 2"
+    supersedes: "none"
+    impact: "元数据仓库、导入原子事务、根版本目录、恢复清单、文件发现和版本树 UI"
   - id: "DEC-20260815-015"
     date: "2026-08-15"
     status: "approved-and-implemented"
@@ -188,23 +211,24 @@ recent_decisions:
     source: "用户当前会话明确确认"
     supersedes: "none"
     impact: "本地 Skill 目录布局与 main 工作树"
-  - id: "DEC-20260815-006"
-    date: "2026-08-15"
-    status: "approved"
-    summary: "阶段 0 使用 .worktrees/stage-0-baseline 隔离工作区开发"
-    source: "用户当前会话明确确认"
-    supersedes: "none"
-    impact: "阶段 0 分支与工作区组织"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
   - "src/hyacinth/app.py"
+  - "src/hyacinth/library/__init__.py"
+  - "src/hyacinth/library/catalog.py"
+  - "src/hyacinth/library/import_task.py"
   - "src/hyacinth/library/widget.py"
-  - "src/hyacinth/preview/widget.py"
-  - "src/hyacinth/ui/__init__.py"
   - "src/hyacinth/ui/shell.py"
-  - "tests/library/test_file_list_widget.py"
-  - "tests/test_app.py"
-  - "output/playwright/ui-shell-correction.png"
+  - "src/hyacinth/versioning/__init__.py"
+  - "src/hyacinth/versioning/models.py"
+  - "src/hyacinth/versioning/store.py"
+  - "tests/library/test_catalog.py"
+  - "tests/library/test_import_queue.py"
+  - "tests/library/test_import_task.py"
+  - "tests/versioning/__init__.py"
+  - "tests/versioning/test_store.py"
+  - "tests/versioning/test_widget.py"
+  - "output/playwright/root-version-tree-slice.png"
 
 verification:
   status: "passed"
@@ -220,6 +244,10 @@ verification:
     - "Windows 原生 Qt grab 保存 output/playwright/preview-slice.png"
     - "并排目视核对 output/playwright/visual-direction-fluent-final.png 与 output/playwright/preview-slice.png"
     - "Windows 原生 Qt grab 保存 output/playwright/ui-shell-correction.png 并与最终 Fluent 预览图对照"
+    - "只读检查 Documents\\Hyacinth 旧格式文件库是否存在"
+    - "OpenCode DeepSeek session ses_ffba83b78ffepTXRqQOxhVa2eB 导出并核验 provider/model/finish/files changed"
+    - "Windows 原生 Qt grab 保存 output/playwright/root-version-tree-slice.png 并目视检查"
+    - "OpenCode DeepSeek session ses_ffb90e835ffeIkXBQ1bOF08mgz 导出并核验 provider/model/finish/files changed"
   evidence:
     - "完整 pytest：64 passed in 21.18s；Ruff check/format、Mypy strict、uv lock 和 uv build 全部通过"
     - "快进合并到 main 后复验：64 passed in 18.59s；全部静态检查、锁文件和构建再次通过"
@@ -233,9 +261,27 @@ verification:
     - "校正后完整 pytest：65 passed；Ruff check/format、Mypy strict、uv lock、uv build 和 git diff --check 全部通过"
     - "结构测试覆盖品牌/文档标题、顶部导入入口、三列主分隔器、左侧双面板、版本树/公式/格式区域和未完成功能禁用状态"
     - "原生 Qt 截图 ui-shell-correction.png：1376x760，主区域比例、工具栏、面板层级、表格和状态栏与批准稿方向一致，无重叠或截断"
+    - "根版本调研确认：SQLite 是文件/版本/HEAD 元数据权威源；每个 versions/<version_id>/manifest.json 是数据库重建冗余，不能互相替代"
+    - "默认 C:\\Users\\86166\\Documents\\Hyacinth 不存在，无旧记录迁移阻塞"
     - "用户未跟踪的 追加需求.txt 未读取、未修改；尚未推送"
     - "切片提交：903e589；本地 main 领先 origin/main 30 个提交"
+    - "根版本切片完整 pytest：72 passed in 21.11s；Ruff check/format、Mypy strict、uv lock、uv build 和 git diff --check 全部通过"
+    - "恢复回归覆盖 SQLite 写入失败后目录/清单保留并可补登记，以及不可读或哈希不符清单不会阻止启动"
+    - "原生 Qt 截图 root-version-tree-slice.png：1376x760，根节点、HEAD、文件名、时间和 XLSX 格式信息完整可见"
+    - "用户未跟踪的 追加需求.txt 未读取、未修改、未纳入本次提交；本次不推送"
   worker_sessions:
+    STAGE-1-ROOT-VERSION-TREE-REVIEW-001:
+      session_id: "ses_ffb90e835ffeIkXBQ1bOF08mgz"
+      provider: "opencode-go"
+      model: "deepseek-v4-flash"
+      finish: "stop"
+      result: "只读审查完成且零文件改动；其恢复目录误删、不可读清单和恢复哈希建议已修复，覆盖已有 HEAD、缺文件元数据处置等建议因 SQLite 权威性或超出当前切片未采纳"
+    STAGE-1-ROOT-VERSION-TREE-RESEARCH-001:
+      session_id: "ses_ffba83b78ffepTXRqQOxhVa2eB"
+      provider: "opencode-go"
+      model: "deepseek-v4-flash"
+      finish: "stop"
+      result: "只读调研完成，零文件改动；其推荐 manifest-only 方案因与已确认 SQLite 权威元数据架构冲突未采纳，事务顺序、恢复清单字段和测试建议作为输入保留"
     STAGE-1-WORKBOOK-PREVIEW-REVIEW-001:
       session_id: "ses_ffbd61a90ffeYVzkzw3ZyV5Nmf"
       provider: "opencode-go"
@@ -290,4 +336,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "主界面 Fluent 壳层校正完成，既有导入与预览功能保持可用；65 项测试和完整质量门通过，下一步回到根版本与版本树切片"
+  last_result: "根版本记录与版本树展示垂直切片完成并通过全部验证；下一步先确认首个处理操作与子版本生成方案"
