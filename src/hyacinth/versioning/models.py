@@ -16,6 +16,7 @@ class VersionRecord:
     engine: EngineName | None
     snapshot_path: Path
     content_hash: str
+    parameters_json: str = "{}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,3 +26,7 @@ class ImportedWorkbook:
     original_path: Path
     working_path: Path
     root_version: VersionRecord | None = None
+
+    @property
+    def head_version(self) -> VersionRecord | None:
+        return self.root_version

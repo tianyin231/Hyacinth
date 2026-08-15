@@ -91,6 +91,12 @@ class WorkbookPreviewWidget(QFrame):
         self._tabs.setCurrentIndex(0)
         self._show_sheet(0)
 
+    def clear_preview(self, message: str = "选择一个文件查看工作表") -> None:
+        self._close_source()
+        self._preview = None
+        self._state.setText(message)
+        self._stack.setCurrentIndex(0)
+
     def _show_sheet(self, index: int) -> None:
         preview = self._preview
         if preview is None or index < 0 or index >= len(preview.sheets):

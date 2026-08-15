@@ -71,6 +71,17 @@ class FileLibraryWidget(QFrame):
         record = item.data(int(Qt.ItemDataRole.UserRole) + 1)
         return record if isinstance(record, ImportedWorkbook) else None
 
+    def replace_workbook(self, record: ImportedWorkbook) -> None:
+        for row in range(self._file_list.count()):
+            item = self._file_list.item(row)
+            if item.data(Qt.ItemDataRole.UserRole) != record.file_id:
+                continue
+            item.setText(record.display_name)
+            item.setData(int(Qt.ItemDataRole.UserRole) + 1, record)
+            item.setToolTip(record.display_name)
+            return
+        self.add_workbook(record)
+
     def _emit_selected_workbook(
         self,
         current: QListWidgetItem | None,

@@ -3,13 +3,18 @@ import subprocess
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
 from openpyxl import Workbook
 from PySide6.QtCore import QObject, Qt
 from PySide6.QtWidgets import (
+    QComboBox,
     QFrame,
+    QGraphicsProxyWidget,
+    QGraphicsView,
     QLabel,
     QListWidget,
     QMainWindow,
@@ -23,7 +28,14 @@ from pytestqt.qtbot import QtBot
 from hyacinth.excel.contracts import EngineName
 from hyacinth.library import IMPORT_WORKBOOK_OPERATION, ImportedWorkbook
 from hyacinth.preview import BUILD_PREVIEW_INDEX_OPERATION, run_preview_index_task
+from hyacinth.processing import (
+    APPLY_SORT_PREVIEW_OPERATION,
+    SORT_PREVIEW_OPERATION,
+    run_apply_sort_preview_task,
+    run_sort_preview_task,
+)
 from hyacinth.tasks import TaskEvent, TaskRequest, TaskState, TaskStatusWidget
+from hyacinth.versioning import MetadataStore, VersionRecord
 
 
 def _child[WidgetT: QObject](parent: QObject, child_type: type[WidgetT], name: str) -> WidgetT:
@@ -66,12 +78,47 @@ class PreviewTaskContext:
     def check_cancelled(self) -> None:
         return
 
+    def set_engine(self, engine: EngineName) -> None:
+        return
+
     def commit(self) -> None:
         return
 
     @contextmanager
     def critical_section(self, message: str = "") -> Iterator[None]:
         yield
+
+
+def _seed_versioned_workbook(library_root: Path) -> ImportedWorkbook:
+    directory = library_root / "files/file-1"
+    original = directory / "original/销售.xlsx"
+    working = directory / "working/current.xlsx"
+    snapshot = directory / "versions/version-1/snapshot.xlsx"
+    for path in (original, working, snapshot):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        workbook = Workbook()
+        sheet = workbook.active
+        assert sheet is not None
+        sheet.title = "销售"
+        sheet.append(["名称", "数量"])
+        sheet.append(["apple", 2])
+        sheet.append(["banana", 1])
+        workbook.save(path)
+        workbook.close()
+    version = VersionRecord(
+        "version-1",
+        "file-1",
+        None,
+        "导入原始文件",
+        datetime(2026, 8, 15, 8, 0, tzinfo=UTC),
+        "import",
+        None,
+        snapshot,
+        sha256(snapshot.read_bytes()).hexdigest(),
+    )
+    record = ImportedWorkbook("file-1", "销售.xlsx", original, working, version)
+    MetadataStore(library_root).record_import(record)
+    return record
 
 
 def test_create_main_window_uses_product_identity(qtbot: QtBot) -> None:
@@ -371,3 +418,101 @@ def test_switching_files_cancels_old_preview_and_ignores_its_result(
     qtbot.wait(100)
 
     assert "正在加载" in state.text()
+
+
+def test_sort_preview_apply_creates_child_and_refreshes_tree(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    initial_request = task_queue.submitted[0]
+    base_preview = run_preview_index_task(initial_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            initial_request.task_id,
+            TaskState.SUCCEEDED,
+            initial_request.name,
+            initial_request.file_id,
+            None,
+            result=base_preview,
+        )
+    )
+    preview_button = _child(window, QPushButton, "function-preview-button")
+    qtbot.waitUntil(preview_button.isEnabled, timeout=500)
+    primary = _child(window, QComboBox, "sort-primary-column")
+    primary.setCurrentIndex(1)
+    qtbot.mouseClick(preview_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    sort_request = task_queue.submitted[-1]
+    assert sort_request.operation == SORT_PREVIEW_OPERATION
+    assert not _child(window, QFrame, "top-toolbar").isEnabled()
+    assert not _child(window, QListWidget, "library-file-list").isEnabled()
+    parent = record.head_version
+    assert parent is not None
+    assert sort_request.payload["source_path"] == str(parent.snapshot_path)
+    sort_result = run_sort_preview_task(sort_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            sort_request.task_id,
+            TaskState.SUCCEEDED,
+            sort_request.name,
+            sort_request.file_id,
+            EngineName.PYTHON,
+            result=sort_result,
+        )
+    )
+    qtbot.waitUntil(lambda: len(task_queue.submitted) == 3, timeout=500)
+    temporary_index_request = task_queue.submitted[-1]
+    temporary_preview = run_preview_index_task(temporary_index_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            temporary_index_request.task_id,
+            TaskState.SUCCEEDED,
+            temporary_index_request.name,
+            temporary_index_request.file_id,
+            None,
+            result=temporary_preview,
+        )
+    )
+    apply_button = _child(window, QPushButton, "function-apply-button")
+    banner = _child(window, QLabel, "temporary-result-banner")
+    qtbot.waitUntil(apply_button.isEnabled, timeout=500)
+    assert banner.isVisible()
+    assert _child(window, QFrame, "top-toolbar").isEnabled()
+    assert _child(window, QListWidget, "library-file-list").isEnabled()
+    qtbot.mouseClick(apply_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    apply_request = task_queue.submitted[-1]
+    assert apply_request.operation == APPLY_SORT_PREVIEW_OPERATION
+    assert not _child(window, QFrame, "top-toolbar").isEnabled()
+    assert not _child(window, QListWidget, "library-file-list").isEnabled()
+    assert apply_request.payload["preview_path"] == str(sort_result.preview_path)
+    assert apply_request.payload["preview_hash"] == sort_result.content_hash
+    applied = run_apply_sort_preview_task(apply_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            apply_request.task_id,
+            TaskState.SUCCEEDED,
+            apply_request.name,
+            apply_request.file_id,
+            EngineName.PYTHON,
+            result=applied,
+        )
+    )
+    qtbot.waitUntil(lambda: len(task_queue.submitted) == 5, timeout=500)
+    tree = _child(window, QGraphicsView, "version-tree-view")
+    proxies = [item for item in tree.scene().items() if isinstance(item, QGraphicsProxyWidget)]
+    head = MetadataStore(library_root).get_workbook("file-1").head_version
+
+    assert len(proxies) == 2
+    assert head is not None and head.parent_version_id == "version-1"
+    assert not sort_result.preview_path.parent.exists()
+    assert _child(window, QFrame, "top-toolbar").isEnabled()
+    assert _child(window, QListWidget, "library-file-list").isEnabled()
