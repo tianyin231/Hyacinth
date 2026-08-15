@@ -251,3 +251,73 @@ def test_function_panel_emits_delete_blank_rows_parameters_and_shows_rows(
     assert model.rowCount() == 2
     assert model.data(model.index(0, 0)) == "第 3 行"
     assert model.data(model.index(1, 0)) == "第 7 行"
+
+
+def test_function_panel_emits_typed_filter_conditions_and_shows_statistics(
+    qtbot: QtBot,
+) -> None:
+    from PySide6.QtWidgets import QLineEdit
+
+    from hyacinth.ui import FunctionPanel
+
+    panel = FunctionPanel()
+    qtbot.addWidget(panel)
+    panel.set_workbook({"销售": ("A · 名称", "B · 数量")})
+    operation = panel.findChild(QComboBox, "processing-operation")
+    parameter_stack = panel.findChild(QStackedWidget, "processing-parameter-stack")
+    first_column = panel.findChild(QComboBox, "filter-first-column")
+    first_operator = panel.findChild(QComboBox, "filter-first-operator")
+    first_value = panel.findChild(QLineEdit, "filter-first-value")
+    enable_second = panel.findChild(QCheckBox, "filter-enable-second")
+    connector = panel.findChild(QComboBox, "filter-connector")
+    second_column = panel.findChild(QComboBox, "filter-second-column")
+    second_type = panel.findChild(QComboBox, "filter-second-type")
+    second_operator = panel.findChild(QComboBox, "filter-second-operator")
+    second_value = panel.findChild(QLineEdit, "filter-second-value")
+    preview = panel.findChild(QPushButton, "function-preview-button")
+    state = panel.findChild(QLabel, "sort-state")
+    assert operation is not None and parameter_stack is not None
+    assert first_column is not None and first_operator is not None and first_value is not None
+    assert enable_second is not None and connector is not None
+    assert second_column is not None and second_type is not None
+    assert second_operator is not None and second_value is not None
+    assert preview is not None and state is not None
+    operation.setCurrentIndex(operation.findData("filter"))
+    assert parameter_stack.currentIndex() == 3
+    assert preview.accessibleName() == "预览条件筛选结果"
+    first_operator.setCurrentIndex(first_operator.findData("contains"))
+    first_value.setText("apple")
+    enable_second.setChecked(True)
+    second_column.setCurrentIndex(1)
+    second_type.setCurrentIndex(second_type.findData("number"))
+    second_operator.setCurrentIndex(second_operator.findData("greater_than"))
+    second_value.setText("3")
+
+    with qtbot.waitSignal(panel.filter_preview_requested) as signal:
+        qtbot.mouseClick(preview, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    assert signal.args == [
+        "销售",
+        {
+            "conditions": [
+                {
+                    "column_index": 0,
+                    "operator": "contains",
+                    "value_type": "text",
+                    "value": "apple",
+                    "second_value": None,
+                },
+                {
+                    "column_index": 1,
+                    "operator": "greater_than",
+                    "value_type": "number",
+                    "value": "3",
+                    "second_value": None,
+                },
+            ],
+            "connector": "and",
+        },
+    ]
+    panel.set_filter_preview_ready(2, 5)
+    assert "匹配 2 / 5 行" in state.text()
+    assert "40.0%" in state.text()

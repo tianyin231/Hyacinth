@@ -8,7 +8,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 from PySide6.QtCore import QEventLoop, QTimer
-from PySide6.QtWidgets import QApplication, QComboBox
+from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QLineEdit
 
 from hyacinth.app import ApplicationTaskQueue, create_main_window
 from hyacinth.excel.contracts import EngineName
@@ -100,7 +100,7 @@ def _wait(milliseconds: int) -> None:
     loop.exec()
 
 
-def capture_ui_states(output_directory: Path) -> tuple[Path, Path, Path, Path]:
+def capture_ui_states(output_directory: Path) -> tuple[Path, Path, Path, Path, Path]:
     app = QApplication.instance() or QApplication([])
     output_directory.mkdir(parents=True, exist_ok=True)
     with (
@@ -157,8 +157,47 @@ def capture_ui_states(output_directory: Path) -> tuple[Path, Path, Path, Path]:
         blank_rows_path = output_directory / "delete-blank-rows-configured.png"
         if not populated_window.grab().save(str(blank_rows_path)):
             raise RuntimeError("无法保存删除空白行配置截图")
+        operation.setCurrentIndex(operation.findData("filter"))
+        first_operator = populated_window.findChild(QComboBox, "filter-first-operator")
+        first_value = populated_window.findChild(QLineEdit, "filter-first-value")
+        enable_second = populated_window.findChild(QCheckBox, "filter-enable-second")
+        second_column = populated_window.findChild(QComboBox, "filter-second-column")
+        second_type = populated_window.findChild(QComboBox, "filter-second-type")
+        second_operator = populated_window.findChild(QComboBox, "filter-second-operator")
+        second_value = populated_window.findChild(QLineEdit, "filter-second-value")
+        if any(
+            control is None
+            for control in (
+                first_operator,
+                first_value,
+                enable_second,
+                second_column,
+                second_type,
+                second_operator,
+                second_value,
+            )
+        ):
+            raise RuntimeError("找不到条件筛选配置控件")
+        assert first_operator is not None
+        assert first_value is not None
+        assert enable_second is not None
+        assert second_column is not None
+        assert second_type is not None
+        assert second_operator is not None
+        assert second_value is not None
+        first_operator.setCurrentIndex(first_operator.findData("contains"))
+        first_value.setText("苹果")
+        enable_second.setChecked(True)
+        second_column.setCurrentIndex(2)
+        second_type.setCurrentIndex(second_type.findData("number"))
+        second_operator.setCurrentIndex(second_operator.findData("greater_than"))
+        second_value.setText("10")
+        app.processEvents()
+        filter_path = output_directory / "filter-configured.png"
+        if not populated_window.grab().save(str(filter_path)):
+            raise RuntimeError("无法保存条件筛选配置截图")
         populated_window.close()
-    return empty_path, populated_path, deduplicate_path, blank_rows_path
+    return empty_path, populated_path, deduplicate_path, blank_rows_path, filter_path
 
 
 def main() -> int:

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QGraphicsProxyWidget,
     QGraphicsView,
     QLabel,
+    QLineEdit,
     QListWidget,
     QMainWindow,
     QPushButton,
@@ -33,15 +34,19 @@ from hyacinth.preview import BUILD_PREVIEW_INDEX_OPERATION, run_preview_index_ta
 from hyacinth.processing import (
     APPLY_DEDUPLICATE_PREVIEW_OPERATION,
     APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION,
+    APPLY_FILTER_PREVIEW_OPERATION,
     APPLY_SORT_PREVIEW_OPERATION,
     DEDUPLICATE_PREVIEW_OPERATION,
     DELETE_BLANK_ROWS_PREVIEW_OPERATION,
+    FILTER_PREVIEW_OPERATION,
     SORT_PREVIEW_OPERATION,
     run_apply_deduplicate_preview_task,
     run_apply_delete_blank_rows_preview_task,
+    run_apply_filter_preview_task,
     run_apply_sort_preview_task,
     run_deduplicate_preview_task,
     run_delete_blank_rows_preview_task,
+    run_filter_preview_task,
     run_sort_preview_task,
 )
 from hyacinth.tasks import TaskEvent, TaskRequest, TaskState, TaskStatusWidget
@@ -777,6 +782,141 @@ def test_delete_blank_rows_preview_apply_creates_child_and_shows_original_rows(
     proxies = [item for item in tree.scene().items() if isinstance(item, QGraphicsProxyWidget)]
 
     assert head is not None and head.operation == "delete-blank-rows"
+    assert head.parent_version_id == "version-1"
+    assert len(proxies) == 2
+    assert not result.preview_path.parent.exists()
+
+
+def test_filter_preview_apply_creates_child_and_only_shows_matching_rows(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(
+        library_root,
+        [
+            ["名称", "数量"],
+            ["apple", 2],
+            ["apple", 5],
+            ["banana", 8],
+        ],
+    )
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    initial_request = task_queue.submitted[0]
+    base_preview = run_preview_index_task(initial_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            initial_request.task_id,
+            TaskState.SUCCEEDED,
+            initial_request.name,
+            initial_request.file_id,
+            None,
+            result=base_preview,
+        )
+    )
+    preview_button = _child(window, QPushButton, "function-preview-button")
+    qtbot.waitUntil(preview_button.isEnabled, timeout=500)
+    operation = _child(window, QComboBox, "processing-operation")
+    operation.setCurrentIndex(operation.findData("filter"))
+    first_operator = _child(window, QComboBox, "filter-first-operator")
+    first_operator.setCurrentIndex(first_operator.findData("contains"))
+    _child(window, QLineEdit, "filter-first-value").setText("apple")
+    _child(window, QCheckBox, "filter-enable-second").setChecked(True)
+    second_column = _child(window, QComboBox, "filter-second-column")
+    second_column.setCurrentIndex(1)
+    second_type = _child(window, QComboBox, "filter-second-type")
+    second_type.setCurrentIndex(second_type.findData("number"))
+    second_operator = _child(window, QComboBox, "filter-second-operator")
+    second_operator.setCurrentIndex(second_operator.findData("greater_than"))
+    _child(window, QLineEdit, "filter-second-value").setText("3")
+    qtbot.mouseClick(preview_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    filter_request = task_queue.submitted[-1]
+    assert filter_request.operation == FILTER_PREVIEW_OPERATION
+    assert filter_request.payload["connector"] == "and"
+    assert filter_request.payload["conditions"] == [
+        {
+            "column_index": 0,
+            "operator": "contains",
+            "value_type": "text",
+            "value": "apple",
+            "second_value": None,
+        },
+        {
+            "column_index": 1,
+            "operator": "greater_than",
+            "value_type": "number",
+            "value": "3",
+            "second_value": None,
+        },
+    ]
+    parent = record.head_version
+    assert parent is not None
+    assert filter_request.payload["source_path"] == str(parent.snapshot_path)
+    result = run_filter_preview_task(filter_request, PreviewTaskContext())
+    assert result.matched_rows == 1
+    assert result.total_rows == 3
+    assert result.hidden_row_numbers == (2, 4)
+    task_queue.push_event(
+        TaskEvent(
+            filter_request.task_id,
+            TaskState.SUCCEEDED,
+            filter_request.name,
+            filter_request.file_id,
+            EngineName.PYTHON,
+            result=result,
+        )
+    )
+    qtbot.waitUntil(lambda: len(task_queue.submitted) == 3, timeout=500)
+    temporary_index_request = task_queue.submitted[-1]
+    temporary_preview = run_preview_index_task(temporary_index_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            temporary_index_request.task_id,
+            TaskState.SUCCEEDED,
+            temporary_index_request.name,
+            temporary_index_request.file_id,
+            None,
+            result=temporary_preview,
+        )
+    )
+    apply_button = _child(window, QPushButton, "function-apply-button")
+    state = _child(window, QLabel, "sort-state")
+    table = _child(window, QTableView, "preview-table")
+    qtbot.waitUntil(apply_button.isEnabled, timeout=500)
+    assert "匹配 1 / 3 行" in state.text()
+    assert "33.3%" in state.text()
+    assert table.model().data(table.model().index(0, 0)) == "名称"
+    assert table.model().data(table.model().index(1, 0)) == "apple"
+    assert table.model().data(table.model().index(1, 1)) == "5"
+    qtbot.mouseClick(apply_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    apply_request = task_queue.submitted[-1]
+    assert apply_request.operation == APPLY_FILTER_PREVIEW_OPERATION
+    assert apply_request.payload["matched_rows"] == 1
+    assert apply_request.payload["total_rows"] == 3
+    applied = run_apply_filter_preview_task(apply_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            apply_request.task_id,
+            TaskState.SUCCEEDED,
+            apply_request.name,
+            apply_request.file_id,
+            EngineName.PYTHON,
+            result=applied,
+        )
+    )
+    qtbot.waitUntil(lambda: len(task_queue.submitted) == 5, timeout=500)
+    head = MetadataStore(library_root).get_workbook("file-1").head_version
+    tree = _child(window, QGraphicsView, "version-tree-view")
+    proxies = [item for item in tree.scene().items() if isinstance(item, QGraphicsProxyWidget)]
+
+    assert head is not None and head.operation == "filter"
     assert head.parent_version_id == "version-1"
     assert len(proxies) == 2
     assert not result.preview_path.parent.exists()

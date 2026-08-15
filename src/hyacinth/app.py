@@ -35,16 +35,20 @@ from hyacinth.preview import (
 from hyacinth.processing import (
     APPLY_DEDUPLICATE_PREVIEW_OPERATION,
     APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION,
+    APPLY_FILTER_PREVIEW_OPERATION,
     APPLY_SORT_PREVIEW_OPERATION,
     DEDUPLICATE_PREVIEW_OPERATION,
     DELETE_BLANK_ROWS_PREVIEW_OPERATION,
+    FILTER_PREVIEW_OPERATION,
     SORT_PREVIEW_OPERATION,
     DeduplicatePreviewResult,
     DeleteBlankRowsPreviewResult,
+    FilterPreviewResult,
     SortPreviewResult,
     apply_version_handlers,
     deduplicate_preview_handlers,
     delete_blank_rows_preview_handlers,
+    filter_preview_handlers,
     sort_preview_handlers,
 )
 from hyacinth.tasks import (
@@ -124,7 +128,11 @@ class HyacinthMainWindow(QMainWindow):
         self._current_workbook: ImportedWorkbook | None = None
         self._processing_task_id: str | None = None
         self._processing_result: (
-            SortPreviewResult | DeduplicatePreviewResult | DeleteBlankRowsPreviewResult | None
+            SortPreviewResult
+            | DeduplicatePreviewResult
+            | DeleteBlankRowsPreviewResult
+            | FilterPreviewResult
+            | None
         ) = None
         self._temporary_preview: WorkbookPreview | None = None
         self._apply_task_id: str | None = None
@@ -139,6 +147,7 @@ class HyacinthMainWindow(QMainWindow):
         self._function_panel.delete_blank_rows_preview_requested.connect(
             self._submit_delete_blank_rows_preview
         )
+        self._function_panel.filter_preview_requested.connect(self._submit_filter_preview)
         self._function_panel.cancel_requested.connect(self._cancel_processing_workflow)
         self._function_panel.apply_requested.connect(self._submit_apply_processing_preview)
         self._file_library = FileLibraryWidget(
@@ -155,9 +164,9 @@ class HyacinthMainWindow(QMainWindow):
         left_splitter.setObjectName("left-workspace-splitter")
         left_splitter.addWidget(self._function_panel)
         left_splitter.addWidget(self._file_library)
-        left_splitter.setStretchFactor(0, 3)
+        left_splitter.setStretchFactor(0, 4)
         left_splitter.setStretchFactor(1, 2)
-        left_splitter.setSizes([330, 210])
+        left_splitter.setSizes([420, 180])
 
         main_splitter = QSplitter(Qt.Orientation.Horizontal, workspace_root)
         main_splitter.setObjectName("main-workspace-splitter")
@@ -354,6 +363,18 @@ class HyacinthMainWindow(QMainWindow):
             parameters=parameters,
         )
 
+    def _submit_filter_preview(self, sheet_name: str, parameters: object) -> None:
+        if not isinstance(parameters, dict):
+            self._function_panel.set_error("条件筛选参数无效，请重新配置")
+            return
+        self._submit_processing_preview(
+            operation=FILTER_PREVIEW_OPERATION,
+            task_name="生成条件筛选预览",
+            busy_message="正在计算匹配行并生成筛选预览…",
+            sheet_name=sheet_name,
+            parameters=parameters,
+        )
+
     def _submit_processing_preview(
         self,
         *,
@@ -399,7 +420,12 @@ class HyacinthMainWindow(QMainWindow):
             return
         if event.state is TaskState.SUCCEEDED and isinstance(
             event.result,
-            (SortPreviewResult, DeduplicatePreviewResult, DeleteBlankRowsPreviewResult),
+            (
+                SortPreviewResult,
+                DeduplicatePreviewResult,
+                DeleteBlankRowsPreviewResult,
+                FilterPreviewResult,
+            ),
         ):
             self._processing_result = event.result
             self._processing_task_id = None
@@ -452,7 +478,7 @@ class HyacinthMainWindow(QMainWindow):
                 "duplicate_groups": len(result.duplicate_groups),
                 "deleted_rows": result.deleted_rows,
             }
-        else:
+        elif isinstance(result, DeleteBlankRowsPreviewResult):
             operation = APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION
             task_name = "应用删除空白行结果"
             parameters = {
@@ -460,6 +486,24 @@ class HyacinthMainWindow(QMainWindow):
                 "allow_unsafe": result.allow_unsafe,
                 "compatibility_warning": result.compatibility_warning,
                 "deleted_row_numbers": list(result.deleted_row_numbers),
+            }
+        else:
+            operation = APPLY_FILTER_PREVIEW_OPERATION
+            task_name = "应用条件筛选结果"
+            parameters = {
+                "conditions": [
+                    {
+                        "column_index": condition.column_index,
+                        "operator": condition.operator.value,
+                        "value_type": condition.value_type.value,
+                        "value": condition.value,
+                        "second_value": condition.second_value,
+                    }
+                    for condition in result.conditions
+                ],
+                "connector": result.connector.value,
+                "matched_rows": result.matched_rows,
+                "total_rows": result.total_rows,
             }
         self._task_queue.submit(
             TaskRequest(
@@ -549,6 +593,13 @@ class HyacinthMainWindow(QMainWindow):
             self._function_panel.set_delete_blank_rows_preview_ready(
                 result.deleted_row_numbers,
                 result.compatibility_warning,
+                message,
+            )
+            return
+        if isinstance(result, FilterPreviewResult):
+            self._function_panel.set_filter_preview_ready(
+                result.matched_rows,
+                result.total_rows,
                 message,
             )
             return
@@ -650,6 +701,7 @@ def create_main_window(
     handlers.update(sort_preview_handlers())
     handlers.update(deduplicate_preview_handlers())
     handlers.update(delete_blank_rows_preview_handlers())
+    handlers.update(filter_preview_handlers())
     handlers.update(apply_version_handlers())
     return HyacinthMainWindow(
         task_queue or TaskQueue(handlers),

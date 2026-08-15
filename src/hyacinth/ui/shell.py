@@ -18,11 +18,13 @@ from PySide6.QtWidgets import (
     QGraphicsProxyWidget,
     QGraphicsScene,
     QGraphicsView,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QStackedWidget,
     QTableView,
@@ -407,6 +409,7 @@ class FunctionPanel(QFrame):
     preview_requested = Signal(str, object)
     deduplicate_preview_requested = Signal(str, object)
     delete_blank_rows_preview_requested = Signal(str, object)
+    filter_preview_requested = Signal(str, object)
     cancel_requested = Signal()
     apply_requested = Signal()
 
@@ -438,6 +441,7 @@ class FunctionPanel(QFrame):
         empty_layout.addStretch()
 
         body = QWidget(self)
+        body.setMinimumHeight(430)
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(11, 10, 11, 10)
         body_layout.setSpacing(5)
@@ -446,6 +450,7 @@ class FunctionPanel(QFrame):
         self._operation.addItem("多列排序", "sort")
         self._operation.addItem("删除重复行", "deduplicate")
         self._operation.addItem("删除空白行", "delete_blank_rows")
+        self._operation.addItem("条件筛选", "filter")
         self._operation.currentIndexChanged.connect(self._switch_operation)
         self._sheet = self._field(body_layout, "处理工作表", "sort-sheet")
         self._sheet.currentTextChanged.connect(self._refresh_columns)
@@ -542,11 +547,103 @@ class FunctionPanel(QFrame):
         blank_rows_layout.addWidget(self._blank_rows_details)
         blank_rows_layout.addStretch()
 
+        filter_page = QWidget(body)
+        filter_layout = QVBoxLayout(filter_page)
+        filter_layout.setContentsMargins(0, 0, 0, 0)
+        filter_layout.setSpacing(5)
+        first_label = QLabel("条件 1", filter_page)
+        first_label.setProperty("class", "form-label")
+        self._filter_first_column = self._filter_combo(
+            filter_page, "filter-first-column", "第一个筛选列"
+        )
+        self._filter_first_type = self._filter_type_combo(
+            filter_page, "filter-first-type", "第一个条件数据类型"
+        )
+        self._filter_first_operator = self._filter_combo(
+            filter_page, "filter-first-operator", "第一个筛选操作符"
+        )
+        self._filter_first_value = self._filter_value_field(
+            filter_page, "filter-first-value", "第一个比较值"
+        )
+        self._filter_first_second_value = self._filter_value_field(
+            filter_page, "filter-first-second-value", "第一个条件的第二个比较值"
+        )
+        first_grid = QGridLayout()
+        first_grid.setContentsMargins(0, 0, 0, 0)
+        first_grid.setHorizontalSpacing(5)
+        first_grid.setVerticalSpacing(5)
+        first_grid.setColumnStretch(0, 2)
+        first_grid.setColumnStretch(1, 2)
+        first_grid.setColumnStretch(2, 3)
+        first_grid.addWidget(self._filter_first_column, 0, 0, 1, 3)
+        first_grid.addWidget(self._filter_first_type, 1, 0)
+        first_grid.addWidget(self._filter_first_operator, 1, 1)
+        first_grid.addWidget(self._filter_first_value, 1, 2)
+        first_grid.addWidget(self._filter_first_second_value, 2, 0, 1, 3)
+
+        self._filter_enable_second = QCheckBox("添加第二个条件", filter_page)
+        self._filter_enable_second.setObjectName("filter-enable-second")
+        self._filter_connector = self._filter_combo(filter_page, "filter-connector", "条件连接方式")
+        self._filter_connector.addItem("并且", "and")
+        self._filter_connector.addItem("或者（仅同一列）", "or")
+        self._filter_second_column = self._filter_combo(
+            filter_page, "filter-second-column", "第二个筛选列"
+        )
+        self._filter_second_type = self._filter_type_combo(
+            filter_page, "filter-second-type", "第二个条件数据类型"
+        )
+        self._filter_second_operator = self._filter_combo(
+            filter_page, "filter-second-operator", "第二个筛选操作符"
+        )
+        self._filter_second_value = self._filter_value_field(
+            filter_page, "filter-second-value", "第二个比较值"
+        )
+        self._filter_second_second_value = self._filter_value_field(
+            filter_page, "filter-second-second-value", "第二个条件的第二个比较值"
+        )
+        second_grid = QGridLayout()
+        second_grid.setContentsMargins(0, 0, 0, 0)
+        second_grid.setHorizontalSpacing(5)
+        second_grid.setVerticalSpacing(5)
+        second_grid.setColumnStretch(0, 2)
+        second_grid.setColumnStretch(1, 2)
+        second_grid.setColumnStretch(2, 3)
+        second_grid.addWidget(self._filter_connector, 0, 0, 1, 3)
+        second_grid.addWidget(self._filter_second_column, 1, 0, 1, 3)
+        second_grid.addWidget(self._filter_second_type, 2, 0)
+        second_grid.addWidget(self._filter_second_operator, 2, 1)
+        second_grid.addWidget(self._filter_second_value, 2, 2)
+        second_grid.addWidget(self._filter_second_second_value, 3, 0, 1, 3)
+        filter_note = QLabel(
+            "跨列仅支持“并且” · 筛选只隐藏不匹配行，不删除数据",
+            filter_page,
+        )
+        filter_note.setObjectName("filter-note")
+        filter_note.setWordWrap(True)
+        filter_layout.addWidget(first_label)
+        filter_layout.addLayout(first_grid)
+        filter_layout.addWidget(self._filter_enable_second)
+        filter_layout.addLayout(second_grid)
+        filter_layout.addWidget(filter_note)
+        filter_layout.addStretch()
+        self._filter_first_type.currentIndexChanged.connect(
+            lambda _index: self._refresh_filter_operators(first=True)
+        )
+        self._filter_second_type.currentIndexChanged.connect(
+            lambda _index: self._refresh_filter_operators(first=False)
+        )
+        self._filter_first_operator.currentIndexChanged.connect(self._refresh_filter_value_fields)
+        self._filter_second_operator.currentIndexChanged.connect(self._refresh_filter_value_fields)
+        self._filter_enable_second.toggled.connect(self._update_filter_second_enabled)
+        self._refresh_filter_operators(first=True)
+        self._refresh_filter_operators(first=False)
+
         self._parameter_stack = QStackedWidget(body)
         self._parameter_stack.setObjectName("processing-parameter-stack")
         self._parameter_stack.addWidget(sort_page)
         self._parameter_stack.addWidget(deduplicate_page)
         self._parameter_stack.addWidget(blank_rows_page)
+        self._parameter_stack.addWidget(filter_page)
         body_layout.addWidget(self._parameter_stack, 1)
 
         self._state = QLabel("选择文件后可配置处理功能", body)
@@ -582,8 +679,13 @@ class FunctionPanel(QFrame):
 
         self._body_stack = QStackedWidget(self)
         self._body_stack.setObjectName("function-body-stack")
+        body_scroll = QScrollArea(self._body_stack)
+        body_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        body_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        body_scroll.setWidgetResizable(True)
+        body_scroll.setWidget(body)
         self._body_stack.addWidget(empty_body)
-        self._body_stack.addWidget(body)
+        self._body_stack.addWidget(body_scroll)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -605,6 +707,18 @@ class FunctionPanel(QFrame):
             self._deduplicate_trim,
             self._blank_rows_columns,
             self._blank_rows_allow_unsafe,
+            self._filter_first_column,
+            self._filter_first_type,
+            self._filter_first_operator,
+            self._filter_first_value,
+            self._filter_first_second_value,
+            self._filter_enable_second,
+            self._filter_connector,
+            self._filter_second_column,
+            self._filter_second_type,
+            self._filter_second_operator,
+            self._filter_second_value,
+            self._filter_second_second_value,
         )
         self.clear_workbook()
 
@@ -632,6 +746,8 @@ class FunctionPanel(QFrame):
         self._secondary.clear()
         self._deduplicate_columns.clear()
         self._blank_rows_columns.clear()
+        self._filter_first_column.clear()
+        self._filter_second_column.clear()
         self._duplicate_mapping = ()
         self._deleted_blank_row_numbers = ()
         self._deduplicate_details.setEnabled(False)
@@ -686,6 +802,18 @@ class FunctionPanel(QFrame):
         )
         self._blank_rows_details.setEnabled(bool(deleted_row_numbers))
 
+    def set_filter_preview_ready(
+        self,
+        matched_rows: int,
+        total_rows: int,
+        message: str | None = None,
+    ) -> None:
+        ratio = matched_rows / total_rows if total_rows else 0.0
+        summary = f"匹配 {matched_rows} / {total_rows} 行 · {ratio:.1%}"
+        self.set_preview_ready(
+            f"{message} · {summary}" if message else f"临时结果已就绪 · {summary}"
+        )
+
     def set_error(self, message: str) -> None:
         self._set_config_enabled(bool(self._headers_by_sheet))
         self._cancel.setEnabled(False)
@@ -717,6 +845,38 @@ class FunctionPanel(QFrame):
         field.addItem("降序", "desc")
         return field
 
+    def _filter_combo(self, parent: QWidget, name: str, accessible_name: str) -> QComboBox:
+        field = QComboBox(parent)
+        field.setObjectName(name)
+        field.setProperty("class", "field-control")
+        field.setAccessibleName(accessible_name)
+        return field
+
+    def _filter_type_combo(
+        self,
+        parent: QWidget,
+        name: str,
+        accessible_name: str,
+    ) -> QComboBox:
+        field = self._filter_combo(parent, name, accessible_name)
+        field.addItem("文本", "text")
+        field.addItem("数字", "number")
+        field.addItem("日期", "date")
+        return field
+
+    def _filter_value_field(
+        self,
+        parent: QWidget,
+        name: str,
+        accessible_name: str,
+    ) -> QLineEdit:
+        field = QLineEdit(parent)
+        field.setObjectName(name)
+        field.setProperty("class", "field-control")
+        field.setAccessibleName(accessible_name)
+        field.setPlaceholderText("比较值")
+        return field
+
     def _refresh_columns(self, sheet_name: str) -> None:
         headers = self._headers_by_sheet.get(sheet_name, ())
         self._primary.clear()
@@ -724,6 +884,8 @@ class FunctionPanel(QFrame):
         self._secondary.addItem("不使用", None)
         self._deduplicate_columns.clear()
         self._blank_rows_columns.clear()
+        self._filter_first_column.clear()
+        self._filter_second_column.clear()
         for index, header in enumerate(headers):
             label = header or f"第 {index + 1} 列"
             self._primary.addItem(label, index)
@@ -732,6 +894,8 @@ class FunctionPanel(QFrame):
             self._deduplicate_columns.item(index).setData(Qt.ItemDataRole.UserRole, index)
             self._blank_rows_columns.addItem(label)
             self._blank_rows_columns.item(index).setData(Qt.ItemDataRole.UserRole, index)
+            self._filter_first_column.addItem(label, index)
+            self._filter_second_column.addItem(label, index)
         self._set_config_enabled(bool(self._headers_by_sheet))
 
     def _reset_fields(self) -> None:
@@ -745,6 +909,15 @@ class FunctionPanel(QFrame):
         self._deduplicate_trim.setChecked(False)
         self._blank_rows_columns.clearSelection()
         self._blank_rows_allow_unsafe.setChecked(False)
+        self._filter_first_type.setCurrentIndex(0)
+        self._filter_first_value.clear()
+        self._filter_first_second_value.clear()
+        self._filter_enable_second.setChecked(False)
+        self._filter_connector.setCurrentIndex(0)
+        self._filter_second_column.setCurrentIndex(0)
+        self._filter_second_type.setCurrentIndex(0)
+        self._filter_second_value.clear()
+        self._filter_second_second_value.clear()
         self._state.setText("已重置处理条件")
 
     def _set_config_enabled(self, enabled: bool) -> None:
@@ -758,6 +931,7 @@ class FunctionPanel(QFrame):
         self._blank_rows_details.setEnabled(
             enabled and bool(self._deleted_blank_row_numbers) and self._apply.isEnabled()
         )
+        self._update_filter_second_enabled(enabled and self._filter_enable_second.isChecked())
 
     def _emit_preview(self) -> None:
         operation = self._operation.currentData()
@@ -766,6 +940,9 @@ class FunctionPanel(QFrame):
             return
         if operation == "delete_blank_rows":
             self._emit_delete_blank_rows_preview()
+            return
+        if operation == "filter":
+            self._emit_filter_preview()
             return
         primary = self._primary.currentData()
         if not isinstance(primary, int):
@@ -814,9 +991,48 @@ class FunctionPanel(QFrame):
             },
         )
 
+    def _emit_filter_preview(self) -> None:
+        conditions = [self._filter_condition_payload(first=True)]
+        if self._filter_enable_second.isChecked():
+            conditions.append(self._filter_condition_payload(first=False))
+            if (
+                self._filter_connector.currentData() == "or"
+                and conditions[0]["column_index"] != conditions[1]["column_index"]
+            ):
+                self.set_error("不同列的筛选条件只能使用“并且”")
+                return
+        self.filter_preview_requested.emit(
+            self._sheet.currentText(),
+            {
+                "conditions": conditions,
+                "connector": self._filter_connector.currentData(),
+            },
+        )
+
+    def _filter_condition_payload(self, *, first: bool) -> dict[str, object]:
+        column = self._filter_first_column if first else self._filter_second_column
+        value_type = self._filter_first_type if first else self._filter_second_type
+        operator = self._filter_first_operator if first else self._filter_second_operator
+        value = self._filter_first_value if first else self._filter_second_value
+        second_value = (
+            self._filter_first_second_value if first else self._filter_second_second_value
+        )
+        return {
+            "column_index": column.currentData(),
+            "operator": operator.currentData(),
+            "value_type": value_type.currentData(),
+            "value": value.text() or None,
+            "second_value": second_value.text() or None,
+        }
+
     def _switch_operation(self, _index: int = -1) -> None:
         operation = self._operation.currentData()
-        page_index = {"sort": 0, "deduplicate": 1, "delete_blank_rows": 2}.get(operation, 0)
+        page_index = {
+            "sort": 0,
+            "deduplicate": 1,
+            "delete_blank_rows": 2,
+            "filter": 3,
+        }.get(operation, 0)
         self._parameter_stack.setCurrentIndex(page_index)
         if self._headers_by_sheet:
             self._state.setText(self._ready_message())
@@ -824,6 +1040,7 @@ class FunctionPanel(QFrame):
             "sort": "预览排序结果",
             "deduplicate": "预览删除重复行结果",
             "delete_blank_rows": "预览删除空白行结果",
+            "filter": "预览条件筛选结果",
         }
         self._preview.setAccessibleName(accessible_names.get(operation, "预览处理结果"))
 
@@ -832,7 +1049,57 @@ class FunctionPanel(QFrame):
             return "选择关键列后预览；未选择时按整行判断"
         if self._operation.currentData() == "delete_blank_rows":
             return "选择关键列后预览；未选择时删除整行均为空的行"
+        if self._operation.currentData() == "filter":
+            return "配置条件后预览匹配数量和实际可见行"
         return "配置排序条件后预览完整数据行"
+
+    def _refresh_filter_operators(self, *, first: bool) -> None:
+        value_type = self._filter_first_type if first else self._filter_second_type
+        operator = self._filter_first_operator if first else self._filter_second_operator
+        operator.blockSignals(True)
+        operator.clear()
+        operator.addItem("等于", "equal")
+        operator.addItem("不等于", "not_equal")
+        if value_type.currentData() == "text":
+            operator.addItem("包含", "contains")
+            operator.addItem("不包含", "not_contains")
+        else:
+            operator.addItem("大于", "greater_than")
+            operator.addItem("小于", "less_than")
+            operator.addItem("介于", "between")
+        operator.addItem("为空", "blank")
+        operator.addItem("不为空", "not_blank")
+        operator.blockSignals(False)
+        self._refresh_filter_value_fields()
+
+    def _refresh_filter_value_fields(self, _index: int = -1) -> None:
+        for operator, value, second_value in (
+            (
+                self._filter_first_operator,
+                self._filter_first_value,
+                self._filter_first_second_value,
+            ),
+            (
+                self._filter_second_operator,
+                self._filter_second_value,
+                self._filter_second_second_value,
+            ),
+        ):
+            has_value = operator.currentData() not in {"blank", "not_blank"}
+            value.setVisible(has_value)
+            second_value.setVisible(operator.currentData() == "between")
+
+    def _update_filter_second_enabled(self, enabled: bool) -> None:
+        active = bool(enabled and self._filter_enable_second.isEnabled())
+        for control in (
+            self._filter_connector,
+            self._filter_second_column,
+            self._filter_second_type,
+            self._filter_second_operator,
+            self._filter_second_value,
+            self._filter_second_second_value,
+        ):
+            control.setEnabled(active)
 
     def _show_duplicate_details(self) -> None:
         dialog = QDialog(self)

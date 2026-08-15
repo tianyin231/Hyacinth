@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T20:19:58.5919787+08:00"
+updated_at: "2026-08-15T20:32:24.8075710+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-1-delete-blank-rows-completed"
+  implementation: "stage-1-condition-filter-completed"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -31,12 +31,12 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 条件筛选垂直切片"
-  next_milestone: "条件筛选安全原生 AutoFilter 两阶段版本闭环（用户已确认）"
+  current_phase: "阶段 1 条件筛选垂直切片已完成"
+  next_milestone: "由用户确认筛选并提取或下一个处理功能切片"
 
 current_task:
   id: "STAGE-1-CONDITION-FILTER-001"
-  status: "filter-preview-core-completed-ui-and-apply-pending"
+  status: "completed"
   goal: "实现最多两个原生可表达条件的应用筛选、可见隐藏行预览、匹配统计、精确应用、子版本和 HEAD 闭环"
   owner: "codex-sol"
 
@@ -174,11 +174,16 @@ last_completed:
   - "筛选预览同时写入原生 AutoFilter CustomFilters 与 row.hidden，返回匹配数、总数、比例和隐藏原始行号"
   - "安全边界拒绝跨列 OR、已有筛选或隐藏行、Excel 表格、合并区域和条件列公式；同列介于条件不再叠加第二条件"
   - "条件筛选核心通过真实常驻 Worker、15 项定向测试和 145 项完整质量门"
+  - "完成条件筛选 FunctionPanel 两条件参数页，支持文本、数字、日期类型与动态操作符"
+  - "完成匹配数量、总数和比例展示，临时预览通过隐藏行索引只显示表头与命中行"
+  - "完成条件筛选精确应用、不可变子快照、SQLite 子版本、HEAD、工作副本和恢复清单闭环"
+  - "真实 Qt 端到端贯通条件配置、后台筛选、临时索引、可见行、精确应用、双节点版本树和临时目录清理"
+  - "1440x900 原生截图发现并修复条件页控件重叠，使用紧凑三列条件行、可滚动参数体和 4:2 左侧纵向比例"
+  - "条件筛选完整质量门通过：148 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
 
 next_actions:
-  - "实现隐藏行感知的 SQLite 预览索引与 Qt 表格映射，确保筛选预览只显示匹配行和表头"
-  - "实现后台条件计算、原生 AutoFilter/row.hidden 原子预览及安全边界测试"
-  - "接入条件参数面板、匹配统计、精确应用、子版本和 HEAD 端到端；筛选并提取作为后续独立切片"
+  - "向用户汇报条件筛选完整闭环和本地提交，下一切片在筛选并提取与其他待实现处理功能之间确认优先级"
+  - "条件筛选后续增强包括筛选并提取、COM 高保真处理和更复杂的跨列 OR；首切片不扩大原生筛选范围"
   - "后续实现窗口状态持久化时，正常启动优先恢复用户上次位置、尺寸和最大化状态，1440x900 仅作为无保存状态时的默认值"
   - "后续将 COM 子进程扩展为结构化阶段事件，把安全关键范围从整段转换收窄到 SaveAs"
   - "每完成一个可独立验收的关键开发节点提交本地 Git"
@@ -304,13 +309,28 @@ recent_decisions:
     impact: "双引擎任务 handler、取消语义、Qt 事件桥、状态栏组件和测试"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
+  - "output/playwright/default-empty-state.png"
+  - "output/playwright/fluent-shell-populated.png"
+  - "output/playwright/deduplicate-configured.png"
+  - "output/playwright/delete-blank-rows-configured.png"
+  - "output/playwright/filter-configured.png"
+  - "scripts/capture_ui_states.py"
+  - "src/hyacinth/app.py"
   - "src/hyacinth/processing/__init__.py"
+  - "src/hyacinth/processing/apply_version.py"
   - "src/hyacinth/processing/filter_preview.py"
+  - "src/hyacinth/ui/shell.py"
+  - "tests/processing/test_apply_version.py"
   - "tests/processing/test_filter_preview.py"
+  - "tests/test_app.py"
+  - "tests/versioning/test_widget.py"
 
 verification:
-  status: "condition-filter-fidelity-researched-proposal-pending"
+  status: "condition-filter-closed-loop-completed"
   commands:
+    - "uv run pytest --override-ini addopts='' tests/test_app.py::test_filter_preview_apply_creates_child_and_only_shows_matching_rows tests/processing/test_apply_version.py tests/versioning/test_widget.py -q"
+    - "uv run python scripts/capture_ui_states.py --output output/playwright"
+    - "原图目视检查 output/playwright/filter-configured.png"
     - "uv run pytest --override-ini addopts='' tests/processing/test_filter_preview.py -q"
     - "uv run pytest --override-ini addopts='' -q"
     - "uv run ruff check ."
@@ -382,6 +402,10 @@ verification:
     - "OpenCode DeepSeek session ses_ffb779869ffetPKJvDGwsXSdcX 导出并核验 provider/model/finish/files changed"
     - "OpenCode DeepSeek session ses_ffb6eb165ffeExum72T3S31KLf 导出并核验 provider/model/finish 与实际写入范围"
   evidence:
+    - "条件筛选 UI、应用事务和真实 Qt 端到端定向回归：15 passed in 1.76s"
+    - "端到端确认两条件跨列 AND 得到匹配 1/3、33.3%，表格只显示表头和命中行，应用后 HEAD 指向 filter 子版本且临时目录清理"
+    - "filter-configured.png：1440x900，两个条件、连接方式、规则提示、状态说明和操作栏完整可见，无重叠或截断"
+    - "最终全量复验：148 passed in 30.52s；Ruff check/format、Mypy strict、uv lock、uv build 和 git diff --check 全部通过"
     - "条件筛选后台核心定向测试：15 passed in 1.27s"
     - "定向覆盖同列 OR、跨列 AND、文本包含、数字比较、日期介于、空值、危险结构拒绝、取消清理和真实 TaskQueue"
     - "当前完整质量门：145 passed in 30.16s；Ruff check/format、Mypy strict、uv lock、uv build 和 git diff --check 全部通过"
@@ -554,4 +578,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "条件筛选后台预览核心已经完成并通过完整质量门；下一步接入通用预览应用事务、FunctionPanel 两条件表单、匹配统计和真实 Qt 端到端闭环"
+  last_result: "条件筛选安全原生 AutoFilter 两阶段闭环已经完成并通过完整质量门；待提交本地 Git 后，由用户确认筛选并提取或下一个处理功能切片"

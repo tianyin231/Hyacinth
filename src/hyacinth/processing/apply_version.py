@@ -23,6 +23,7 @@ from hyacinth.versioning import (
 APPLY_SORT_PREVIEW_OPERATION = "apply-sort-preview"
 APPLY_DEDUPLICATE_PREVIEW_OPERATION = "apply-deduplicate-preview"
 APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION = "apply-delete-blank-rows-preview"
+APPLY_FILTER_PREVIEW_OPERATION = "apply-filter-preview"
 COPY_CHUNK_SIZE = 1024 * 1024
 
 
@@ -152,6 +153,46 @@ def run_apply_delete_blank_rows_preview_task(
     )
 
 
+def run_apply_filter_preview_task(
+    request: TaskRequest,
+    context: ApplyVersionTaskContext,
+    *,
+    metadata_store_factory: MetadataStoreFactory = MetadataStore,
+) -> ImportedWorkbook:
+    sheet_name = _payload_string(request, "sheet_name")
+    conditions = request.payload.get("conditions")
+    connector = request.payload.get("connector")
+    matched_rows = request.payload.get("matched_rows")
+    total_rows = request.payload.get("total_rows")
+    if not isinstance(conditions, list) or not conditions:
+        raise ValueError("任务参数 conditions 必须是非空数组")
+    if connector not in {"and", "or"}:
+        raise ValueError("任务参数 connector 必须为 and 或 or")
+    if not isinstance(matched_rows, int) or isinstance(matched_rows, bool) or matched_rows < 0:
+        raise ValueError("任务参数 matched_rows 必须是大于等于 0 的整数")
+    if (
+        not isinstance(total_rows, int)
+        or isinstance(total_rows, bool)
+        or total_rows < 1
+        or matched_rows > total_rows
+    ):
+        raise ValueError("任务参数 total_rows 必须是不小于匹配数的正整数")
+    return _run_apply_preview_task(
+        request,
+        context,
+        metadata_store_factory=metadata_store_factory,
+        version_name="条件筛选",
+        operation="filter",
+        parameters={
+            "sheet_name": sheet_name,
+            "conditions": conditions,
+            "connector": connector,
+            "matched_rows": matched_rows,
+            "total_rows": total_rows,
+        },
+    )
+
+
 def _run_apply_preview_task(
     request: TaskRequest,
     context: ApplyVersionTaskContext,
@@ -251,11 +292,16 @@ def apply_delete_blank_rows_preview_task(request: TaskRequest, context: TaskCont
     return run_apply_delete_blank_rows_preview_task(request, context)
 
 
+def apply_filter_preview_task(request: TaskRequest, context: TaskContext) -> object:
+    return run_apply_filter_preview_task(request, context)
+
+
 def apply_version_handlers() -> dict[str, TaskHandler]:
     return {
         APPLY_SORT_PREVIEW_OPERATION: apply_sort_preview_task,
         APPLY_DEDUPLICATE_PREVIEW_OPERATION: apply_deduplicate_preview_task,
         APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION: apply_delete_blank_rows_preview_task,
+        APPLY_FILTER_PREVIEW_OPERATION: apply_filter_preview_task,
     }
 
 
