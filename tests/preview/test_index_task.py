@@ -56,6 +56,23 @@ def _workbook(path: Path) -> None:
     workbook.close()
 
 
+def test_version_snapshots_use_separate_preview_indexes(tmp_path: Path) -> None:
+    from hyacinth.preview import preview_index_path
+
+    first = tmp_path / "files/file-1/versions/version-1/snapshot.xlsx"
+    second = tmp_path / "files/file-1/versions/version-2/snapshot.xlsx"
+    working = tmp_path / "files/file-1/working/current.xlsx"
+
+    assert preview_index_path(first) == (
+        tmp_path / "files/file-1/cache/versions/version-1/preview.sqlite"
+    )
+    assert preview_index_path(second) == (
+        tmp_path / "files/file-1/cache/versions/version-2/preview.sqlite"
+    )
+    assert preview_index_path(first) != preview_index_path(second)
+    assert preview_index_path(working) == tmp_path / "files/file-1/cache/preview.sqlite"
+
+
 def test_preview_task_builds_atomic_sparse_index(tmp_path: Path) -> None:
     from hyacinth.preview import SqliteGridDataSource, run_preview_index_task
 

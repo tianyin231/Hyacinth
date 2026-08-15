@@ -7,8 +7,17 @@ from hashlib import sha256
 from pathlib import Path
 
 from openpyxl import Workbook
-from PySide6.QtCore import QEventLoop, QTimer
-from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QLineEdit
+from PySide6.QtCore import QEventLoop, Qt, QTimer
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QGraphicsProxyWidget,
+    QGraphicsView,
+    QLineEdit,
+    QSplitter,
+)
 
 from hyacinth.app import ApplicationTaskQueue, create_main_window
 from hyacinth.excel.contracts import EngineName
@@ -100,7 +109,41 @@ def _wait(milliseconds: int) -> None:
     loop.exec()
 
 
-def capture_ui_states(output_directory: Path) -> tuple[Path, Path, Path, Path, Path]:
+def _add_child_version(library_root: Path) -> None:
+    store = MetadataStore(library_root)
+    record = store.get_workbook("visual-file")
+    root = record.head_version
+    assert root is not None
+    child_snapshot = (
+        library_root / "files" / record.file_id / "versions" / "sorted-version" / "snapshot.xlsx"
+    )
+    child_snapshot.parent.mkdir(parents=True)
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.title = "销售明细"
+    sheet.append(["日期", "商品", "数量", "销售额"])
+    sheet.append(["2026/08/12", "蓝莓", 5, 240])
+    sheet.append(["2026/08/12", "苹果", 12, 360])
+    sheet.append(["2026/08/13", "西瓜", 18, 482.4])
+    workbook.save(child_snapshot)
+    workbook.close()
+    record.working_path.write_bytes(child_snapshot.read_bytes())
+    child = VersionRecord(
+        "sorted-version",
+        record.file_id,
+        root.version_id,
+        "多列排序",
+        datetime.now(UTC),
+        "sort",
+        EngineName.PYTHON,
+        child_snapshot,
+        sha256(child_snapshot.read_bytes()).hexdigest(),
+    )
+    store.record_child_version(child, root.version_id)
+
+
+def capture_ui_states(output_directory: Path) -> tuple[Path, Path, Path, Path, Path, Path]:
     app = QApplication.instance() or QApplication([])
     output_directory.mkdir(parents=True, exist_ok=True)
     with (
@@ -197,7 +240,71 @@ def capture_ui_states(output_directory: Path) -> tuple[Path, Path, Path, Path, P
         if not populated_window.grab().save(str(filter_path)):
             raise RuntimeError("无法保存条件筛选配置截图")
         populated_window.close()
-    return empty_path, populated_path, deduplicate_path, blank_rows_path, filter_path
+
+        _add_child_version(populated_root)
+        branch_queue = CaptureTaskQueue()
+        branch_window = create_main_window(
+            task_queue=branch_queue,
+            library_root=populated_root,
+        )
+        branch_window.show()
+        app.processEvents()
+        splitter = branch_window.findChild(QSplitter, "main-workspace-splitter")
+        if splitter is None:
+            raise RuntimeError("找不到主界面分隔器")
+        splitter.setSizes([260, 600, 580])
+        initial_request = branch_queue.submitted[0]
+        initial_preview = run_preview_index_task(initial_request, CaptureTaskContext())
+        branch_queue.events.append(
+            TaskEvent(
+                initial_request.task_id,
+                TaskState.SUCCEEDED,
+                initial_request.name,
+                initial_request.file_id,
+                EngineName.PYTHON,
+                result=initial_preview,
+            )
+        )
+        _wait(150)
+        view = branch_window.findChild(QGraphicsView, "version-tree-view")
+        if view is None:
+            raise RuntimeError("找不到版本演化树")
+        root_card = None
+        for item in view.scene().items():
+            if not isinstance(item, QGraphicsProxyWidget):
+                continue
+            widget = item.widget()
+            if widget is not None and widget.property("version-id") == "root-version":
+                root_card = widget
+                break
+        if root_card is None:
+            raise RuntimeError("找不到根版本节点")
+        QTest.mouseClick(root_card, Qt.MouseButton.LeftButton)
+        historical_request = branch_queue.submitted[-1]
+        historical_preview = run_preview_index_task(historical_request, CaptureTaskContext())
+        branch_queue.events.append(
+            TaskEvent(
+                historical_request.task_id,
+                TaskState.SUCCEEDED,
+                historical_request.name,
+                historical_request.file_id,
+                EngineName.PYTHON,
+                result=historical_preview,
+            )
+        )
+        _wait(150)
+        branch_path = output_directory / "version-history-selected.png"
+        if not branch_window.grab().save(str(branch_path)):
+            raise RuntimeError("无法保存历史版本选中截图")
+        branch_window.close()
+    return (
+        empty_path,
+        populated_path,
+        deduplicate_path,
+        blank_rows_path,
+        filter_path,
+        branch_path,
+    )
 
 
 def main() -> int:

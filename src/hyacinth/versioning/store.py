@@ -166,6 +166,51 @@ class MetadataStore:
             ).fetchall()
         return tuple(self._version_from_row(row) for row in rows)
 
+    def get_version(self, file_id: str, version_id: str) -> VersionRecord:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT version_id, file_id, parent_version_id, name, created_at,
+                       operation, engine, snapshot_path, content_hash, parameters_json
+                FROM versions
+                WHERE file_id = ? AND version_id = ?
+                """,
+                (file_id, version_id),
+            ).fetchone()
+        if row is None:
+            raise ValueError(f"找不到版本记录：{version_id}")
+        return self._version_from_row(row)
+
+    def switch_head(
+        self,
+        file_id: str,
+        version_id: str,
+        expected_head_version_id: str,
+    ) -> VersionRecord:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT version_id, file_id, parent_version_id, name, created_at,
+                       operation, engine, snapshot_path, content_hash, parameters_json
+                FROM versions
+                WHERE file_id = ? AND version_id = ?
+                """,
+                (file_id, version_id),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"找不到版本记录：{version_id}")
+            updated = connection.execute(
+                """
+                UPDATE files
+                SET head_version_id = ?
+                WHERE file_id = ? AND head_version_id = ?
+                """,
+                (version_id, file_id, expected_head_version_id),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("当前 HEAD 已变化，请刷新版本树")
+        return self._version_from_row(row)
+
     def reconcile_manifests(self) -> int:
         recovered = 0
         files_root = self._library_root / "files"

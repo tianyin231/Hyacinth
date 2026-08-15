@@ -46,6 +46,14 @@ class PreviewTaskContext(Protocol):
 
 
 def preview_index_path(working_path: Path) -> Path:
+    if working_path.parent.parent.name == "versions":
+        return (
+            working_path.parent.parent.parent
+            / "cache"
+            / "versions"
+            / working_path.parent.name
+            / "preview.sqlite"
+        )
     return working_path.parent.parent / "cache" / "preview.sqlite"
 
 

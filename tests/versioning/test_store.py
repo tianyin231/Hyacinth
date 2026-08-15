@@ -148,6 +148,41 @@ def test_child_version_rejects_stale_head_without_partial_insert(tmp_path: Path)
     assert store.list_versions("file-1") == (record.root_version,)
 
 
+def test_switch_head_selects_existing_version_without_changing_history(tmp_path: Path) -> None:
+    record = _record(tmp_path)
+    store = MetadataStore(tmp_path)
+    store.record_import(record)
+    child = VersionRecord(
+        "version-2",
+        record.file_id,
+        "version-1",
+        "多列排序",
+        datetime(2026, 8, 15, 8, 0, tzinfo=UTC),
+        "sort",
+        EngineName.PYTHON,
+        tmp_path / "files/file-1/versions/version-2/snapshot.xlsx",
+        sha256(b"sorted").hexdigest(),
+    )
+    store.record_child_version(child, "version-1")
+
+    selected = store.switch_head("file-1", "version-1", "version-2")
+
+    assert selected == record.root_version
+    assert store.get_workbook("file-1").head_version == record.root_version
+    assert store.list_versions("file-1") == (record.root_version, child)
+
+
+def test_switch_head_rejects_stale_current_head(tmp_path: Path) -> None:
+    record = _record(tmp_path)
+    store = MetadataStore(tmp_path)
+    store.record_import(record)
+
+    with pytest.raises(ValueError, match="HEAD"):
+        store.switch_head("file-1", "version-1", "version-stale")
+
+    assert store.get_workbook("file-1").head_version == record.root_version
+
+
 def test_reconcile_known_file_child_version_and_working_copy(tmp_path: Path) -> None:
     record = _record(tmp_path)
     version = record.root_version

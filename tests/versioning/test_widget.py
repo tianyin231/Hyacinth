@@ -116,6 +116,63 @@ def test_version_tree_renders_child_to_right_with_edge_and_head(
     assert child_head is not None and child_head.text() == "HEAD" and not child_head.isHidden()
 
 
+def test_version_tree_selects_history_and_requests_continue(qtbot: QtBot, tmp_path: Path) -> None:
+    from hyacinth.ui import VersionTreePanel
+
+    root = VersionRecord(
+        "version-1",
+        "file-1",
+        None,
+        "导入原始文件",
+        datetime(2026, 8, 15, 7, 30, tzinfo=UTC),
+        "import",
+        None,
+        tmp_path / "root.xlsx",
+        "a" * 64,
+    )
+    child = VersionRecord(
+        "version-2",
+        "file-1",
+        root.version_id,
+        "多列排序",
+        datetime(2026, 8, 15, 8, 0, tzinfo=UTC),
+        "sort",
+        None,
+        tmp_path / "child.xlsx",
+        "b" * 64,
+    )
+    panel = VersionTreePanel()
+    qtbot.addWidget(panel)
+    panel.resize(340, 500)
+    panel.show()
+    panel.set_workbook("销售报表.xlsx", (root, child), child.version_id)
+    view = panel.findChild(QGraphicsView, "version-tree-view")
+    assert view is not None
+    cards = {
+        str(proxy.widget().property("version-id")): proxy.widget()
+        for proxy in view.scene().items()
+        if isinstance(proxy, QGraphicsProxyWidget) and proxy.widget() is not None
+    }
+    continue_button = panel.findChild(QPushButton, "version-continue-button")
+    assert set(cards) == {"version-1", "version-2"}
+    assert continue_button is not None and not continue_button.isEnabled()
+
+    with qtbot.waitSignal(panel.version_preview_requested) as preview_signal:
+        qtbot.mouseClick(cards["version-1"], Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    assert preview_signal.args == ["version-1"]
+    assert cards["version-1"].property("selected") is True
+    assert cards["version-2"].property("selected") is False
+    assert continue_button.isEnabled()
+    with qtbot.waitSignal(panel.version_continue_requested) as continue_signal:
+        qtbot.mouseClick(continue_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    assert continue_signal.args == ["version-1"]
+
+    with qtbot.waitSignal(panel.version_continue_requested) as double_click_signal:
+        qtbot.mouseDClick(cards["version-1"], Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    assert double_click_signal.args == ["version-1"]
+
+
 def test_function_panel_emits_accessible_sort_parameters(qtbot: QtBot) -> None:
     from hyacinth.ui import FunctionPanel
 

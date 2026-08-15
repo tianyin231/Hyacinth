@@ -50,7 +50,12 @@ from hyacinth.processing import (
     run_sort_preview_task,
 )
 from hyacinth.tasks import TaskEvent, TaskRequest, TaskState, TaskStatusWidget
-from hyacinth.versioning import MetadataStore, VersionRecord
+from hyacinth.versioning import (
+    CHECKOUT_VERSION_OPERATION,
+    MetadataStore,
+    VersionRecord,
+    run_checkout_version_task,
+)
 
 
 def _child[WidgetT: QObject](parent: QObject, child_type: type[WidgetT], name: str) -> WidgetT:
@@ -920,3 +925,184 @@ def test_filter_preview_apply_creates_child_and_only_shows_matching_rows(
     assert head.parent_version_id == "version-1"
     assert len(proxies) == 2
     assert not result.preview_path.parent.exists()
+
+
+def test_historical_preview_checkout_and_processing_create_branch(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(
+        library_root,
+        [["名称", "数量"], ["banana", 1], ["apple", 2]],
+    )
+    root = record.head_version
+    assert root is not None
+    child_snapshot = library_root / "files/file-1/versions/version-2/snapshot.xlsx"
+    child_snapshot.parent.mkdir(parents=True)
+    child_workbook = Workbook()
+    child_sheet = child_workbook.active
+    assert child_sheet is not None
+    child_sheet.title = "销售"
+    child_rows: list[list[str | int]] = [
+        ["名称", "数量"],
+        ["apple", 2],
+        ["banana", 1],
+    ]
+    for row in child_rows:
+        child_sheet.append(row)
+    child_workbook.save(child_snapshot)
+    child_workbook.close()
+    record.working_path.write_bytes(child_snapshot.read_bytes())
+    child = VersionRecord(
+        "version-2",
+        record.file_id,
+        root.version_id,
+        "已有排序分支",
+        datetime(2026, 8, 15, 9, 0, tzinfo=UTC),
+        "sort",
+        EngineName.PYTHON,
+        child_snapshot,
+        sha256(child_snapshot.read_bytes()).hexdigest(),
+    )
+    store = MetadataStore(library_root)
+    store.record_child_version(child, root.version_id)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    initial_request = task_queue.submitted[0]
+    initial_preview = run_preview_index_task(initial_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            initial_request.task_id,
+            TaskState.SUCCEEDED,
+            initial_request.name,
+            initial_request.file_id,
+            None,
+            result=initial_preview,
+        )
+    )
+    preview_button = _child(window, QPushButton, "function-preview-button")
+    qtbot.waitUntil(preview_button.isEnabled, timeout=500)
+    tree = _child(window, QGraphicsView, "version-tree-view")
+    cards = {
+        str(proxy.widget().property("version-id")): proxy.widget()
+        for proxy in tree.scene().items()
+        if isinstance(proxy, QGraphicsProxyWidget) and proxy.widget() is not None
+    }
+    qtbot.mouseClick(cards[root.version_id], Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    qtbot.waitUntil(lambda: len(task_queue.submitted) == 2, timeout=500)
+    historical_request = task_queue.submitted[-1]
+    assert historical_request.operation == BUILD_PREVIEW_INDEX_OPERATION
+    assert historical_request.payload["working_path"] == str(root.snapshot_path)
+    assert store.get_workbook(record.file_id).head_version == child
+    historical_preview = run_preview_index_task(historical_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            historical_request.task_id,
+            TaskState.SUCCEEDED,
+            historical_request.name,
+            historical_request.file_id,
+            None,
+            result=historical_preview,
+        )
+    )
+    table = _child(window, QTableView, "preview-table")
+    qtbot.waitUntil(lambda: table.model() is not None, timeout=500)
+    assert table.model().data(table.model().index(1, 0)) == "banana"
+    assert not _child(window, QFrame, "function-panel").isEnabled()
+
+    continue_button = _child(window, QPushButton, "version-continue-button")
+    qtbot.mouseClick(continue_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    checkout_request = task_queue.submitted[-1]
+    assert checkout_request.operation == CHECKOUT_VERSION_OPERATION
+    assert checkout_request.payload["version_id"] == root.version_id
+    assert checkout_request.payload["expected_head_version_id"] == child.version_id
+    checked_out = run_checkout_version_task(checkout_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            checkout_request.task_id,
+            TaskState.SUCCEEDED,
+            checkout_request.name,
+            checkout_request.file_id,
+            EngineName.PYTHON,
+            result=checked_out,
+        )
+    )
+    qtbot.waitUntil(lambda: len(task_queue.submitted) == 4, timeout=500)
+    checked_out_preview_request = task_queue.submitted[-1]
+    checked_out_preview = run_preview_index_task(
+        checked_out_preview_request,
+        PreviewTaskContext(),
+    )
+    task_queue.push_event(
+        TaskEvent(
+            checked_out_preview_request.task_id,
+            TaskState.SUCCEEDED,
+            checked_out_preview_request.name,
+            checked_out_preview_request.file_id,
+            None,
+            result=checked_out_preview,
+        )
+    )
+    qtbot.waitUntil(preview_button.isEnabled, timeout=500)
+    assert store.get_workbook(record.file_id).head_version == root
+
+    primary = _child(window, QComboBox, "sort-primary-column")
+    primary.setCurrentIndex(0)
+    qtbot.mouseClick(preview_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    sort_request = task_queue.submitted[-1]
+    assert sort_request.payload["parent_version_id"] == root.version_id
+    sort_result = run_sort_preview_task(sort_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            sort_request.task_id,
+            TaskState.SUCCEEDED,
+            sort_request.name,
+            sort_request.file_id,
+            EngineName.PYTHON,
+            result=sort_result,
+        )
+    )
+    qtbot.waitUntil(lambda: len(task_queue.submitted) == 6, timeout=500)
+    temporary_index_request = task_queue.submitted[-1]
+    temporary_preview = run_preview_index_task(temporary_index_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            temporary_index_request.task_id,
+            TaskState.SUCCEEDED,
+            temporary_index_request.name,
+            temporary_index_request.file_id,
+            None,
+            result=temporary_preview,
+        )
+    )
+    apply_button = _child(window, QPushButton, "function-apply-button")
+    qtbot.waitUntil(apply_button.isEnabled, timeout=500)
+    qtbot.mouseClick(apply_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    apply_request = task_queue.submitted[-1]
+    assert apply_request.payload["parent_version_id"] == root.version_id
+    applied = run_apply_sort_preview_task(apply_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            apply_request.task_id,
+            TaskState.SUCCEEDED,
+            apply_request.name,
+            apply_request.file_id,
+            EngineName.PYTHON,
+            result=applied,
+        )
+    )
+    qtbot.waitUntil(lambda: len(task_queue.submitted) == 8, timeout=500)
+    versions = store.list_versions(record.file_id)
+    head = store.get_workbook(record.file_id).head_version
+
+    assert head is not None and head.parent_version_id == root.version_id
+    assert child in versions
+    assert (
+        len([version for version in versions if version.parent_version_id == root.version_id]) == 2
+    )

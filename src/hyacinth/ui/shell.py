@@ -8,7 +8,7 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QPainter, QPen
+from PySide6.QtGui import QKeyEvent, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -1215,7 +1215,43 @@ class DeletedRowsModel(QAbstractTableModel):
         return "原始行号" if section == 0 else None
 
 
+class _VersionNodeCard(QFrame):
+    selected = Signal(str)
+    continue_requested = Signal(str)
+
+    def __init__(self, version_id: str) -> None:
+        super().__init__()
+        self._version_id = version_id
+        self.setProperty("version-id", version_id)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() is Qt.MouseButton.LeftButton:
+            self.setFocus()
+            self.selected.emit(self._version_id)
+        super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if event.button() is Qt.MouseButton.LeftButton:
+            self.continue_requested.emit(self._version_id)
+        super().mouseDoubleClickEvent(event)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.continue_requested.emit(self._version_id)
+            event.accept()
+            return
+        if event.key() is Qt.Key.Key_Space:
+            self.selected.emit(self._version_id)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
 class VersionTreePanel(QFrame):
+    version_preview_requested = Signal(str)
+    version_continue_requested = Signal(str)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("version-tree-panel")
@@ -1227,11 +1263,19 @@ class VersionTreePanel(QFrame):
         search.setPlaceholderText("搜索版本名称、功能或备注")
         search.setAccessibleName("搜索版本")
         search.setEnabled(False)
+        self._continue = QPushButton("从此继续", self)
+        self._continue.setObjectName("version-continue-button")
+        self._continue.setProperty("class", "tool-button")
+        self._continue.setAccessibleName("从选中的历史版本继续")
+        self._continue.setToolTip("设为当前工作版本；后续保存会从这里创建新分支")
+        self._continue.setEnabled(False)
+        self._continue.clicked.connect(self._continue_selected_version)
 
         search_row = QFrame(self)
         search_layout = QHBoxLayout(search_row)
         search_layout.setContentsMargins(9, 5, 9, 5)
         search_layout.addWidget(search)
+        search_layout.addWidget(self._continue)
 
         empty = QWidget(self)
         empty_layout = QVBoxLayout(empty)
@@ -1275,6 +1319,9 @@ class VersionTreePanel(QFrame):
         layout.addWidget(_panel_header("版本演化树"))
         layout.addWidget(search_row)
         layout.addWidget(self._content, 1)
+        self._cards: dict[str, _VersionNodeCard] = {}
+        self._head_version_id: str | None = None
+        self._selected_version_id: str | None = None
 
     def set_workbook(
         self,
@@ -1286,17 +1333,22 @@ class VersionTreePanel(QFrame):
             self._empty_title.setText("选择文件查看版本演化树")
             self._empty_detail.setText("根版本会在文件导入完成后显示")
             self._content.setCurrentIndex(0)
+            self._continue.setEnabled(False)
             return
         if versions is None:
             self._empty_title.setText("旧记录尚未建立根版本")
             self._empty_detail.setText("文件仍可预览，后续可安全补建版本记录")
             self._content.setCurrentIndex(0)
+            self._continue.setEnabled(False)
             return
 
         records = (versions,) if isinstance(versions, VersionRecord) else versions
         head_id = head_version_id or records[-1].version_id
+        self._head_version_id = head_id
+        self._selected_version_id = head_id
         self._render_versions(display_name, records, head_id)
         self._content.setCurrentIndex(1)
+        self._continue.setEnabled(False)
 
     def _render_versions(
         self,
@@ -1310,6 +1362,7 @@ class VersionTreePanel(QFrame):
         positions: dict[str, tuple[float, float]] = {}
         depths: dict[str, int] = {}
         proxies: dict[str, QGraphicsProxyWidget] = {}
+        self._cards = {}
         for index, version in enumerate(versions):
             depth = (
                 0
@@ -1324,10 +1377,13 @@ class VersionTreePanel(QFrame):
                 version,
                 is_head=version.version_id == head_version_id,
             )
+            card.selected.connect(self._select_version)
+            card.continue_requested.connect(self._request_continue)
             proxy = scene.addWidget(card)
             assert isinstance(proxy, QGraphicsProxyWidget)
             proxy.setPos(*position)
             proxies[version.version_id] = proxy
+            self._cards[version.version_id] = card
         pen = QPen(Qt.GlobalColor.gray, 1.5)
         for version in versions:
             parent_id = version.parent_version_id
@@ -1358,11 +1414,13 @@ class VersionTreePanel(QFrame):
         version: VersionRecord,
         *,
         is_head: bool,
-    ) -> QFrame:
-        card = QFrame()
+    ) -> _VersionNodeCard:
+        card = _VersionNodeCard(version.version_id)
         is_root = version.parent_version_id is None
         card.setObjectName("root-version-card" if is_root else "child-version-card")
+        card.setAccessibleName(f"版本 {version.name}")
         card.setFixedSize(230, 108)
+        card.setProperty("selected", version.version_id == self._selected_version_id)
         card.setStyleSheet(
             """
             QFrame#root-version-card, QFrame#child-version-card {
@@ -1370,6 +1428,13 @@ class VersionTreePanel(QFrame):
                 border: 1px solid #cfd5de;
                 border-left: 3px solid #0f6cbd;
                 border-radius: 7px;
+            }
+            QFrame#root-version-card[selected="true"],
+            QFrame#child-version-card[selected="true"],
+            QFrame#root-version-card:focus,
+            QFrame#child-version-card:focus {
+                border: 2px solid #0f6cbd;
+                border-left: 4px solid #0f6cbd;
             }
             QLabel { border: 0; background: transparent; }
             QLabel#root-version-name { color: #343a45; font-weight: 600; }
@@ -1409,6 +1474,25 @@ class VersionTreePanel(QFrame):
         head.setVisible(is_head)
         layout.addWidget(head)
         return card
+
+    def _select_version(self, version_id: str) -> None:
+        if version_id not in self._cards:
+            return
+        self._selected_version_id = version_id
+        for card_id, card in self._cards.items():
+            card.setProperty("selected", card_id == version_id)
+            card.style().unpolish(card)
+            card.style().polish(card)
+        self._continue.setEnabled(version_id != self._head_version_id)
+        self.version_preview_requested.emit(version_id)
+
+    def _continue_selected_version(self) -> None:
+        if self._selected_version_id is not None:
+            self._request_continue(self._selected_version_id)
+
+    def _request_continue(self, version_id: str) -> None:
+        if version_id != self._head_version_id and version_id in self._cards:
+            self.version_continue_requested.emit(version_id)
 
 
 class WorkbookEditorFrame(QFrame):

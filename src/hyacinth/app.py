@@ -68,7 +68,11 @@ from hyacinth.ui import (
     VersionTreePanel,
     WorkbookEditorFrame,
 )
-from hyacinth.versioning import MetadataStore
+from hyacinth.versioning import (
+    CHECKOUT_VERSION_OPERATION,
+    MetadataStore,
+    checkout_version_handlers,
+)
 
 
 class ApplicationTaskQueue(TaskQueuePort, Protocol):
@@ -137,6 +141,8 @@ class HyacinthMainWindow(QMainWindow):
         self._temporary_preview: WorkbookPreview | None = None
         self._apply_task_id: str | None = None
         self._apply_version_id: str | None = None
+        self._checkout_task_id: str | None = None
+        self._previewed_version_id: str | None = None
 
         self._application_header = ApplicationHeader(workspace_root)
         self._command_bar = CommandBar(workspace_root)
@@ -156,6 +162,8 @@ class HyacinthMainWindow(QMainWindow):
         )
         self._file_library.workbook_selected.connect(self._select_workbook)
         self._version_tree = VersionTreePanel(workspace_root)
+        self._version_tree.version_preview_requested.connect(self._preview_version)
+        self._version_tree.version_continue_requested.connect(self._continue_from_version)
         self._workbook_preview = WorkbookPreviewWidget(workspace_root)
         self._workbook_preview.import_requested.connect(self._choose_import_file)
         self._editor = WorkbookEditorFrame(self._workbook_preview, workspace_root)
@@ -192,6 +200,7 @@ class HyacinthMainWindow(QMainWindow):
         self._task_bridge.event_received.connect(self._apply_preview_event)
         self._task_bridge.event_received.connect(self._apply_processing_event)
         self._task_bridge.event_received.connect(self._apply_apply_event)
+        self._task_bridge.event_received.connect(self._apply_checkout_event)
         self._task_status.cancel_requested.connect(self._task_bridge.cancel)
 
         status_bar = self.statusBar()
@@ -260,6 +269,9 @@ class HyacinthMainWindow(QMainWindow):
         if self._preview_task_id is not None:
             self._task_queue.cancel(self._preview_task_id)
         self._current_workbook = workbook
+        self._previewed_version_id = (
+            workbook.head_version.version_id if workbook.head_version is not None else None
+        )
         self.setWindowTitle(f"风信子 — {workbook.display_name}")
         self._application_header.set_document_name(workbook.display_name)
         self._show_versions(workbook)
@@ -300,6 +312,10 @@ class HyacinthMainWindow(QMainWindow):
             else:
                 self._editor.set_temporary_result(False)
                 self._function_panel.set_workbook(self._headers_for_preview(event.result))
+                head = self._current_workbook.head_version if self._current_workbook else None
+                self._function_panel.setEnabled(
+                    head is not None and self._previewed_version_id == head.version_id
+                )
             self._preview_task_id = None
         elif event.state is TaskState.FAILED:
             self._workbook_preview.set_error(event.message or "工作簿无法打开")
@@ -544,8 +560,93 @@ class HyacinthMainWindow(QMainWindow):
         self._apply_version_id = None
         self._set_processing_navigation_enabled(True)
         self._current_workbook = workbook
+        self._previewed_version_id = (
+            workbook.head_version.version_id if workbook.head_version is not None else None
+        )
         self._file_library.replace_workbook(workbook)
         self._show_versions(workbook)
+        self._load_preview(workbook.working_path, workbook.display_name, temporary=False)
+
+    def _preview_version(self, version_id: str) -> None:
+        workbook = self._current_workbook
+        if workbook is None or self._checkout_task_id is not None:
+            return
+        try:
+            version = MetadataStore(self._library_root).get_version(workbook.file_id, version_id)
+        except ValueError as error:
+            self._error_presenter(self, str(error))
+            return
+        if self._processing_result is not None:
+            self._cancel_processing_workflow(reload_base=False)
+        if self._preview_task_id is not None:
+            self._task_queue.cancel(self._preview_task_id)
+        self._previewed_version_id = version_id
+        self._function_panel.setEnabled(
+            workbook.head_version is not None and version_id == workbook.head_version.version_id
+        )
+        self._load_preview(version.snapshot_path, workbook.display_name, temporary=False)
+
+    def _continue_from_version(self, version_id: str) -> None:
+        workbook = self._current_workbook
+        head = workbook.head_version if workbook is not None else None
+        if workbook is None or head is None or version_id == head.version_id:
+            return
+        if self._preview_task_id is not None:
+            self._task_queue.cancel(self._preview_task_id)
+            self._preview_task_id = None
+        task_id = uuid4().hex
+        self._checkout_task_id = task_id
+        self._set_processing_navigation_enabled(False)
+        self._task_queue.submit(
+            TaskRequest(
+                task_id=task_id,
+                name="从历史版本继续",
+                file_id=workbook.file_id,
+                engine=None,
+                operation=CHECKOUT_VERSION_OPERATION,
+                payload={
+                    "library_root": str(self._library_root),
+                    "version_id": version_id,
+                    "expected_head_version_id": head.version_id,
+                },
+            )
+        )
+
+    def _apply_checkout_event(self, event: TaskEvent) -> None:
+        if event.task_id != self._checkout_task_id:
+            return
+        if event.state is TaskState.SUCCEEDED and isinstance(event.result, ImportedWorkbook):
+            self._checkout_task_id = None
+            self._current_workbook = event.result
+            head = event.result.head_version
+            self._previewed_version_id = head.version_id if head is not None else None
+            self._file_library.replace_workbook(event.result)
+            self._show_versions(event.result)
+            self._function_panel.setEnabled(True)
+            self._set_processing_navigation_enabled(True)
+            self._load_preview(
+                event.result.working_path,
+                event.result.display_name,
+                temporary=False,
+            )
+        elif event.state is TaskState.FAILED:
+            self._checkout_task_id = None
+            self._set_processing_navigation_enabled(True)
+            self._error_presenter(self, event.message or "当前工作版本切换失败")
+            self._restore_current_head_preview()
+        elif event.state is TaskState.CANCELLED:
+            self._checkout_task_id = None
+            self._set_processing_navigation_enabled(True)
+            self._restore_current_head_preview()
+
+    def _restore_current_head_preview(self) -> None:
+        workbook = self._current_workbook
+        head = workbook.head_version if workbook is not None else None
+        if workbook is None or head is None:
+            return
+        self._previewed_version_id = head.version_id
+        self._show_versions(workbook)
+        self._function_panel.setEnabled(True)
         self._load_preview(workbook.working_path, workbook.display_name, temporary=False)
 
     def _recover_applied_version(self) -> bool:
@@ -642,6 +743,7 @@ class HyacinthMainWindow(QMainWindow):
     def _set_processing_navigation_enabled(self, enabled: bool) -> None:
         self._command_bar.setEnabled(enabled)
         self._file_library.setEnabled(enabled)
+        self._version_tree.setEnabled(enabled)
 
     def _headers_for_preview(self, preview: WorkbookPreview) -> dict[str, tuple[str, ...]]:
         headers: dict[str, tuple[str, ...]] = {}
@@ -703,6 +805,7 @@ def create_main_window(
     handlers.update(delete_blank_rows_preview_handlers())
     handlers.update(filter_preview_handlers())
     handlers.update(apply_version_handlers())
+    handlers.update(checkout_version_handlers())
     return HyacinthMainWindow(
         task_queue or TaskQueue(handlers),
         library_root or default_library_root(),
