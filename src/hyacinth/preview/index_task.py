@@ -1,11 +1,13 @@
 import os
 import sqlite3
+import zipfile
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from itertools import zip_longest
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
+from xml.etree.ElementTree import iterparse
 
 from openpyxl import load_workbook
 
@@ -13,7 +15,7 @@ from hyacinth.tasks import TaskRequest
 from hyacinth.tasks.worker import TaskContext, TaskHandler
 
 BUILD_PREVIEW_INDEX_OPERATION = "build-preview-index"
-INDEX_SCHEMA_VERSION = "1"
+INDEX_SCHEMA_VERSION = "2"
 PROGRESS_ROW_INTERVAL = 256
 
 
@@ -23,6 +25,7 @@ class SheetPreview:
     title: str
     row_count: int
     column_count: int
+    visible_row_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,9 +112,14 @@ def _build_index(
             raise ValueError("工作簿没有可见工作表")
         estimated_rows = sum(max(sheet.max_row or 1, 1) for sheet in visible_sheets)
         processed_rows = 0
+        workbook_archive = zipfile.ZipFile(working_path)
         for sheet_index, formula_sheet in enumerate(visible_sheets):
             context.check_cancelled()
             value_sheet = value_workbook[formula_sheet.title]
+            hidden_rows = _hidden_rows(
+                workbook_archive,
+                cast(str, getattr(formula_sheet, "_worksheet_path")),
+            )
             row_count = max(formula_sheet.max_row or 1, value_sheet.max_row or 1, 1)
             column_count = max(
                 formula_sheet.max_column or 1,
@@ -157,9 +165,26 @@ def _build_index(
                     context.report_progress(progress, f"正在索引 {formula_sheet.title}")
             if batch:
                 _insert_cells(connection, batch)
+            visible_row_count: int | None = None
+            if hidden_rows:
+                visible_rows = [row for row in range(row_count) if row not in hidden_rows]
+                connection.executemany(
+                    "INSERT INTO visible_rows VALUES (?, ?, ?)",
+                    (
+                        (sheet_index, visible_index, source_index)
+                        for visible_index, source_index in enumerate(visible_rows)
+                    ),
+                )
+                visible_row_count = len(visible_rows)
             connection.execute(
-                "INSERT INTO sheets VALUES (?, ?, ?, ?)",
-                (sheet_index, formula_sheet.title, row_count, column_count),
+                "INSERT INTO sheets VALUES (?, ?, ?, ?, ?)",
+                (
+                    sheet_index,
+                    formula_sheet.title,
+                    row_count,
+                    column_count,
+                    visible_row_count,
+                ),
             )
         latest_stat = working_path.stat()
         if (
@@ -183,6 +208,8 @@ def _build_index(
             formula_workbook.close()
         if value_workbook is not None:
             value_workbook.close()
+        if "workbook_archive" in locals():
+            workbook_archive.close()
 
 
 def _create_schema(connection: sqlite3.Connection) -> None:
@@ -196,7 +223,8 @@ def _create_schema(connection: sqlite3.Connection) -> None:
             sheet_index INTEGER PRIMARY KEY,
             title TEXT NOT NULL,
             row_count INTEGER NOT NULL,
-            column_count INTEGER NOT NULL
+            column_count INTEGER NOT NULL,
+            visible_row_count INTEGER
         );
         CREATE TABLE cells (
             sheet_index INTEGER NOT NULL,
@@ -205,6 +233,12 @@ def _create_schema(connection: sqlite3.Connection) -> None:
             display_value TEXT NOT NULL,
             formula TEXT,
             PRIMARY KEY (sheet_index, row_index, column_index)
+        );
+        CREATE TABLE visible_rows (
+            sheet_index INTEGER NOT NULL,
+            visible_row_index INTEGER NOT NULL,
+            source_row_index INTEGER NOT NULL,
+            PRIMARY KEY (sheet_index, visible_row_index)
         );
         """
     )
@@ -234,7 +268,7 @@ def _current_preview(working_path: Path, index_path: Path) -> WorkbookPreview | 
             sheets = tuple(
                 SheetPreview(*row)
                 for row in connection.execute(
-                    "SELECT sheet_index, title, row_count, column_count "
+                    "SELECT sheet_index, title, row_count, column_count, visible_row_count "
                     "FROM sheets ORDER BY sheet_index"
                 )
             )
@@ -255,6 +289,22 @@ def _display_text(value: object) -> str:
     if isinstance(value, (date, time)):
         return value.isoformat()
     return str(value)
+
+
+def _hidden_rows(archive: zipfile.ZipFile, worksheet_path: str) -> set[int]:
+    hidden: set[int] = set()
+    with archive.open(worksheet_path) as source:
+        for _event, element in iterparse(source, events=("end",)):
+            if element.tag.endswith("}row") and element.attrib.get("hidden") in {
+                "1",
+                "true",
+                "True",
+            }:
+                row_number = element.attrib.get("r")
+                if row_number is not None:
+                    hidden.add(int(row_number) - 1)
+            element.clear()
+    return hidden
 
 
 def _at(row: tuple[object, ...], index: int) -> object | None:

@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T20:00:09.1776623+08:00"
+updated_at: "2026-08-15T20:12:55.4655380+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 条件筛选方案评估"
-  next_milestone: "条件筛选安全原生 AutoFilter 垂直切片（等待用户确认范围）"
+  current_phase: "阶段 1 条件筛选垂直切片"
+  next_milestone: "条件筛选安全原生 AutoFilter 两阶段版本闭环（用户已确认）"
 
 current_task:
   id: "STAGE-1-CONDITION-FILTER-001"
-  status: "proposal-awaiting-user-confirmation"
-  goal: "在保留 Excel 筛选条件、隐藏不匹配行和可见预览的前提下，确定条件筛选第一垂直切片的原生可表达范围"
+  status: "hidden-row-preview-base-completed-filter-core-pending"
+  goal: "实现最多两个原生可表达条件的应用筛选、可见隐藏行预览、匹配统计、精确应用、子版本和 HEAD 闭环"
   owner: "codex-sol"
 
 last_completed:
@@ -167,11 +167,14 @@ last_completed:
   - "本机 openpyxl 3.1.5 实验证实 AutoFilter 元数据和 row.hidden 可分别持久化，但 openpyxl 不执行筛选，当前 SQLite 预览也不识别隐藏行"
   - "确认普通 Excel AutoFilter 跨列条件天然使用 AND；OR 只能在同一列的最多两个 CustomFilter 条件内原生表达，任意跨列 OR 无法同时满足保留原生筛选条件"
   - "OpenCode DeepSeek 只读调研因持续扩展实验且未按时形成最终报告被中止；导出确认 provider/model 正确、零仓库文件改动，Codex/Sol 独立复核其实验事实"
+  - "完成隐藏行感知的 SQLite 预览索引：从工作表 XML 流式读取 hidden 行，并为有隐藏行的工作表建立稀疏可见行映射"
+  - "Qt 数据源通过可见行映射只展示表头与未隐藏行；无隐藏行工作表继续使用零额外映射的直接索引，百万行逻辑网格保持不变"
+  - "隐藏行预览基础定向测试通过：12 项预览测试、Ruff 和 Mypy strict"
 
 next_actions:
-  - "等待用户确认首个条件筛选切片采用原生可表达安全子集：应用筛选、最多两个条件、跨列仅 AND、同列允许 AND/OR"
-  - "确认后先实现后台条件计算、AutoFilter/row.hidden 原子预览和隐藏行感知的 SQLite/Qt 预览"
-  - "再接入条件参数面板、匹配统计、精确应用、子版本和 HEAD 端到端；筛选并提取作为后续独立切片"
+  - "实现隐藏行感知的 SQLite 预览索引与 Qt 表格映射，确保筛选预览只显示匹配行和表头"
+  - "实现后台条件计算、原生 AutoFilter/row.hidden 原子预览及安全边界测试"
+  - "接入条件参数面板、匹配统计、精确应用、子版本和 HEAD 端到端；筛选并提取作为后续独立切片"
   - "后续实现窗口状态持久化时，正常启动优先恢复用户上次位置、尺寸和最大化状态，1440x900 仅作为无保存状态时的默认值"
   - "后续将 COM 子进程扩展为结构化阶段事件，把安全关键范围从整段转换收窄到 SaveAs"
   - "每完成一个可独立验收的关键开发节点提交本地 Git"
@@ -179,8 +182,8 @@ next_actions:
 
 blockers:
   - id: "FILTER-NATIVE-OR-SEMANTICS-001"
-    status: "awaiting-user-scope-decision"
-    summary: "普通 Excel AutoFilter 无法表达跨不同列的任意 OR；推荐首切片跨列仅支持 AND、同列最多两个条件支持 AND/OR，筛选并提取后续可支持任意 OR"
+    status: "resolved-by-approved-native-subset"
+    summary: "用户确认首切片跨列仅支持 AND、同列最多两个条件支持 AND/OR；任意跨列 OR 留待筛选并提取，不伪装为原生筛选条件"
   - id: "DEDUPLICATE-MIXED-TYPE-SEMANTICS-001"
     status: "resolved-by-exact-match-rule"
     summary: "按需求中的完全一致语义采用类型敏感比较：数字 1 与文本 '1' 不视为重复，数字 1 与 1.0 视为同一数值；定向测试已覆盖"
@@ -225,6 +228,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260815-021"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "条件筛选首切片采用原生可表达安全子集：应用筛选、最多两个条件、跨列仅 AND、同列允许 AND/OR；筛选并提取后续实现"
+    source: "用户当前会话确认推荐方案"
+    supersedes: "none"
+    impact: "需求讨论记录第 19.8 节、隐藏行预览索引、筛选后台任务、FunctionPanel 参数页、应用版本和端到端测试"
   - id: "DEC-20260815-020"
     date: "2026-08-15"
     status: "approved"
@@ -288,19 +298,19 @@ recent_decisions:
     source: "用户当前会话明确确认方案 A"
     supersedes: "none"
     impact: "双引擎任务 handler、取消语义、Qt 事件桥、状态栏组件和测试"
-  - id: "DEC-20260815-011"
-    date: "2026-08-15"
-    status: "approved"
-    summary: "双引擎转换垂直切片采用核心集成范围：handler、Qt 事件桥和底部任务状态栏，不包含文件选择器、内部文件库或表格预览"
-    source: "用户当前会话确认推荐方案 1"
-    supersedes: "none"
-    impact: "阶段 1 下一切片的代码边界、UI 范围和测试范围"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
+  - "需求讨论记录.md"
+  - "src/hyacinth/preview/index_task.py"
+  - "src/hyacinth/preview/data_source.py"
+  - "tests/preview/test_index_task.py"
 
 verification:
   status: "condition-filter-fidelity-researched-proposal-pending"
   commands:
+    - "uv run pytest --override-ini addopts='' tests/preview -q"
+    - "uv run ruff check src/hyacinth/preview tests/preview/test_index_task.py"
+    - "uv run mypy"
     - "只读核对需求讨论记录第 2、17、18、19.8 节和当前处理预览、应用版本、SQLite 预览索引与 Qt 表格"
     - "uv run python -c 检查 openpyxl 3.1.5 AutoFilter/FilterColumn/CustomFilters 类型与源码"
     - "OpenCode DeepSeek BytesIO/zipfile 实验 AutoFilter、row.hidden、已有筛选、表格、公式和 CustomFilter XML"
@@ -361,6 +371,8 @@ verification:
     - "OpenCode DeepSeek session ses_ffb779869ffetPKJvDGwsXSdcX 导出并核验 provider/model/finish/files changed"
     - "OpenCode DeepSeek session ses_ffb6eb165ffeExum72T3S31KLf 导出并核验 provider/model/finish 与实际写入范围"
   evidence:
+    - "隐藏行预览定向回归：12 passed in 1.08s；Ruff 和 Mypy strict 通过"
+    - "新增回归确认源第 3 行 hidden 后，数据源依次显示表头、源第 2 行、源第 4 行，下一逻辑行为空"
     - "AutoFilter.add_filter_column 只写筛选条件 XML，不会计算或隐藏行；row.hidden 可单独往返保存"
     - "当前 preview/index_task.py 只索引单元格值，不存储隐藏行，Qt 预览不会自动呈现筛选结果"
     - "同列两个 CustomFilter 可通过 and=0/1 表达 OR/AND；不同列 filterColumn 在 Excel 语义中组合为 AND"
@@ -528,4 +540,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "条件筛选保真评估完成：推荐先做原生可表达的应用筛选安全子集，最多两个条件、跨列仅 AND、同列允许 AND/OR；筛选并提取和任意跨列 OR 后续独立处理，当前等待用户确认"
+  last_result: "条件筛选的隐藏行感知预览基础已经完成并通过定向验证；下一步实现条件解析、类型比较、原生 AutoFilter 元数据和 row.hidden 原子预览核心"

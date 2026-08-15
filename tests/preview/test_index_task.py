@@ -95,6 +95,46 @@ def test_preview_task_builds_atomic_sparse_index(tmp_path: Path) -> None:
     assert not tuple(index_path.parent.glob("*.tmp"))
 
 
+def test_preview_index_maps_hidden_rows_out_of_visible_grid(tmp_path: Path) -> None:
+    from hyacinth.preview import SqliteGridDataSource, run_preview_index_task
+
+    working = tmp_path / "filtered.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.append(["名称"])
+    sheet.append(["显示 A"])
+    sheet.append(["隐藏"])
+    sheet.append(["显示 B"])
+    sheet.row_dimensions[3].hidden = True
+    workbook.save(working)
+    workbook.close()
+    request = TaskRequest(
+        task_id="preview-hidden",
+        name="加载筛选预览",
+        file_id="file-1",
+        engine=None,
+        operation="build-preview-index",
+        payload={
+            "working_path": str(working),
+            "index_path": str(tmp_path / "preview.sqlite"),
+        },
+    )
+
+    preview = run_preview_index_task(request, PreviewTaskContext())
+    assert preview.sheets[0].visible_row_count == 3
+    source = SqliteGridDataSource(preview.index_path, preview.sheets[0])
+    try:
+        assert [source.value_at(row, 0) for row in range(4)] == [
+            "名称",
+            "显示 A",
+            "显示 B",
+            "",
+        ]
+    finally:
+        source.close()
+
+
 def test_preview_task_reuses_current_index(tmp_path: Path) -> None:
     from hyacinth.preview import run_preview_index_task
 
