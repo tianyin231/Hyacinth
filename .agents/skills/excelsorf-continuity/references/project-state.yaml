@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T12:48:04.2480844+08:00"
+updated_at: "2026-08-15T13:13:35.6108913+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-1-conversion-status-vertical-slice"
+  implementation: "stage-1-import-working-copy-vertical-slice"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 双引擎转换与最小任务状态展示垂直切片已完成"
+  current_phase: "阶段 1 文件导入与内部工作副本垂直切片实施"
   next_milestone: "阶段 1 文件导入与内部工作副本垂直切片"
 
 current_task:
-  id: "STAGE-1-CONVERSION-SLICE-001"
-  status: "completed"
-  goal: "将任务队列接入双引擎转换，并在已确认 Fluent 工作台中显示最小任务状态"
+  id: "STAGE-1-IMPORT-SLICE-001"
+  status: "implementation-planning"
+  goal: "实现单后台任务、暂存校验后原子发布的文件导入垂直切片"
   owner: "codex-sol"
 
 last_completed:
@@ -68,14 +68,23 @@ last_completed:
   - "完成 Windows 原生 Qt 状态栏截图检查，中文、任务名、进度、引擎、耗时和取消按钮无重叠或截断"
   - "独立审查发现并修复检测后取消仍进入 COM 转换、关闭延期后状态轮询停止两个问题"
   - "双引擎转换状态切片已快进合并到本地 main，临时 worktree 与分支已清理"
+  - "核验文件导入相关需求、现有转换 handler、任务事件和主窗口接口，确认默认文件库根目录是唯一会改变当前方案的待决项"
+  - "核对原始需求，确认默认已上传文件目录明确为 Windows 文档目录，并允许用户在设置中修改"
+  - "完成导入切片方案比较，推荐将校验、复制、xls 转换、xlsx 校验和目录发布封装为单个后台导入任务"
 
 next_actions:
-  - "确认下一条文件导入、内部唯一目录和工作副本垂直切片方案"
+  - "按 TDD 实现内部文件库布局、导入事务和失败清理"
+  - "将导入操作接入现有后台队列、Qt 事件桥和状态栏"
+  - "实现导入按钮、受限文件选择器、文件列表和启动恢复"
+  - "实现时通过 Qt 系统已知文件夹解析文档目录，测试注入临时目录"
   - "后续将 COM 子进程扩展为结构化阶段事件，把安全关键范围从整段转换收窄到 SaveAs"
   - "每完成一个可独立验收的关键开发节点提交本地 Git"
   - "后续普通更改默认不推送远端，用户明确要求时再推送"
 
 blockers:
+  - id: "IMPORT-LIBRARY-ROOT-001"
+    status: "resolved-by-requirement"
+    summary: "原始需求明确默认已上传文件目录为 Windows 文档目录，并允许用户在设置中修改；后续需求未覆盖该默认值"
   - id: "ENV-PERF-BASELINE-001"
     status: "future"
     summary: "大表格暂定阈值已在 16GB/20 逻辑处理器环境通过，仍需在 4 核/8GB/1080p 基线环境复测"
@@ -93,6 +102,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260815-013"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "文件导入切片采用方案 A：单个后台导入任务在暂存目录完成复制、xls 转换和 xlsx 校验，成功后原子发布 UUID 目录"
+    source: "用户当前会话明确确认推荐方案 A 及其范围"
+    supersedes: "none"
+    impact: "内部文件库布局、导入任务事务边界、失败清理、Qt 导入入口和文件列表"
   - id: "DEC-20260815-012"
     date: "2026-08-15"
     status: "approved"
@@ -156,13 +172,6 @@ recent_decisions:
     source: "用户当前会话明确确认"
     supersedes: "none"
     impact: "阶段 0/1 启动与本地提交节奏"
-  - id: "DEC-20260815-003"
-    date: "2026-08-15"
-    status: "approved"
-    summary: "完成初始化推送后，后续普通更改默认只保存在本地 Git 仓库，不频繁推送"
-    source: "用户当前会话明确确认"
-    supersedes: "none"
-    impact: "后续提交与远端同步策略"
 
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
@@ -186,6 +195,7 @@ changed_files:
 verification:
   status: "passed"
   commands:
+    - "rg -n -C 4 \"已上传文件|存储目录|目录\" -- 软件前端框架设计.md"
     - "uv lock --check"
     - "uv sync --locked --python 3.12"
     - "$env:QT_QPA_PLATFORM='offscreen'; uv run pytest"
@@ -202,6 +212,7 @@ verification:
     - "git diff --check"
     - "uv run pytest tests/excel/test_conversion_task.py::test_task_queue_runs_real_conversion_with_selected_engine -q -s"
   evidence:
+    - "原始需求第 80-81 行写明上传文件默认存储地址为电脑本地文档；第 182-186 行再次写明可自定义且默认地址为文档"
     - "pytest：21 passed；Ruff check/format、Mypy strict 和 uv build 全部通过"
     - "1048576x256 模型创建 0.094ms，Python 峰值 1512B，创建时底层读取 0"
     - "1920x1080 首屏 40.8ms、末端跳转 30.1ms，两次底层读取均为 665 个单元格"
@@ -214,6 +225,12 @@ verification:
     - "Windows 原生 Qt 截图 task-status-slice.png：960x34，全部文字和控件完整可见"
     - "切片提交：4b280ee、6f8d491、02d6e06；main 当前领先 origin/main 19 个提交，未推送"
   worker_sessions:
+    STAGE-1-IMPORT-SLICE-RESEARCH-001:
+      session_id: "ses_ffc39b0e4ffeUUd2PwtrGoVVws"
+      provider: "opencode-go"
+      model: "deepseek-v4-flash"
+      finish: "aborted"
+      result: "只读导入事务分析连续两次等待均无文本，已中止；未采纳任何 Worker 输出"
     STAGE-1-TASK-QUEUE-RESEARCH-001:
       session_id: "ses_ffc9b4161ffe7561dWNGTOr8H5"
       provider: "opencode-go"
@@ -244,4 +261,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "双引擎转换与最小任务状态展示切片已合并到 main；39 项测试和全部质量门通过"
+  last_result: "用户已批准导入切片方案 A，进入 TDD 实施计划与隔离工作区准备"
