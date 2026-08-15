@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T11:48:33.9335724+08:00"
+updated_at: "2026-08-15T12:20:17.1612362+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-1-task-queue-prototype"
+  implementation: "stage-1-conversion-vertical-slice-design"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 后台任务队列与取消风险原型已完成"
-  next_milestone: "阶段 1 后台任务队列与取消风险原型"
+  current_phase: "阶段 1 双引擎转换核心垂直切片实施中"
+  next_milestone: "阶段 1 双引擎转换与最小任务状态展示"
 
 current_task:
-  id: "STAGE-1-TASK-QUEUE-001"
-  status: "completed"
-  goal: "验证独立后台进程中的全局单任务 FIFO 队列、结构化进度、取消与崩溃恢复边界"
+  id: "STAGE-1-CONVERSION-SLICE-001"
+  status: "in-progress"
+  goal: "将任务队列接入双引擎转换，并在已确认 Fluent 工作台中显示最小任务状态"
   owner: "codex-sol"
 
 last_completed:
@@ -65,8 +65,8 @@ last_completed:
   - "后台任务队列原型快进合并到本地 main，临时 worktree 与分支已清理"
 
 next_actions:
-  - "将任务队列与双引擎转换、临时预览和 UI 状态展示做下一条垂直切片集成"
-  - "核心风险原型暂不制作可见任务面板，UI 集成留到后续垂直切片"
+  - "在隔离 worktree 中按 TDD 实现转换 handler、Qt 事件桥和底部任务状态栏"
+  - "COM 转换本切片整体作为安全关键阶段，取消时等待其完成；后续再细分打开、计算和保存阶段"
   - "每完成一个可独立验收的关键开发节点提交本地 Git"
   - "后续普通更改默认不推送远端，用户明确要求时再推送"
 
@@ -85,6 +85,20 @@ blockers:
     summary: "需求讨论记录第 43 节中的项目仍需在后续与客户复核"
 
 recent_decisions:
+  - id: "DEC-20260815-012"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "核心转换切片采用方案 A：Python 在常驻 Worker 中协作执行，COM 保留子进程且整体视为安全关键阶段，QTimer 桥接结构化事件到底部状态栏"
+    source: "用户当前会话明确确认方案 A"
+    supersedes: "none"
+    impact: "双引擎任务 handler、取消语义、Qt 事件桥、状态栏组件和测试"
+  - id: "DEC-20260815-011"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "双引擎转换垂直切片采用核心集成范围：handler、Qt 事件桥和底部任务状态栏，不包含文件选择器、内部文件库或表格预览"
+    source: "用户当前会话确认推荐方案 1"
+    supersedes: "none"
+    impact: "阶段 1 下一切片的代码边界、UI 范围和测试范围"
   - id: "DEC-20260815-010"
     date: "2026-08-15"
     status: "approved"
@@ -141,29 +155,9 @@ recent_decisions:
     source: "用户当前会话明确确认"
     supersedes: "none"
     impact: "后续提交与远端同步策略"
-  - id: "DEC-20260815-001"
-    date: "2026-08-15"
-    status: "approved"
-    summary: "研发由 Codex/Sol 主控，可多调用 OpenCode deepseek-v4-flash 子代理提高效率"
-    source: "用户当前会话明确确认"
-    supersedes: "未明确限定子代理类型的早期约定"
-    impact: "所有任务拆分、并行执行、复核和集成"
-  - id: "DEC-20260815-002"
-    date: "2026-08-15"
-    status: "approved"
-    summary: "项目采用风险原型、垂直切片、阶段验收路线"
-    source: "用户当前会话明确确认"
-    supersedes: "none"
-    impact: "开发顺序和里程碑"
 
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
-  - "需求讨论记录.md"
-  - "src/hyacinth/tasks/contracts.py"
-  - "src/hyacinth/tasks/manager.py"
-  - "src/hyacinth/tasks/worker.py"
-  - "src/hyacinth/tasks/__init__.py"
-  - "tests/tasks/test_queue.py"
 
 verification:
   status: "passed"
@@ -210,4 +204,10 @@ verification:
       model: "deepseek-v4-flash"
       finish: "stop"
       result: "只读生命周期审查完成；指出派发断管与退出超时泄漏两个重要问题，均已修复并重新通过完整质量门"
-  last_result: "后台任务队列风险原型已合并到 main；29 项测试、Ruff、Mypy、格式、锁文件和 uv build 全部通过"
+    STAGE-1-CONVERSION-SLICE-RESEARCH-001:
+      session_id: "ses_ffc63ba90ffeJx8joxJHLL6W2r"
+      provider: "opencode-go"
+      model: "deepseek-v4-flash"
+      finish: "aborted"
+      result: "集成分析 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立完成范围识别"
+  last_result: "用户已确认方案 A，准备在隔离 worktree 中按 TDD 实现核心转换垂直切片"
