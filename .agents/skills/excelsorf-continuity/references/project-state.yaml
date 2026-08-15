@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T16:10:27.3042717+08:00"
+updated_at: "2026-08-15T16:54:55.0785178+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-1-root-version-tree-completed"
+  implementation: "stage-1-sort-preview-core-completed"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 根版本记录与版本树展示已完成"
-  next_milestone: "阶段 1 首个处理操作与子版本生成方案确认"
+  current_phase: "阶段 1 排序临时结果、子版本与版本树集成"
+  next_milestone: "阶段 1 Python 安全排序预览、应用提交与父子版本树垂直切片"
 
 current_task:
-  id: "STAGE-1-ROOT-VERSION-TREE-001"
-  status: "completed"
-  goal: "导入成功时建立可恢复的根版本元数据，并在版本演化树中展示当前文件根节点和 HEAD 状态"
+  id: "STAGE-1-SORT-PREVIEW-CHILD-VERSION-001"
+  status: "in-progress"
+  goal: "以多列排序贯通参数配置、后台临时预览、直接应用为不可变子版本、HEAD 更新和父子节点展示"
   owner: "codex-sol"
 
 last_completed:
@@ -101,14 +101,24 @@ last_completed:
   - "Windows 原生 Qt 截图确认根版本卡片位于批准稿的中部版本树区域，边框、强调色和信息层级清晰"
   - "OpenCode DeepSeek 只读审查完成且零文件改动；Codex/Sol 修复恢复目录误删和不可读清单启动失败，并否决可能覆盖已有 HEAD 的建议"
   - "根版本切片完整质量门通过：72 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
+  - "重新核对处理预览、排序、版本提交、HEAD、后台队列、恢复清单和图谱排布要求，确认处理功能必须采用预览与应用两阶段提交"
+  - "OpenCode DeepSeek 只读评估完成且零文件改动；其确认落盘临时草稿方案最符合预览所见即正式提交，并指出现有恢复逻辑不支持已知文件的孤儿子版本"
+  - "用户确认采用推荐方案：Python 安全排序子集先贯通临时预览、直接应用、子版本事务、HEAD 和父子版本树完整闭环"
+  - "完成 Python 安全多列排序预览任务：单工作表、首行表头、最多两个排序键、稳定排序、空值末尾和原子临时结果"
+  - "安全排序会拒绝公式、合并单元格、键列混合类型和越界参数，并保持整行字段、样式、批注与超链接对应关系"
+  - "排序预览核心通过真实常驻 Worker、87 项全量测试、Ruff、Mypy strict、uv lock 和 uv build 独立复验"
 
 next_actions:
-  - "对照需求提出首个处理操作、子版本快照提交和父子节点展示的最小方案，获得用户确认后实施"
+  - "完成多列排序参数 UI、临时结果预览、取消与应用状态机"
+  - "完成临时结果直接升级子版本、已知文件孤儿子版本恢复、工作副本同步、HEAD 更新和父子版本树"
   - "后续将 COM 子进程扩展为结构化阶段事件，把安全关键范围从整段转换收窄到 SaveAs"
   - "每完成一个可独立验收的关键开发节点提交本地 Git"
   - "后续普通更改默认不推送远端，用户明确要求时再推送"
 
 blockers:
+  - id: "SORT-ENGINE-SCOPE-001"
+    status: "resolved-by-approved-scope"
+    summary: "本切片固定 Python 兼容引擎并拒绝含公式或合并单元格的危险区域，优先贯通完整两阶段版本闭环；COM 高保真排序作为后续增强"
   - id: "VERSION-METADATA-ATOMICITY-001"
     status: "resolved-and-tested"
     summary: "SQLite 与文件目录无法组成单一原子事务；已采用完整暂存快照/清单、原子发布目录、再提交 SQLite，并在提交失败或崩溃窗口保留目录由启动清单补登记"
@@ -141,6 +151,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260815-017"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "首个处理切片采用 Python 安全排序子集：单工作表 used range、首行表头、最多两个排序键、落盘临时预览、直接升级子版本并移动 HEAD"
+    source: "用户当前会话明确确认推荐方案 1"
+    supersedes: "none"
+    impact: "多列排序任务、临时预览生命周期、子版本事务、HEAD、版本树和主窗口状态机"
   - id: "DEC-20260815-016"
     date: "2026-08-15"
     status: "approved-and-implemented"
@@ -204,34 +221,15 @@ recent_decisions:
     source: "用户当前会话明确确认"
     supersedes: "none"
     impact: "引擎接口、COM/Python 转换实现与格式保真测试范围"
-  - id: "DEC-20260815-007"
-    date: "2026-08-15"
-    status: "approved"
-    summary: "保留用户将 ui-ux-pro-max 从 .agent/skills 迁移到 .agents/skills 的改动并提交到 main"
-    source: "用户当前会话明确确认"
-    supersedes: "none"
-    impact: "本地 Skill 目录布局与 main 工作树"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
-  - "src/hyacinth/app.py"
-  - "src/hyacinth/library/__init__.py"
-  - "src/hyacinth/library/catalog.py"
-  - "src/hyacinth/library/import_task.py"
-  - "src/hyacinth/library/widget.py"
-  - "src/hyacinth/ui/shell.py"
-  - "src/hyacinth/versioning/__init__.py"
-  - "src/hyacinth/versioning/models.py"
-  - "src/hyacinth/versioning/store.py"
-  - "tests/library/test_catalog.py"
-  - "tests/library/test_import_queue.py"
-  - "tests/library/test_import_task.py"
-  - "tests/versioning/__init__.py"
-  - "tests/versioning/test_store.py"
-  - "tests/versioning/test_widget.py"
-  - "output/playwright/root-version-tree-slice.png"
+  - "src/hyacinth/processing/__init__.py"
+  - "src/hyacinth/processing/sort_preview.py"
+  - "tests/processing/__init__.py"
+  - "tests/processing/test_sort_preview.py"
 
 verification:
-  status: "passed"
+  status: "sort-preview-core-passing"
   commands:
     - "uv lock --check"
     - "$env:PYTHONPATH='src'; ..\\..\\.venv\\Scripts\\python.exe -m pytest --override-ini addopts='' -q"
@@ -248,6 +246,9 @@ verification:
     - "OpenCode DeepSeek session ses_ffba83b78ffepTXRqQOxhVa2eB 导出并核验 provider/model/finish/files changed"
     - "Windows 原生 Qt grab 保存 output/playwright/root-version-tree-slice.png 并目视检查"
     - "OpenCode DeepSeek session ses_ffb90e835ffeIkXBQ1bOF08mgz 导出并核验 provider/model/finish/files changed"
+    - "只读核对需求讨论记录第 12、17、18、19.1、29、33、35、38 节和当前处理、预览、版本、任务与 UI 代码"
+    - "OpenCode DeepSeek session ses_ffb779869ffetPKJvDGwsXSdcX 导出并核验 provider/model/finish/files changed"
+    - "OpenCode DeepSeek session ses_ffb6eb165ffeExum72T3S31KLf 导出并核验 provider/model/finish 与实际写入范围"
   evidence:
     - "完整 pytest：64 passed in 21.18s；Ruff check/format、Mypy strict、uv lock 和 uv build 全部通过"
     - "快进合并到 main 后复验：64 passed in 18.59s；全部静态检查、锁文件和构建再次通过"
@@ -269,7 +270,24 @@ verification:
     - "恢复回归覆盖 SQLite 写入失败后目录/清单保留并可补登记，以及不可读或哈希不符清单不会阻止启动"
     - "原生 Qt 截图 root-version-tree-slice.png：1376x760，根节点、HEAD、文件名、时间和 XLSX 格式信息完整可见"
     - "用户未跟踪的 追加需求.txt 未读取、未修改、未纳入本次提交；本次不推送"
+    - "方案事实：当前 FunctionPanel 仍为禁用占位，MetadataStore 尚无子版本事务，VersionTreePanel 只渲染单根节点，现有 reconcile 会跳过已知 file_id"
+    - "DeepSeek 会话确认 provider=opencode-go、model=deepseek-v4-flash、finish=stop、files changed=0"
+    - "排序预览核心定向测试：15 passed in 0.84s；包含双键方向、稳定性、空值末尾、危险区域拒绝、取消清理、整行格式元数据和真实 TaskQueue"
+    - "Codex/Sol 独立全量复验：87 passed in 19.96s；Ruff check/format、Mypy strict、uv lock、uv build 和 git diff --check 全部通过"
+    - "DeepSeek 修正期间产生的 t1.xlsx、t2.xlsx、t3.xlsx 已清理；最终实际范围只有约定的 4 个处理模块/测试文件，用户未跟踪文件保持原样"
   worker_sessions:
+    STAGE-1-SORT-PREVIEW-CORE-001:
+      session_id: "ses_ffb6eb165ffeExum72T3S31KLf"
+      provider: "opencode-go"
+      model: "deepseek-v4-flash"
+      finish: "stop"
+      result: "完成 Python 安全多列排序预览核心和 15 项定向测试；Codex/Sol 退回一次聚焦修正，补齐样式、批注与超链接随整行记录移动，最终实际写入范围符合约定"
+    STAGE-1-SORT-CHILD-VERSION-RESEARCH-001:
+      session_id: "ses_ffb779869ffetPKJvDGwsXSdcX"
+      provider: "opencode-go"
+      model: "deepseek-v4-flash"
+      finish: "stop"
+      result: "只读调研完成且零文件改动；推荐后台生成落盘临时 xlsx，应用时不重算而直接升级子快照，并在本切片补齐已知文件子版本恢复、working/HEAD 一致性和父子节点 UI"
     STAGE-1-ROOT-VERSION-TREE-REVIEW-001:
       session_id: "ses_ffb90e835ffeIkXBQ1bOF08mgz"
       provider: "opencode-go"
@@ -336,4 +354,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "根版本记录与版本树展示垂直切片完成并通过全部验证；下一步先确认首个处理操作与子版本生成方案"
+  last_result: "Python 安全排序预览核心已完成并通过全量门禁；下一步集成临时结果 UI、直接应用、子版本事务、HEAD 与父子版本树"
