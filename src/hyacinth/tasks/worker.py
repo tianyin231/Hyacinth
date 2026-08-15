@@ -12,6 +12,8 @@ class CancelFlag(Protocol):
 
     def clear(self) -> None: ...
 
+    def set(self) -> None: ...
+
 
 class TaskCancelled(Exception):
     pass
@@ -103,10 +105,6 @@ def _execute(
     event_connection.send(context._event(TaskState.RUNNING))
     try:
         handler = handlers[request.operation]
-        result = handler(request, context)
-        context.check_cancelled()
-    except TaskCancelled:
-        event_connection.send(context._event(TaskState.CANCELLED))
     except KeyError:
         event_connection.send(
             context._event(
@@ -115,6 +113,12 @@ def _execute(
                 error_code="unknown-operation",
             )
         )
+        return
+    try:
+        result = handler(request, context)
+        context.check_cancelled()
+    except TaskCancelled:
+        event_connection.send(context._event(TaskState.CANCELLED))
     except Exception as error:
         event_connection.send(
             context._event(

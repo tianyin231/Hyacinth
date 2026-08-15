@@ -13,9 +13,7 @@ class TaskState(StrEnum):
     CANCELLED = "cancelled"
 
 
-TERMINAL_TASK_STATES = frozenset(
-    {TaskState.SUCCEEDED, TaskState.FAILED, TaskState.CANCELLED}
-)
+TERMINAL_TASK_STATES = frozenset({TaskState.SUCCEEDED, TaskState.FAILED, TaskState.CANCELLED})
 
 
 @dataclass(frozen=True, slots=True)
