@@ -4,13 +4,14 @@ from PySide6.QtCore import (
     QAbstractTableModel,
     QModelIndex,
     QPersistentModelIndex,
+    QPoint,
     QPointF,
     QRectF,
     QSize,
     Qt,
     Signal,
 )
-from PySide6.QtGui import QKeyEvent, QMouseEvent, QPainter, QPen
+from PySide6.QtGui import QContextMenuEvent, QKeyEvent, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -1224,19 +1226,26 @@ class _VersionNodeCard(QFrame):
     continue_requested = Signal(str)
     position_changing = Signal(str, float, float)
     position_committed = Signal(str, float, float)
+    delete_requested = Signal(str)
+    context_menu_requested = Signal(str, QPoint)
 
-    def __init__(self, version_id: str) -> None:
+    def __init__(self, version_id: str, *, deleted: bool) -> None:
         super().__init__()
         self._version_id = version_id
+        self._deleted = deleted
         self._drag_origin_global: QPointF | None = None
         self._drag_origin_scene: QPointF | None = None
         self._dragged = False
         self.setProperty("version-id", version_id)
+        self.setProperty("deleted", deleted)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() is Qt.MouseButton.LeftButton:
             self.setFocus()
+            if self._deleted:
+                super().mousePressEvent(event)
+                return
             self.selected.emit(self._version_id)
             proxy = self.graphicsProxyWidget()
             if proxy is not None:
@@ -1249,6 +1258,7 @@ class _VersionNodeCard(QFrame):
         if (
             self._drag_origin_global is not None
             and self._drag_origin_scene is not None
+            and not self._deleted
             and event.buttons() & Qt.MouseButton.LeftButton
         ):
             delta = event.globalPosition() - self._drag_origin_global
@@ -1273,16 +1283,24 @@ class _VersionNodeCard(QFrame):
         self._dragged = False
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
-        if event.button() is Qt.MouseButton.LeftButton:
+        if event.button() is Qt.MouseButton.LeftButton and not self._deleted:
             self.continue_requested.emit(self._version_id)
         super().mouseDoubleClickEvent(event)
 
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        self.context_menu_requested.emit(self._version_id, event.globalPos())
+        event.accept()
+
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+        if event.key() == Qt.Key.Key_Delete and not self._deleted:
+            self.delete_requested.emit(self._version_id)
+            event.accept()
+            return
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not self._deleted:
             self.continue_requested.emit(self._version_id)
             event.accept()
             return
-        if event.key() is Qt.Key.Key_Space:
+        if event.key() == Qt.Key.Key_Space and not self._deleted:
             self.selected.emit(self._version_id)
             event.accept()
             return
@@ -1293,6 +1311,8 @@ class VersionTreePanel(QFrame):
     version_preview_requested = Signal(str)
     version_continue_requested = Signal(str)
     version_position_changed = Signal(str, float, float)
+    version_delete_requested = Signal(str)
+    version_restore_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1312,12 +1332,19 @@ class VersionTreePanel(QFrame):
         self._continue.setToolTip("设为当前工作版本；后续保存会从这里创建新分支")
         self._continue.setEnabled(False)
         self._continue.clicked.connect(self._continue_selected_version)
+        self._undo_delete = QPushButton("撤销删除", self)
+        self._undo_delete.setObjectName("version-undo-delete-button")
+        self._undo_delete.setProperty("class", "tool-button")
+        self._undo_delete.setAccessibleName("恢复刚刚删除的版本")
+        self._undo_delete.setVisible(False)
+        self._undo_delete.clicked.connect(self._restore_recently_deleted)
 
         search_row = QFrame(self)
         search_layout = QHBoxLayout(search_row)
         search_layout.setContentsMargins(9, 5, 9, 5)
         search_layout.addWidget(search)
         search_layout.addWidget(self._continue)
+        search_layout.addWidget(self._undo_delete)
 
         empty = QWidget(self)
         empty_layout = QVBoxLayout(empty)
@@ -1366,6 +1393,8 @@ class VersionTreePanel(QFrame):
         self._selected_version_id: str | None = None
         self._proxies: dict[str, QGraphicsProxyWidget] = {}
         self._edge_relations: list[tuple[str, str, QGraphicsLineItem]] = []
+        self._records: dict[str, VersionRecord] = {}
+        self._recently_deleted_version_id: str | None = None
 
     def set_workbook(
         self,
@@ -1379,21 +1408,34 @@ class VersionTreePanel(QFrame):
             self._empty_detail.setText("根版本会在文件导入完成后显示")
             self._content.setCurrentIndex(0)
             self._continue.setEnabled(False)
+            self.clear_delete_undo()
             return
         if versions is None:
             self._empty_title.setText("旧记录尚未建立根版本")
             self._empty_detail.setText("文件仍可预览，后续可安全补建版本记录")
             self._content.setCurrentIndex(0)
             self._continue.setEnabled(False)
+            self.clear_delete_undo()
             return
 
         records = (versions,) if isinstance(versions, VersionRecord) else versions
         head_id = head_version_id or records[-1].version_id
         self._head_version_id = head_id
         self._selected_version_id = head_id
+        self._records = {record.version_id: record for record in records}
         self._render_versions(display_name, records, head_id, layouts or {})
         self._content.setCurrentIndex(1)
         self._continue.setEnabled(False)
+        self.clear_delete_undo()
+
+    def show_delete_undo(self, version_id: str) -> None:
+        self._recently_deleted_version_id = version_id
+        self._undo_delete.setVisible(True)
+        self._undo_delete.setEnabled(True)
+
+    def clear_delete_undo(self) -> None:
+        self._recently_deleted_version_id = None
+        self._undo_delete.setVisible(False)
 
     def _render_versions(
         self,
@@ -1441,6 +1483,8 @@ class VersionTreePanel(QFrame):
             )
             card.selected.connect(self._select_version)
             card.continue_requested.connect(self._request_continue)
+            card.delete_requested.connect(self._request_delete)
+            card.context_menu_requested.connect(self._show_context_menu)
             card.position_changing.connect(self._move_version)
             card.position_committed.connect(self._commit_version_position)
             proxy = scene.addWidget(card)
@@ -1482,10 +1526,13 @@ class VersionTreePanel(QFrame):
         *,
         is_head: bool,
     ) -> _VersionNodeCard:
-        card = _VersionNodeCard(version.version_id)
+        is_deleted = version.deleted_at is not None
+        card = _VersionNodeCard(version.version_id, deleted=is_deleted)
         is_root = version.parent_version_id is None
         card.setObjectName("root-version-card" if is_root else "child-version-card")
-        card.setAccessibleName(f"版本 {version.name}")
+        card.setAccessibleName(
+            f"已删除版本 {version.name}" if is_deleted else f"版本 {version.name}"
+        )
         card.setFixedSize(230, 108)
         card.setProperty("selected", version.version_id == self._selected_version_id)
         card.setStyleSheet(
@@ -1503,6 +1550,14 @@ class VersionTreePanel(QFrame):
                 border: 2px solid #0f6cbd;
                 border-left: 4px solid #0f6cbd;
             }
+            QFrame#root-version-card[deleted="true"],
+            QFrame#child-version-card[deleted="true"] {
+                background: #eef1f4;
+                border: 1px dashed #9aa2ad;
+                border-left: 3px solid #9aa2ad;
+            }
+            QFrame#root-version-card[deleted="true"] QLabel,
+            QFrame#child-version-card[deleted="true"] QLabel { color: #7b8491; }
             QLabel { border: 0; background: transparent; }
             QLabel#root-version-name { color: #343a45; font-weight: 600; }
             QLabel#root-version-file { color: #343a45; font-size: 11px; }
@@ -1520,7 +1575,7 @@ class VersionTreePanel(QFrame):
         layout.setContentsMargins(12, 9, 12, 9)
         layout.setSpacing(3)
 
-        title = QLabel(version.name, card)
+        title = QLabel(f"已删除 · {version.name}" if is_deleted else version.name, card)
         title.setObjectName("root-version-name")
         file_name = QLabel(display_name, card)
         file_name.setObjectName("root-version-file")
@@ -1540,10 +1595,16 @@ class VersionTreePanel(QFrame):
         layout.addWidget(metadata)
         head.setVisible(is_head)
         layout.addWidget(head)
+        if is_deleted and version.deleted_at is not None:
+            card.setToolTip(
+                f"已于 {version.deleted_at.astimezone().strftime('%Y-%m-%d %H:%M')} 删除；"
+                "右键可恢复"
+            )
         return card
 
     def _select_version(self, version_id: str) -> None:
-        if version_id not in self._cards:
+        record = self._records.get(version_id)
+        if record is None or record.deleted_at is not None:
             return
         selection_changed = version_id != self._selected_version_id
         self._selected_version_id = version_id
@@ -1560,8 +1621,42 @@ class VersionTreePanel(QFrame):
             self._request_continue(self._selected_version_id)
 
     def _request_continue(self, version_id: str) -> None:
-        if version_id != self._head_version_id and version_id in self._cards:
+        record = self._records.get(version_id)
+        if record is not None and record.deleted_at is None and version_id != self._head_version_id:
             self.version_continue_requested.emit(version_id)
+
+    def _request_delete(self, version_id: str) -> None:
+        record = self._records.get(version_id)
+        if record is not None and record.deleted_at is None:
+            self.version_delete_requested.emit(version_id)
+
+    def _request_restore(self, version_id: str) -> None:
+        record = self._records.get(version_id)
+        if record is not None and record.deleted_at is not None:
+            self.version_restore_requested.emit(version_id)
+
+    def _restore_recently_deleted(self) -> None:
+        if self._recently_deleted_version_id is not None:
+            self.version_restore_requested.emit(self._recently_deleted_version_id)
+
+    def _show_context_menu(self, version_id: str, global_position: QPoint) -> None:
+        record = self._records.get(version_id)
+        if record is None:
+            return
+        menu = QMenu(self)
+        if record.deleted_at is not None:
+            restore = menu.addAction("恢复版本")
+            restore.triggered.connect(lambda: self._request_restore(version_id))
+        else:
+            preview = menu.addAction("预览版本")
+            preview.triggered.connect(lambda: self._select_version(version_id))
+            if version_id != self._head_version_id:
+                continue_action = menu.addAction("从此继续")
+                continue_action.triggered.connect(lambda: self._request_continue(version_id))
+            menu.addSeparator()
+            delete_action = menu.addAction("删除版本")
+            delete_action.triggered.connect(lambda: self._request_delete(version_id))
+        menu.exec(global_position)
 
     def _move_version(self, version_id: str, x: float, y: float) -> None:
         proxy = self._proxies.get(version_id)

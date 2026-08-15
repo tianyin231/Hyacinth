@@ -9,6 +9,7 @@ from PySide6.QtCore import QPoint, QSize, QStandardPaths, Qt
 from PySide6.QtGui import QCloseEvent, QGuiApplication
 from PySide6.QtWidgets import (
     QFileDialog,
+    QInputDialog,
     QMainWindow,
     QMessageBox,
     QSplitter,
@@ -70,8 +71,11 @@ from hyacinth.ui import (
 )
 from hyacinth.versioning import (
     CHECKOUT_VERSION_OPERATION,
+    DELETE_VERSION_OPERATION,
     MetadataStore,
+    VersionRecord,
     checkout_version_handlers,
+    delete_version_handlers,
 )
 
 
@@ -81,6 +85,8 @@ class ApplicationTaskQueue(TaskQueuePort, Protocol):
 
 FilePicker = Callable[[QWidget], Path | None]
 ErrorPresenter = Callable[[QWidget, str], None]
+ConfirmationPresenter = Callable[[QWidget, str, str], bool]
+VersionChoicePresenter = Callable[[QWidget, tuple[VersionRecord, ...]], str | None]
 
 DEFAULT_WINDOW_SIZE = QSize(1440, 900)
 MINIMUM_WINDOW_SIZE = QSize(1024, 640)
@@ -110,6 +116,8 @@ class HyacinthMainWindow(QMainWindow):
         library_root: Path,
         file_picker: FilePicker,
         error_presenter: ErrorPresenter,
+        confirmation_presenter: ConfirmationPresenter,
+        version_choice_presenter: VersionChoicePresenter,
     ) -> None:
         super().__init__()
         self.setObjectName("main-window")
@@ -125,6 +133,8 @@ class HyacinthMainWindow(QMainWindow):
         self._library_root = library_root
         self._file_picker = file_picker
         self._error_presenter = error_presenter
+        self._confirmation_presenter = confirmation_presenter
+        self._version_choice_presenter = version_choice_presenter
         self._task_queue = task_queue
         self._import_task_ids: set[str] = set()
         self._preview_task_id: str | None = None
@@ -142,6 +152,8 @@ class HyacinthMainWindow(QMainWindow):
         self._apply_task_id: str | None = None
         self._apply_version_id: str | None = None
         self._checkout_task_id: str | None = None
+        self._delete_task_id: str | None = None
+        self._delete_version_id: str | None = None
         self._previewed_version_id: str | None = None
 
         self._application_header = ApplicationHeader(workspace_root)
@@ -165,6 +177,8 @@ class HyacinthMainWindow(QMainWindow):
         self._version_tree.version_preview_requested.connect(self._preview_version)
         self._version_tree.version_continue_requested.connect(self._continue_from_version)
         self._version_tree.version_position_changed.connect(self._save_version_position)
+        self._version_tree.version_delete_requested.connect(self._request_delete_version)
+        self._version_tree.version_restore_requested.connect(self._restore_deleted_version)
         self._workbook_preview = WorkbookPreviewWidget(workspace_root)
         self._workbook_preview.import_requested.connect(self._choose_import_file)
         self._editor = WorkbookEditorFrame(self._workbook_preview, workspace_root)
@@ -202,6 +216,7 @@ class HyacinthMainWindow(QMainWindow):
         self._task_bridge.event_received.connect(self._apply_processing_event)
         self._task_bridge.event_received.connect(self._apply_apply_event)
         self._task_bridge.event_received.connect(self._apply_checkout_event)
+        self._task_bridge.event_received.connect(self._apply_delete_event)
         self._task_status.cancel_requested.connect(self._task_bridge.cancel)
 
         status_bar = self.statusBar()
@@ -577,6 +592,9 @@ class HyacinthMainWindow(QMainWindow):
         except ValueError as error:
             self._error_presenter(self, str(error))
             return
+        if version.deleted_at is not None:
+            self._error_presenter(self, "已删除版本只能恢复，不能预览")
+            return
         if self._processing_result is not None:
             self._cancel_processing_workflow(reload_base=False)
         if self._preview_task_id is not None:
@@ -639,6 +657,128 @@ class HyacinthMainWindow(QMainWindow):
             self._checkout_task_id = None
             self._set_processing_navigation_enabled(True)
             self._restore_current_head_preview()
+
+    def _request_delete_version(self, version_id: str) -> None:
+        workbook = self._current_workbook
+        head = workbook.head_version if workbook is not None else None
+        if workbook is None or head is None or self._delete_task_id is not None:
+            return
+        if (
+            self._processing_result is not None
+            or self._processing_task_id is not None
+            or self._apply_task_id is not None
+        ):
+            self._error_presenter(self, "请先取消或应用当前临时预览，再删除版本")
+            return
+        store = MetadataStore(self._library_root)
+        try:
+            plan = store.plan_version_deletion(workbook.file_id, version_id)
+        except ValueError as error:
+            self._error_presenter(self, str(error))
+            return
+        replacement: VersionRecord | None = None
+        if plan.requires_head_switch:
+            if len(plan.replacement_candidates) == 1:
+                replacement = plan.replacement_candidates[0]
+            else:
+                selected_id = self._version_choice_presenter(
+                    self,
+                    plan.replacement_candidates,
+                )
+                if selected_id is None:
+                    return
+                replacement = next(
+                    (
+                        candidate
+                        for candidate in plan.replacement_candidates
+                        if candidate.version_id == selected_id
+                    ),
+                    None,
+                )
+                if replacement is None:
+                    self._error_presenter(self, "选择的新 HEAD 已不可用，请刷新版本树")
+                    return
+        if replacement is None:
+            detail = "当前工作版本 HEAD 保持不变。"
+        else:
+            detail = f"删除后 HEAD 将切换到“{replacement.name}”。"
+        if not self._confirmation_presenter(
+            self,
+            "删除版本",
+            f"确定将“{plan.target.name}”移入回收状态吗？\n{detail}\n可立即撤销或稍后恢复。",
+        ):
+            return
+        if self._preview_task_id is not None:
+            self._task_queue.cancel(self._preview_task_id)
+            self._preview_task_id = None
+        task_id = uuid4().hex
+        self._delete_task_id = task_id
+        self._delete_version_id = version_id
+        self._set_processing_navigation_enabled(False)
+        self._task_queue.submit(
+            TaskRequest(
+                task_id=task_id,
+                name=f"删除版本 {plan.target.name}",
+                file_id=workbook.file_id,
+                engine=None,
+                operation=DELETE_VERSION_OPERATION,
+                payload={
+                    "library_root": str(self._library_root),
+                    "version_id": version_id,
+                    "expected_head_version_id": head.version_id,
+                    "replacement_version_id": (
+                        replacement.version_id if replacement is not None else None
+                    ),
+                },
+            )
+        )
+
+    def _apply_delete_event(self, event: TaskEvent) -> None:
+        if event.task_id != self._delete_task_id:
+            return
+        deleted_version_id = self._delete_version_id
+        if event.state is TaskState.SUCCEEDED and isinstance(event.result, ImportedWorkbook):
+            self._delete_task_id = None
+            self._delete_version_id = None
+            self._current_workbook = event.result
+            head = event.result.head_version
+            self._previewed_version_id = head.version_id if head is not None else None
+            self._file_library.replace_workbook(event.result)
+            self._show_versions(event.result)
+            if deleted_version_id is not None:
+                self._version_tree.show_delete_undo(deleted_version_id)
+            self._set_processing_navigation_enabled(True)
+            self._load_preview(
+                event.result.working_path,
+                event.result.display_name,
+                temporary=False,
+            )
+        elif event.state is TaskState.FAILED:
+            self._delete_task_id = None
+            self._delete_version_id = None
+            self._set_processing_navigation_enabled(True)
+            self._error_presenter(self, event.message or "版本删除失败")
+            self._restore_current_head_preview()
+        elif event.state is TaskState.CANCELLED:
+            self._delete_task_id = None
+            self._delete_version_id = None
+            self._set_processing_navigation_enabled(True)
+            self._restore_current_head_preview()
+
+    def _restore_deleted_version(self, version_id: str) -> None:
+        workbook = self._current_workbook
+        if workbook is None or self._delete_task_id is not None:
+            return
+        try:
+            MetadataStore(self._library_root).restore_version(workbook.file_id, version_id)
+            refreshed = MetadataStore(self._library_root).get_workbook(workbook.file_id)
+        except ValueError as error:
+            self._error_presenter(self, str(error))
+            return
+        self._current_workbook = refreshed
+        self._file_library.replace_workbook(refreshed)
+        self._show_versions(refreshed)
+        self._version_tree.clear_delete_undo()
 
     def _restore_current_head_preview(self) -> None:
         workbook = self._current_workbook
@@ -819,6 +959,8 @@ def create_main_window(
     library_root: Path | None = None,
     file_picker: FilePicker | None = None,
     error_presenter: ErrorPresenter | None = None,
+    confirmation_presenter: ConfirmationPresenter | None = None,
+    version_choice_presenter: VersionChoicePresenter | None = None,
 ) -> HyacinthMainWindow:
     handlers = conversion_task_handlers()
     handlers.update(import_task_handlers())
@@ -829,11 +971,14 @@ def create_main_window(
     handlers.update(filter_preview_handlers())
     handlers.update(apply_version_handlers())
     handlers.update(checkout_version_handlers())
+    handlers.update(delete_version_handlers())
     return HyacinthMainWindow(
         task_queue or TaskQueue(handlers),
         library_root or default_library_root(),
         file_picker or select_workbook_file,
         error_presenter or show_import_error,
+        confirmation_presenter or confirm_action,
+        version_choice_presenter or choose_replacement_version,
     )
 
 
@@ -854,3 +999,38 @@ def select_workbook_file(parent: QWidget) -> Path | None:
 
 def show_import_error(parent: QWidget, message: str) -> None:
     QMessageBox.warning(parent, "导入失败", message)
+
+
+def confirm_action(parent: QWidget, title: str, message: str) -> bool:
+    return (
+        QMessageBox.question(
+            parent,
+            title,
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        == QMessageBox.StandardButton.Yes
+    )
+
+
+def choose_replacement_version(
+    parent: QWidget,
+    candidates: tuple[VersionRecord, ...],
+) -> str | None:
+    labels = [
+        f"{candidate.name} · {candidate.created_at.astimezone().strftime('%Y-%m-%d %H:%M')}"
+        f" · {candidate.version_id[:8]}"
+        for candidate in candidates
+    ]
+    selected, accepted = QInputDialog.getItem(
+        parent,
+        "选择新的当前工作版本",
+        "删除当前 HEAD 后切换到：",
+        labels,
+        0,
+        False,
+    )
+    if not accepted:
+        return None
+    return candidates[labels.index(selected)].version_id

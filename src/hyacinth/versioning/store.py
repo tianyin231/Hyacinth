@@ -9,7 +9,12 @@ from hashlib import sha256
 from pathlib import Path
 
 from hyacinth.excel.contracts import EngineName
-from hyacinth.versioning.models import ImportedWorkbook, VersionLayout, VersionRecord
+from hyacinth.versioning.models import (
+    ImportedWorkbook,
+    VersionDeletionPlan,
+    VersionLayout,
+    VersionRecord,
+)
 
 DATABASE_NAME = "library.sqlite3"
 MANIFEST_NAME = "manifest.json"
@@ -33,7 +38,8 @@ CREATE TABLE IF NOT EXISTS versions (
     engine TEXT,
     snapshot_path TEXT NOT NULL,
     content_hash TEXT NOT NULL,
-    parameters_json TEXT NOT NULL DEFAULT '{}'
+    parameters_json TEXT NOT NULL DEFAULT '{}',
+    deleted_at TEXT
 );
 CREATE INDEX IF NOT EXISTS versions_file_id ON versions(file_id);
 CREATE TABLE IF NOT EXISTS version_layouts (
@@ -143,7 +149,7 @@ class MetadataStore:
                     f.file_id, f.display_name, f.original_path, f.working_path,
                     v.version_id, v.parent_version_id, v.name, v.created_at,
                     v.operation, v.engine, v.snapshot_path, v.content_hash
-                    , v.parameters_json
+                    , v.parameters_json, v.deleted_at
                 FROM files AS f
                 JOIN versions AS v ON v.version_id = f.head_version_id
                 ORDER BY f.imported_at DESC
@@ -163,7 +169,8 @@ class MetadataStore:
             rows = connection.execute(
                 """
                 SELECT version_id, file_id, parent_version_id, name, created_at,
-                       operation, engine, snapshot_path, content_hash, parameters_json
+                       operation, engine, snapshot_path, content_hash, parameters_json,
+                       deleted_at
                 FROM versions
                 WHERE file_id = ?
                 ORDER BY created_at, version_id
@@ -177,7 +184,8 @@ class MetadataStore:
             row = connection.execute(
                 """
                 SELECT version_id, file_id, parent_version_id, name, created_at,
-                       operation, engine, snapshot_path, content_hash, parameters_json
+                       operation, engine, snapshot_path, content_hash, parameters_json,
+                       deleted_at
                 FROM versions
                 WHERE file_id = ? AND version_id = ?
                 """,
@@ -197,9 +205,10 @@ class MetadataStore:
             row = connection.execute(
                 """
                 SELECT version_id, file_id, parent_version_id, name, created_at,
-                       operation, engine, snapshot_path, content_hash, parameters_json
+                       operation, engine, snapshot_path, content_hash, parameters_json,
+                       deleted_at
                 FROM versions
-                WHERE file_id = ? AND version_id = ?
+                WHERE file_id = ? AND version_id = ? AND deleted_at IS NULL
                 """,
                 (file_id, version_id),
             ).fetchone()
@@ -216,6 +225,72 @@ class MetadataStore:
             if updated.rowcount != 1:
                 raise ValueError("当前 HEAD 已变化，请刷新版本树")
         return self._version_from_row(row)
+
+    def plan_version_deletion(self, file_id: str, version_id: str) -> VersionDeletionPlan:
+        with self._connection() as connection:
+            return self._plan_version_deletion(connection, file_id, version_id)
+
+    def soft_delete_version(
+        self,
+        file_id: str,
+        version_id: str,
+        expected_head_version_id: str,
+        replacement_version_id: str | None = None,
+        *,
+        deleted_at: datetime | None = None,
+    ) -> tuple[VersionRecord, VersionRecord | None]:
+        with self._connection() as connection:
+            plan = self._plan_version_deletion(connection, file_id, version_id)
+            if plan.current_head_version_id != expected_head_version_id:
+                raise ValueError("当前 HEAD 已变化，请刷新版本树")
+            replacement: VersionRecord | None = None
+            if plan.requires_head_switch:
+                candidate_ids = {candidate.version_id for candidate in plan.replacement_candidates}
+                if replacement_version_id is None:
+                    if len(plan.replacement_candidates) != 1:
+                        raise ValueError("删除当前 HEAD 前请选择新的工作版本")
+                    replacement = plan.replacement_candidates[0]
+                else:
+                    if replacement_version_id not in candidate_ids:
+                        raise ValueError("所选的新 HEAD 不是可用的相邻版本")
+                    replacement = next(
+                        candidate
+                        for candidate in plan.replacement_candidates
+                        if candidate.version_id == replacement_version_id
+                    )
+                updated = connection.execute(
+                    """
+                    UPDATE files SET head_version_id = ?
+                    WHERE file_id = ? AND head_version_id = ?
+                    """,
+                    (replacement.version_id, file_id, expected_head_version_id),
+                )
+                if updated.rowcount != 1:
+                    raise ValueError("当前 HEAD 已变化，请刷新版本树")
+            timestamp = deleted_at or datetime.now().astimezone()
+            updated = connection.execute(
+                """
+                UPDATE versions SET deleted_at = ?
+                WHERE file_id = ? AND version_id = ? AND deleted_at IS NULL
+                """,
+                (timestamp.isoformat(), file_id, version_id),
+            )
+            if updated.rowcount != 1:
+                raise ValueError(f"版本已删除或不存在：{version_id}")
+        return self.get_version(file_id, version_id), replacement
+
+    def restore_version(self, file_id: str, version_id: str) -> VersionRecord:
+        with self._connection() as connection:
+            updated = connection.execute(
+                """
+                UPDATE versions SET deleted_at = NULL
+                WHERE file_id = ? AND version_id = ? AND deleted_at IS NOT NULL
+                """,
+                (file_id, version_id),
+            )
+            if updated.rowcount != 1:
+                raise ValueError(f"版本未删除或不存在：{version_id}")
+        return self.get_version(file_id, version_id)
 
     def list_version_layouts(self, file_id: str) -> dict[str, VersionLayout]:
         with self._connection() as connection:
@@ -260,6 +335,66 @@ class MetadataStore:
                 """,
                 (version_id, x, y, int(fixed)),
             )
+
+    def _plan_version_deletion(
+        self,
+        connection: sqlite3.Connection,
+        file_id: str,
+        version_id: str,
+    ) -> VersionDeletionPlan:
+        rows = connection.execute(
+            """
+            SELECT version_id, file_id, parent_version_id, name, created_at,
+                   operation, engine, snapshot_path, content_hash, parameters_json,
+                   deleted_at
+            FROM versions WHERE file_id = ? ORDER BY created_at, version_id
+            """,
+            (file_id,),
+        ).fetchall()
+        records = {record.version_id: record for record in map(self._version_from_row, rows)}
+        target = records.get(version_id)
+        if target is None:
+            raise ValueError(f"找不到版本记录：{version_id}")
+        if target.deleted_at is not None:
+            raise ValueError("该版本已删除")
+        active = [record for record in records.values() if record.deleted_at is None]
+        if len(active) == 1:
+            raise ValueError("文件只剩一个可用版本，不能删除；请删除整个文件记录")
+        head_row = connection.execute(
+            "SELECT head_version_id FROM files WHERE file_id = ?",
+            (file_id,),
+        ).fetchone()
+        if head_row is None:
+            raise ValueError(f"找不到文件记录：{file_id}")
+        head_id = str(head_row[0])
+        candidates: tuple[VersionRecord, ...] = ()
+        if version_id == head_id:
+            ancestor_id = target.parent_version_id
+            while ancestor_id is not None:
+                ancestor = records.get(ancestor_id)
+                if ancestor is None:
+                    break
+                if ancestor.deleted_at is None:
+                    candidates = (ancestor,)
+                    break
+                ancestor_id = ancestor.parent_version_id
+            if not candidates:
+                children: dict[str, list[VersionRecord]] = {}
+                for record in records.values():
+                    if record.parent_version_id is not None:
+                        children.setdefault(record.parent_version_id, []).append(record)
+                frontier = list(children.get(version_id, ()))
+                found: list[VersionRecord] = []
+                while frontier:
+                    candidate = frontier.pop(0)
+                    if candidate.deleted_at is None:
+                        found.append(candidate)
+                    else:
+                        frontier.extend(children.get(candidate.version_id, ()))
+                candidates = tuple(found)
+            if not candidates:
+                raise ValueError("当前 HEAD 没有可切换的父版本或子版本")
+        return VersionDeletionPlan(target, head_id, candidates)
 
     def reconcile_manifests(self) -> int:
         recovered = 0
@@ -310,6 +445,12 @@ class MetadataStore:
                     _atomic_copy(version.snapshot_path, current.working_path)
                     recovered += 1
                 continue
+            try:
+                self.get_version(record.file_id, version.version_id)
+            except ValueError:
+                pass
+            else:
+                continue
             if version.parent_version_id != current_head.version_id:
                 continue
             _atomic_copy(version.snapshot_path, current.working_path)
@@ -348,6 +489,7 @@ class MetadataStore:
             snapshot_path=self._library_root / str(row[10]),
             content_hash=str(row[11]),
             parameters_json=str(row[12]),
+            deleted_at=_parse_optional_datetime(row[13]),
         )
         return ImportedWorkbook(
             file_id=str(row[0]),
@@ -370,6 +512,7 @@ class MetadataStore:
             snapshot_path=self._library_root / str(row[7]),
             content_hash=str(row[8]),
             parameters_json=str(row[9]),
+            deleted_at=_parse_optional_datetime(row[10]),
         )
 
 
@@ -450,6 +593,10 @@ def _parse_datetime(value: object) -> datetime:
     return datetime.fromisoformat(str(value))
 
 
+def _parse_optional_datetime(value: object) -> datetime | None:
+    return None if value is None else _parse_datetime(value)
+
+
 def _content_hash(path: Path) -> str:
     digest = sha256()
     with path.open("rb") as source:
@@ -465,6 +612,8 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE versions ADD COLUMN parameters_json TEXT NOT NULL DEFAULT '{}'"
         )
+    if "deleted_at" not in columns:
+        connection.execute("ALTER TABLE versions ADD COLUMN deleted_at TEXT")
 
 
 def _atomic_copy(source: Path, destination: Path) -> None:

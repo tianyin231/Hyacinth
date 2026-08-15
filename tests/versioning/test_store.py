@@ -184,6 +184,128 @@ def test_switch_head_rejects_stale_current_head(tmp_path: Path) -> None:
     assert store.get_workbook("file-1").head_version == record.root_version
 
 
+def test_soft_delete_historical_version_preserves_head_and_restore_does_not_move_it(
+    tmp_path: Path,
+) -> None:
+    record = _record(tmp_path)
+    root = record.root_version
+    assert root is not None
+    store = MetadataStore(tmp_path)
+    store.record_import(record)
+    child = VersionRecord(
+        "version-2",
+        record.file_id,
+        root.version_id,
+        "多列排序",
+        datetime(2026, 8, 15, 8, 0, tzinfo=UTC),
+        "sort",
+        EngineName.PYTHON,
+        tmp_path / "files/file-1/versions/version-2/snapshot.xlsx",
+        sha256(b"sorted").hexdigest(),
+    )
+    store.record_child_version(child, root.version_id)
+
+    deleted, replacement = store.soft_delete_version(
+        record.file_id,
+        root.version_id,
+        child.version_id,
+        deleted_at=datetime(2026, 8, 15, 10, 0, tzinfo=UTC),
+    )
+
+    assert deleted.deleted_at == datetime(2026, 8, 15, 10, 0, tzinfo=UTC)
+    assert replacement is None
+    assert store.get_workbook(record.file_id).head_version == child
+    restored = store.restore_version(record.file_id, root.version_id)
+    assert restored == root
+    assert store.get_workbook(record.file_id).head_version == child
+
+
+def test_soft_delete_head_uses_nearest_undeleted_parent(tmp_path: Path) -> None:
+    record = _record(tmp_path)
+    root = record.root_version
+    assert root is not None
+    store = MetadataStore(tmp_path)
+    store.record_import(record)
+    child = VersionRecord(
+        "version-2",
+        record.file_id,
+        root.version_id,
+        "多列排序",
+        datetime(2026, 8, 15, 8, 0, tzinfo=UTC),
+        "sort",
+        EngineName.PYTHON,
+        tmp_path / "files/file-1/versions/version-2/snapshot.xlsx",
+        sha256(b"sorted").hexdigest(),
+    )
+    store.record_child_version(child, root.version_id)
+
+    plan = store.plan_version_deletion(record.file_id, child.version_id)
+    deleted, replacement = store.soft_delete_version(
+        record.file_id,
+        child.version_id,
+        child.version_id,
+        deleted_at=datetime(2026, 8, 15, 10, 0, tzinfo=UTC),
+    )
+
+    assert plan.replacement_candidates == (root,)
+    assert deleted.deleted_at is not None
+    assert replacement == root
+    assert store.get_workbook(record.file_id).head_version == root
+
+
+def test_soft_delete_root_head_requires_child_choice_when_branches_exist(
+    tmp_path: Path,
+) -> None:
+    record = _record(tmp_path)
+    root = record.root_version
+    assert root is not None
+    store = MetadataStore(tmp_path)
+    store.record_import(record)
+    children = tuple(
+        VersionRecord(
+            f"version-{index}",
+            record.file_id,
+            root.version_id,
+            f"分支 {index}",
+            datetime(2026, 8, 15, 8 + index, 0, tzinfo=UTC),
+            "sort",
+            EngineName.PYTHON,
+            tmp_path / f"files/file-1/versions/version-{index}/snapshot.xlsx",
+            str(index) * 64,
+        )
+        for index in (2, 3)
+    )
+    store.record_child_version(children[0], root.version_id)
+    store.switch_head(record.file_id, root.version_id, children[0].version_id)
+    store.record_child_version(children[1], root.version_id)
+    store.switch_head(record.file_id, root.version_id, children[1].version_id)
+
+    plan = store.plan_version_deletion(record.file_id, root.version_id)
+    assert plan.replacement_candidates == children
+    with pytest.raises(ValueError, match="请选择"):
+        store.soft_delete_version(record.file_id, root.version_id, root.version_id)
+
+    _deleted, replacement = store.soft_delete_version(
+        record.file_id,
+        root.version_id,
+        root.version_id,
+        children[1].version_id,
+    )
+    assert replacement == children[1]
+    assert store.get_workbook(record.file_id).head_version == children[1]
+
+
+def test_only_remaining_version_cannot_be_deleted_or_selected_after_deletion(
+    tmp_path: Path,
+) -> None:
+    record = _record(tmp_path)
+    store = MetadataStore(tmp_path)
+    store.record_import(record)
+
+    with pytest.raises(ValueError, match="只剩一个"):
+        store.plan_version_deletion(record.file_id, "version-1")
+
+
 def test_version_layout_is_persisted_without_changing_version_metadata(tmp_path: Path) -> None:
     record = _record(tmp_path)
     store = MetadataStore(tmp_path)
@@ -247,3 +369,49 @@ def test_reconcile_known_file_child_version_and_working_copy(tmp_path: Path) -> 
     assert store.reconcile_manifests() == 1
     assert record.working_path.read_bytes() == b"sorted"
     assert store.get_workbook(record.file_id).head_version == child
+
+
+def test_reconcile_does_not_reactivate_soft_deleted_manifest_version(tmp_path: Path) -> None:
+    record = _record(tmp_path)
+    root = record.root_version
+    assert root is not None
+    for path, content in (
+        (record.original_path, b"original"),
+        (record.working_path, b"root"),
+        (root.snapshot_path, b"snapshot"),
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    child_snapshot = tmp_path / "files/file-1/versions/version-2/snapshot.xlsx"
+    child_snapshot.parent.mkdir(parents=True)
+    child_snapshot.write_bytes(b"child")
+    child = VersionRecord(
+        "version-2",
+        record.file_id,
+        root.version_id,
+        "多列排序",
+        datetime(2026, 8, 15, 8, 0, tzinfo=UTC),
+        "sort",
+        EngineName.PYTHON,
+        child_snapshot,
+        sha256(b"child").hexdigest(),
+    )
+    write_recovery_manifest(
+        child_snapshot.parent / "manifest.json",
+        tmp_path,
+        ImportedWorkbook(
+            record.file_id,
+            record.display_name,
+            record.original_path,
+            record.working_path,
+            child,
+        ),
+    )
+    store = MetadataStore(tmp_path)
+    store.record_import(record)
+    store.record_child_version(child, root.version_id)
+    store.soft_delete_version(record.file_id, child.version_id, child.version_id)
+
+    assert store.reconcile_manifests() == 0
+    assert store.get_workbook(record.file_id).head_version == root
+    assert store.get_version(record.file_id, child.version_id).deleted_at is not None

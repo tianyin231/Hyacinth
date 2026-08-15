@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QTabBar,
     QTableView,
+    QWidget,
 )
 from pytestqt.qtbot import QtBot
 
@@ -50,11 +51,14 @@ from hyacinth.processing import (
     run_sort_preview_task,
 )
 from hyacinth.tasks import TaskEvent, TaskRequest, TaskState, TaskStatusWidget
+from hyacinth.ui import VersionTreePanel
 from hyacinth.versioning import (
     CHECKOUT_VERSION_OPERATION,
+    DELETE_VERSION_OPERATION,
     MetadataStore,
     VersionRecord,
     run_checkout_version_task,
+    run_delete_version_task,
 )
 
 
@@ -141,6 +145,82 @@ def _seed_versioned_workbook(
     record = ImportedWorkbook("file-1", "销售.xlsx", original, working, version)
     MetadataStore(library_root).record_import(record)
     return record
+
+
+def test_delete_head_from_tree_switches_working_version_and_can_be_undone(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    root = record.head_version
+    assert root is not None
+    child_snapshot = library_root / "files/file-1/versions/version-2/snapshot.xlsx"
+    child_snapshot.parent.mkdir(parents=True)
+    child_snapshot.write_bytes(record.working_path.read_bytes())
+    child = VersionRecord(
+        "version-2",
+        record.file_id,
+        root.version_id,
+        "多列排序",
+        datetime(2026, 8, 15, 9, 0, tzinfo=UTC),
+        "sort",
+        EngineName.PYTHON,
+        child_snapshot,
+        sha256(child_snapshot.read_bytes()).hexdigest(),
+    )
+    store = MetadataStore(library_root)
+    store.record_child_version(child, root.version_id)
+    confirmations: list[tuple[str, str]] = []
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    def confirm_delete(_parent: QWidget, title: str, message: str) -> bool:
+        confirmations.append((title, message))
+        return True
+
+    window = create_main_window(
+        task_queue=task_queue,
+        library_root=library_root,
+        confirmation_presenter=confirm_delete,
+    )
+    qtbot.addWidget(window)
+    window.show()
+    tree_panel = _child(window, VersionTreePanel, "version-tree-panel")
+
+    tree_panel.version_delete_requested.emit(child.version_id)
+
+    delete_request = task_queue.submitted[-1]
+    assert delete_request.operation == DELETE_VERSION_OPERATION
+    assert delete_request.payload["replacement_version_id"] == root.version_id
+    assert confirmations and "HEAD 将切换到“导入原始文件”" in confirmations[0][1]
+    deleted_workbook = run_delete_version_task(delete_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            delete_request.task_id,
+            TaskState.SUCCEEDED,
+            delete_request.name,
+            delete_request.file_id,
+            EngineName.PYTHON,
+            result=deleted_workbook,
+        )
+    )
+
+    undo = _child(window, QPushButton, "version-undo-delete-button")
+    qtbot.waitUntil(lambda: undo.isVisibleTo(window), timeout=500)
+    assert store.get_workbook(record.file_id).head_version == root
+    assert store.get_version(record.file_id, child.version_id).deleted_at is not None
+    cards = {
+        str(proxy.widget().property("version-id")): proxy.widget()
+        for proxy in _child(window, QGraphicsView, "version-tree-view").scene().items()
+        if isinstance(proxy, QGraphicsProxyWidget) and proxy.widget() is not None
+    }
+    assert cards[child.version_id].property("deleted") is True
+
+    qtbot.mouseClick(undo, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    assert store.get_version(record.file_id, child.version_id).deleted_at is None
+    assert store.get_workbook(record.file_id).head_version == root
 
 
 def test_create_main_window_uses_product_identity(qtbot: QtBot, tmp_path: Path) -> None:

@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T21:37:02.9508111+08:00"
+updated_at: "2026-08-15T22:01:43.0094783+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-1-version-node-drag-completed"
+  implementation: "stage-1-version-node-soft-delete-completed"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -32,11 +32,11 @@ delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
   current_phase: "阶段 1 版本管理交互"
-  next_milestone: "版本节点软删除、灰色占位、HEAD 安全切换和恢复"
+  next_milestone: "版本图谱自动整理、适应窗口、缩放和平移状态持久化"
 
 current_task:
   id: "STAGE-1-VERSION-INTERACTIONS-001"
-  status: "milestone-2-completed-soft-delete-pending"
+  status: "milestone-3-completed-awaiting-next-scope"
   goal: "暂停新增数据处理类型，优先补齐版本节点预览与 HEAD 分离、从历史节点创建分支、节点拖动布局、软删除和恢复等整体版本管理能力"
   owner: "codex-sol"
 
@@ -195,11 +195,18 @@ last_completed:
   - "修复拖动已选节点时重复触发历史预览加载的问题"
   - "原生 1440x900 截图确认拖动后的节点位置、实时连线、选中态和 HEAD 标记清晰"
   - "版本节点拖动关键节点完整质量门通过：161 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
+  - "版本节点拖动和位置持久化关键节点已提交本地 main：531716c；未推送"
+  - "完成版本节点 SQLite 软删除和恢复，deleted_at 迁移兼容现有文件库，恢复不会自动抢回 HEAD"
+  - "删除普通历史节点保持 HEAD；删除 HEAD 自动使用最近未删除父节点，无父版本且存在分支时要求选择子节点；唯一可用版本禁止删除"
+  - "完成后台删除事务：替代快照先分块复制和哈希校验，再条件更新 HEAD 并原子替换 working/current.xlsx；替换失败回滚删除标记与 HEAD"
+  - "启动恢复跳过 SQLite 中已存在的软删除清单节点，不会因不可变 manifest 重新激活已删除版本"
+  - "版本树增加右键删除/恢复、Delete 键、灰色虚线占位、明确 HEAD 切换确认和一次撤销删除入口"
+  - "原生 1440x900 截图 version-node-deleted.png 确认灰色占位、HEAD、父子连线和撤销入口清晰"
+  - "软删除关键节点完整质量门通过：175 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
 
 next_actions:
-  - "提交节点拖动和位置持久化关键节点到本地 Git，不推送"
-  - "实现版本节点软删除、灰色占位、HEAD 安全切换、即时撤销和恢复"
-  - "随后实现节点软删除、已删除占位、HEAD 安全切换、即时撤销和恢复；文件级回收站作为后续独立切片"
+  - "提交版本节点软删除、灰色占位、HEAD 安全切换和恢复关键节点到本地 Git，不推送"
+  - "向用户确认下一切片优先实现版本图谱自动整理/适应窗口/缩放状态，还是文件级回收站"
   - "暂停筛选并提取及其他新增数据处理功能，除非用户再次调整优先级"
   - "后续实现窗口状态持久化时，正常启动优先恢复用户上次位置、尺寸和最大化状态，1440x900 仅作为无保存状态时的默认值"
   - "后续将 COM 子进程扩展为结构化阶段事件，把安全关键范围从整段转换收窄到 SaveAs"
@@ -332,31 +339,29 @@ recent_decisions:
     impact: "预览任务结果、内部可再生缓存、网格数据源、工作表标签、主窗口联动及性能测试"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
-  - "需求讨论记录.md"
-  - "output/playwright/default-empty-state.png"
-  - "output/playwright/fluent-shell-populated.png"
-  - "output/playwright/deduplicate-configured.png"
-  - "output/playwright/delete-blank-rows-configured.png"
-  - "output/playwright/filter-configured.png"
-  - "output/playwright/version-history-selected.png"
-  - "output/playwright/version-node-dragged.png"
+  - "output/playwright/version-node-deleted.png"
   - "scripts/capture_ui_states.py"
   - "src/hyacinth/app.py"
-  - "src/hyacinth/preview/index_task.py"
   - "src/hyacinth/ui/shell.py"
   - "src/hyacinth/versioning/__init__.py"
-  - "src/hyacinth/versioning/checkout_task.py"
+  - "src/hyacinth/versioning/delete_task.py"
   - "src/hyacinth/versioning/models.py"
   - "src/hyacinth/versioning/store.py"
-  - "tests/preview/test_index_task.py"
   - "tests/test_app.py"
-  - "tests/versioning/test_checkout_task.py"
+  - "tests/versioning/test_delete_task.py"
   - "tests/versioning/test_store.py"
   - "tests/versioning/test_widget.py"
 
 verification:
-  status: "version-node-drag-milestone-completed"
+  status: "version-node-soft-delete-milestone-completed"
   commands:
+    - "uv run pytest：175 passed in 27.80s"
+    - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check"
+    - "uv run pytest --override-ini addopts='' tests/versioning/test_delete_task.py tests/versioning/test_store.py tests/versioning/test_widget.py tests/test_app.py -q：48 passed"
+    - "真实 TaskQueue 独立 Worker 进程删除 HEAD、复制父快照和返回新工作簿通过"
+    - "uv run python scripts/capture_ui_states.py --output output/playwright"
+    - "原图目视检查 output/playwright/version-node-deleted.png：灰色占位、HEAD、连线和撤销删除无重叠或截断"
+    - "DeepSeek 只读审查会话读取源码并两次通过测试，但未形成最终结论且开始重复测试，Codex/Sol 中止；零文件改动，未采纳未完成输出"
     - "uv run pytest --override-ini addopts='' tests/versioning/test_store.py tests/versioning/test_widget.py::test_version_tree_drag_moves_connected_edge_and_emits_persisted_position tests/test_app.py::test_dragged_version_position_persists_after_reopening_tree -q"
     - "原图目视检查 output/playwright/version-node-dragged.png"
     - "uv run pytest --override-ini addopts='' tests/versioning tests/preview/test_index_task.py tests/test_app.py -q"
@@ -549,6 +554,12 @@ verification:
     - "最终全量复验：101 passed in 25.36s；Ruff check/format、Mypy strict、uv lock、uv build 和 git diff --check 全部通过"
     - "用户未跟踪的 追加需求.txt 未读取、未修改、未纳入提交；本次不推送"
   worker_sessions:
+    STAGE-1-VERSION-SOFT-DELETE-REVIEW-001:
+      session_id: "ses_ffa4c2590ffejkl5RfmU4mV7tB"
+      provider: "opencode-go"
+      model: "deepseek-v4-flash"
+      finish: "aborted"
+      result: "只读审查读取目标源码并两次运行测试成功，但未在限定时间形成最终审查文本且开始重复测试，Codex/Sol 中止；导出确认零文件改动，未采纳未完成输出"
     STAGE-1-VERSION-CHECKOUT-REVIEW-001:
       session_id: "ses_ffa741be3ffepZi6Bm4pFwQwn2"
       provider: "opencode-go"
@@ -645,4 +656,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "版本节点拖动、连线实时跟随和位置/固定状态持久化已经完成完整质量门；下一步本地提交后实现节点软删除与恢复"
+  last_result: "版本节点软删除、灰色占位、HEAD 安全切换、即时撤销和恢复已通过 175 项完整质量门和原生截图检查；下一步提交本地 Git 后由用户确认图谱视图控制或文件级回收站优先级"

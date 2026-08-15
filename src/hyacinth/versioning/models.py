@@ -17,6 +17,18 @@ class VersionRecord:
     snapshot_path: Path
     content_hash: str
     parameters_json: str = "{}"
+    deleted_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class VersionDeletionPlan:
+    target: VersionRecord
+    current_head_version_id: str
+    replacement_candidates: tuple[VersionRecord, ...]
+
+    @property
+    def requires_head_switch(self) -> bool:
+        return self.target.version_id == self.current_head_version_id
 
 
 @dataclass(frozen=True, slots=True)

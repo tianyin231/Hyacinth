@@ -1,8 +1,10 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QFrame,
@@ -240,6 +242,94 @@ def test_version_tree_drag_moves_connected_edge_and_emits_persisted_position(
     assert moved_signal.args[1] > 80.0
     assert moved_signal.args[2] > 60.0
     assert edges[0].line() != old_line
+
+
+def test_deleted_version_is_placeholder_and_can_be_restored_but_not_previewed(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    from hyacinth.ui import VersionTreePanel
+
+    root = VersionRecord(
+        "version-1",
+        "file-1",
+        None,
+        "导入原始文件",
+        datetime(2026, 8, 15, 7, 30, tzinfo=UTC),
+        "import",
+        None,
+        tmp_path / "root.xlsx",
+        "a" * 64,
+        deleted_at=datetime(2026, 8, 15, 9, 0, tzinfo=UTC),
+    )
+    child = VersionRecord(
+        "version-2",
+        "file-1",
+        root.version_id,
+        "多列排序",
+        datetime(2026, 8, 15, 8, 0, tzinfo=UTC),
+        "sort",
+        None,
+        tmp_path / "child.xlsx",
+        "b" * 64,
+    )
+    panel = VersionTreePanel()
+    qtbot.addWidget(panel)
+    panel.set_workbook("销售报表.xlsx", (root, child), child.version_id)
+    view = panel.findChild(QGraphicsView, "version-tree-view")
+    assert view is not None
+    cards = {
+        str(item.widget().property("version-id")): item.widget()
+        for item in view.scene().items()
+        if isinstance(item, QGraphicsProxyWidget) and item.widget() is not None
+    }
+    deleted_card = cards[root.version_id]
+    assert deleted_card.property("deleted") is True
+    assert deleted_card.accessibleName() == "已删除版本 导入原始文件"
+
+    with qtbot.assertNotEmitted(panel.version_preview_requested):
+        qtbot.mouseClick(deleted_card, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    panel.show_delete_undo(root.version_id)
+    undo = panel.findChild(QPushButton, "version-undo-delete-button")
+    assert undo is not None and undo.isVisibleTo(panel)
+    with qtbot.waitSignal(panel.version_restore_requested) as restore_signal:
+        qtbot.mouseClick(undo, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    assert restore_signal.args == [root.version_id]
+
+
+def test_version_card_delete_key_requests_soft_delete(qtbot: QtBot, tmp_path: Path) -> None:
+    from hyacinth.ui import VersionTreePanel
+
+    root = VersionRecord(
+        "version-1",
+        "file-1",
+        None,
+        "导入原始文件",
+        datetime(2026, 8, 15, 7, 30, tzinfo=UTC),
+        "import",
+        None,
+        tmp_path / "root.xlsx",
+        "a" * 64,
+    )
+    panel = VersionTreePanel()
+    qtbot.addWidget(panel)
+    panel.set_workbook("销售报表.xlsx", root, root.version_id)
+    panel.show()
+    view = panel.findChild(QGraphicsView, "version-tree-view")
+    assert view is not None
+    card = next(
+        item.widget()
+        for item in view.scene().items()
+        if isinstance(item, QGraphicsProxyWidget) and item.widget() is not None
+    )
+    card.setFocus()
+    with qtbot.waitSignal(panel.version_delete_requested) as delete_signal:
+        QApplication.sendEvent(
+            card,
+            QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier),
+        )
+    assert delete_signal.args == [root.version_id]
 
 
 def test_function_panel_emits_accessible_sort_parameters(qtbot: QtBot) -> None:

@@ -23,7 +23,13 @@ from hyacinth.app import ApplicationTaskQueue, create_main_window
 from hyacinth.excel.contracts import EngineName
 from hyacinth.preview import run_preview_index_task
 from hyacinth.tasks import TaskEvent, TaskRequest, TaskState
-from hyacinth.versioning import ImportedWorkbook, MetadataStore, VersionRecord
+from hyacinth.ui import VersionTreePanel
+from hyacinth.versioning import (
+    ImportedWorkbook,
+    MetadataStore,
+    VersionRecord,
+    run_delete_version_task,
+)
 
 
 class CaptureTaskQueue(ApplicationTaskQueue):
@@ -145,7 +151,7 @@ def _add_child_version(library_root: Path) -> None:
 
 def capture_ui_states(
     output_directory: Path,
-) -> tuple[Path, Path, Path, Path, Path, Path, Path]:
+) -> tuple[Path, ...]:
     app = QApplication.instance() or QApplication([])
     output_directory.mkdir(parents=True, exist_ok=True)
     with (
@@ -248,6 +254,7 @@ def capture_ui_states(
         branch_window = create_main_window(
             task_queue=branch_queue,
             library_root=populated_root,
+            confirmation_presenter=lambda _parent, _title, _message: True,
         )
         branch_window.show()
         app.processEvents()
@@ -310,6 +317,27 @@ def capture_ui_states(
         dragged_path = output_directory / "version-node-dragged.png"
         if not branch_window.grab().save(str(dragged_path)):
             raise RuntimeError("无法保存版本节点拖动截图")
+        tree_panel = branch_window.findChild(VersionTreePanel, "version-tree-panel")
+        if tree_panel is None:
+            raise RuntimeError("找不到版本演化树面板")
+        tree_panel.version_delete_requested.emit("root-version")
+        delete_request = branch_queue.submitted[-1]
+        deleted_workbook = run_delete_version_task(delete_request, CaptureTaskContext())
+        branch_queue.events.append(
+            TaskEvent(
+                delete_request.task_id,
+                TaskState.SUCCEEDED,
+                delete_request.name,
+                delete_request.file_id,
+                EngineName.PYTHON,
+                result=deleted_workbook,
+            )
+        )
+        _wait(150)
+        app.processEvents()
+        deleted_path = output_directory / "version-node-deleted.png"
+        if not branch_window.grab().save(str(deleted_path)):
+            raise RuntimeError("无法保存版本节点删除截图")
         branch_window.close()
     return (
         empty_path,
@@ -319,6 +347,7 @@ def capture_ui_states(
         filter_path,
         branch_path,
         dragged_path,
+        deleted_path,
     )
 
 
