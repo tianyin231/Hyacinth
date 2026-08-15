@@ -1395,6 +1395,9 @@ class VersionTreePanel(QFrame):
         self._edge_relations: list[tuple[str, str, QGraphicsLineItem]] = []
         self._records: dict[str, VersionRecord] = {}
         self._recently_deleted_version_id: str | None = None
+        # QGraphicsProxyWidget 的延迟销毁在 Qt 6.11/Windows 下存在原生崩溃窗口。
+        # 版本树只在文件或节点变化时重建，因此保留旧场景到面板销毁更安全且开销可控。
+        self._retired_scenes: list[QGraphicsScene] = []
 
     def set_workbook(
         self,
@@ -1517,7 +1520,7 @@ class VersionTreePanel(QFrame):
         self._scene = scene
         if versions:
             self._view.centerOn(proxies[versions[0].version_id])
-        previous_scene.deleteLater()
+        self._retired_scenes.append(previous_scene)
 
     def _version_card(
         self,

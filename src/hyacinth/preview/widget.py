@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QAbstractItemModel, Qt, Signal
 from PySide6.QtGui import QCloseEvent, QColor, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -48,6 +48,10 @@ class WorkbookPreviewWidget(QFrame):
         self.setMinimumWidth(320)
         self._preview: WorkbookPreview | None = None
         self._source: SqliteGridDataSource | None = None
+        self._retired_sources: dict[
+            int,
+            tuple[QAbstractItemModel, SqliteGridDataSource],
+        ] = {}
 
         empty_canvas = EmptyWorkbookCanvas(self)
         empty_canvas.setObjectName("preview-empty-canvas")
@@ -184,12 +188,31 @@ class WorkbookPreviewWidget(QFrame):
     def _close_source(self) -> None:
         previous_model = self._table.model()
         self._table.setModel(None)
-        if previous_model is not None:
-            previous_model.deleteLater()
-        if self._source is not None:
-            self._source.close()
-            self._source = None
+        previous_source = self._source
+        self._source = None
+        if previous_model is None or previous_source is None:
+            if previous_source is not None:
+                previous_source.close()
+            return
+        key = id(previous_model)
+        self._retired_sources[key] = (previous_model, previous_source)
+        previous_model.destroyed.connect(
+            lambda _object=None, source_key=key: self._dispose_retired_source(source_key)
+        )
+        previous_model.deleteLater()
+
+    def _dispose_retired_source(self, key: int) -> None:
+        retired = self._retired_sources.pop(key, None)
+        if retired is not None:
+            _model, source = retired
+            source.close()
+
+    def _dispose_all_retired_sources(self) -> None:
+        for _model, source in self._retired_sources.values():
+            source.close()
+        self._retired_sources.clear()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._close_source()
+        self._dispose_all_retired_sources()
         super().closeEvent(event)

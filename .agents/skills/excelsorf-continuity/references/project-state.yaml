@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T22:35:30.4686296+08:00"
+updated_at: "2026-08-15T22:47:11.7449222+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-1-version-node-soft-delete-completed"
+  implementation: "stage-1-core-workflow-closure-in-progress"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "实机稳定性与核心工作流缺口分析"
-  next_milestone: "优先修复 Qt 原生闪退和状态栏错误，再贯通手动编辑、保存新版本与导出"
+  current_phase: "实机稳定性与核心工作流闭环实施"
+  next_milestone: "实现轻量单元格编辑、脏状态、撤销重做和保存为普通子版本"
 
 current_task:
-  id: "REAL-MACHINE-ACCEPTANCE-AUDIT-001"
-  status: "analysis-completed-awaiting-fix-approval"
-  goal: "分析用户实机发现的导入后闪退、引擎状态错误、工具栏占位、只读单元格和缺少版本导出五项问题，按稳定性和核心闭环重新排序"
+  id: "CORE-WORKFLOW-CLOSURE-001"
+  status: "milestone-1-completed-milestone-2-next"
+  goal: "按用户确认顺序修复 Qt 原生闪退高风险路径和引擎状态，再实现手动编辑保存、撤销重做、版本导出及工具栏真实能力状态"
   owner: "codex-sol"
 
 last_completed:
@@ -212,10 +212,13 @@ last_completed:
   - "确认保存为新版本、撤销、重做、对比、回收站和设置按钮均为显式禁用占位；版本处理区的预览/应用按钮在可用状态下会启用"
   - "确认当前 WorkbookPreviewWidget 使用 NoEditTriggers、editable=False 和只读 SQLite 数据源，手动单元格编辑、编辑会话、撤销栈和手动保存节点尚未实现"
   - "确认版本导出需求已在需求记录第 21 节定义，但当前没有导出按钮、节点下载菜单或导出服务实现"
+  - "状态栏无引擎任务改为运行态‘准备中’、终态‘无需引擎’，不再错误长期显示‘引擎检测中’"
+  - "版本树重建后保留旧 QGraphicsScene 到面板销毁，避免 Qt 6.11/Windows 延迟销毁 QGraphicsProxyWidget 的原生竞态窗口"
+  - "预览切换将旧模型保持强引用，并在模型销毁后关闭对应 SQLite 数据源；窗口关闭仍同步释放文件锁"
+  - "应用启动时启用 faulthandler，异常诊断追加写入 %LOCALAPPDATA%\\Hyacinth\\logs\\crash.log"
+  - "稳定性第一节点完整质量门通过：178 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
 
 next_actions:
-  - "P0：增加可保留的原生崩溃诊断信息并最小化版本树场景/模型生命周期，覆盖真实后台导入和子版本刷新时序后修复 Qt6Widgets 访问冲突"
-  - "P1：修正任务状态栏语义，未使用 Excel 引擎的任务显示‘无需引擎’或任务类型，终态不再显示‘检测中’"
   - "P1：实现轻量单元格编辑工作区、脏状态、撤销/重做和‘保存为新版本’，使手动编辑可以生成普通子节点"
   - "P1：实现版本节点导出/另存为、文件名冲突处理和导出完成入口"
   - "P2：按实际已完成功能逐步启用工具栏按钮；未完成按钮继续禁用并补充原因提示"
@@ -228,11 +231,11 @@ next_actions:
 
 blockers:
   - id: "QT-WIDGETS-NATIVE-CRASH-001"
-    status: "active-critical-needs-instrumented-reproduction"
-    summary: "实机两次相同 Qt6Widgets.dll 0xc0000005 闪退；导入和应用节点共同触发版本树场景刷新，受控压力测试尚未复现，需先补原生诊断与真实后台时序回归"
+    status: "mitigated-awaiting-real-machine-validation"
+    summary: "已移除版本树旧场景即时延迟销毁，并让预览模型和 SQLite 数据源按安全顺序释放；完整回归通过且已增加持久崩溃日志，仍需用户实机验证间歇性 Qt6Widgets 访问冲突不再出现"
   - id: "TASK-ENGINE-STATUS-NONE-001"
-    status: "confirmed-deterministic-ui-bug"
-    summary: "engine=None 在所有任务状态下固定显示‘引擎检测中’，XLSX 导入后紧接的预览任务会永久留下该错误终态"
+    status: "resolved-and-tested"
+    summary: "engine=None 运行态显示‘准备中’、终态显示‘无需引擎’，XLSX 导入和预览完成后不再留下‘引擎检测中’"
   - id: "MANUAL-EDIT-SAVE-GAP-001"
     status: "confirmed-missing-core-feature"
     summary: "当前预览控件、模型和 SQLite 数据源均显式只读，尚无编辑会话、脏状态、撤销栈或手动保存版本事务"
@@ -295,6 +298,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260815-024"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "先完成实机发现的五项核心问题：Qt 原生闪退、引擎状态、工具栏能力状态、手动编辑保存和版本导出；暂停新增数据处理功能"
+    source: "用户当前会话在问题分析和四阶段实施方案后明确确认"
+    supersedes: "none"
+    impact: "需求讨论记录第 45 节、Qt 场景与模型生命周期、任务状态栏、编辑会话、手动版本事务、导出入口和工具栏状态"
   - id: "DEC-20260815-023"
     date: "2026-08-15"
     status: "approved"
@@ -358,19 +368,24 @@ recent_decisions:
     source: "用户指出当前成品偏离最初设想，并明确确认推荐校正方案"
     supersedes: "none"
     impact: "主窗口结构、导入入口位置、功能/文件/版本/预览四区布局、统一视觉样式和界面结构测试"
-  - id: "DEC-20260815-014"
-    date: "2026-08-15"
-    status: "approved"
-    summary: "工作副本预览采用后台建立 SQLite 稀疏索引方案；本切片只做文件选择联动、工作表切换和只读虚拟化预览"
-    source: "用户当前会话明确确认推荐方案"
-    supersedes: "none"
-    impact: "预览任务结果、内部可再生缓存、网格数据源、工作表标签、主窗口联动及性能测试"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
+  - "需求讨论记录.md"
+  - "src/hyacinth/__main__.py"
+  - "src/hyacinth/diagnostics.py"
+  - "src/hyacinth/preview/widget.py"
+  - "src/hyacinth/tasks/status_widget.py"
+  - "src/hyacinth/ui/shell.py"
+  - "tests/tasks/test_status_widget.py"
+  - "tests/test_diagnostics.py"
+  - "tests/versioning/test_widget.py"
 
 verification:
-  status: "real-machine-acceptance-analysis-completed"
+  status: "stability-milestone-1-passed"
   commands:
+    - "uv run pytest：178 passed in 30.22s"
+    - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check"
+    - "定向回归覆盖无引擎终态、旧 QGraphicsScene 保活、预览切换、窗口关闭 SQLite 文件锁和崩溃日志路径"
     - "Get-WinEvent Application 1000/1001：确认两次 Qt6Widgets.dll 6.11.1、0xc0000005、相同偏移 0x407d70；本机 CrashDumps 保留两个 dmp"
     - "只读查询 Documents\\Hyacinth SQLite：导入记录时间分别为 22:24:34 与 22:24:50，第二份文件在 22:25:29 生成 delete-blank-rows 子版本"
     - "只读核对 import_task、TaskStatusWidget、CommandBar、WorkbookPreviewWidget、WorkbookTableModel、SqliteGridDataSource、VersionTreePanel 和需求记录"

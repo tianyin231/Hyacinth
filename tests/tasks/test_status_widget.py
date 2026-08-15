@@ -65,3 +65,24 @@ def test_status_widget_disables_cancel_after_success(qtbot: QtBot) -> None:
     assert _child(widget, QLabel, "task-status-engine").text() == "Excel 增强模式"
     assert _child(widget, QProgressBar, "task-status-progress").value() == 100
     assert _child(widget, QPushButton, "task-status-cancel").isEnabled() is False
+
+
+def test_status_widget_does_not_claim_engine_detection_for_engine_free_task(
+    qtbot: QtBot,
+) -> None:
+    widget = TaskStatusWidget()
+    qtbot.addWidget(widget)
+
+    widget.apply_event(
+        TaskEvent(
+            task_id="preview-1",
+            state=TaskState.SUCCEEDED,
+            name="加载预览",
+            file_id="file-1",
+            engine=None,
+            progress=1.0,
+            elapsed_seconds=0.3,
+        )
+    )
+
+    assert _child(widget, QLabel, "task-status-engine").text() == "无需引擎"

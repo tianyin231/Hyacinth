@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
 )
 from pytestqt.qtbot import QtBot
+from shiboken6 import isValid
 
 from hyacinth.versioning import VersionLayout, VersionRecord
 
@@ -116,6 +117,37 @@ def test_version_tree_renders_child_to_right_with_edge_and_head(
     child_head = cards["多列排序"].widget().findChild(QLabel, "root-version-head")
     assert root_head is not None and root_head.isHidden()
     assert child_head is not None and child_head.text() == "HEAD" and not child_head.isHidden()
+
+
+def test_version_tree_keeps_replaced_scene_alive_until_panel_closes(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    from hyacinth.ui import VersionTreePanel
+
+    version = VersionRecord(
+        "version-1",
+        "file-1",
+        None,
+        "导入原始文件",
+        datetime(2026, 8, 15, 7, 30, tzinfo=UTC),
+        "import",
+        None,
+        tmp_path / "root.xlsx",
+        "a" * 64,
+    )
+    panel = VersionTreePanel()
+    qtbot.addWidget(panel)
+    panel.set_workbook("销售报表.xlsx", version, version.version_id)
+    view = panel.findChild(QGraphicsView, "version-tree-view")
+    assert view is not None
+    replaced_scene = view.scene()
+
+    for _ in range(10):
+        panel.set_workbook("销售报表.xlsx", version, version.version_id)
+    qtbot.wait(20)
+
+    assert isValid(replaced_scene)
 
 
 def test_version_tree_selects_history_and_requests_continue(qtbot: QtBot, tmp_path: Path) -> None:

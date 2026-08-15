@@ -32,7 +32,6 @@ _STATE_COLORS = {
 }
 
 _ENGINE_LABELS = {
-    None: "引擎检测中",
     EngineName.COM: "Excel 增强模式",
     EngineName.PYTHON: "Python 兼容模式",
 }
@@ -128,7 +127,11 @@ class TaskStatusWidget(QWidget):
         self._set_state_color(_STATE_COLORS[event.state])
         self._name.setText(f"{event.name} · {event.file_id}")
         self._name.setToolTip(event.message)
-        self._engine.setText(_ENGINE_LABELS[event.engine])
+        if event.engine is None:
+            engine_label = "无需引擎" if event.state in TERMINAL_TASK_STATES else "准备中"
+        else:
+            engine_label = _ENGINE_LABELS[event.engine]
+        self._engine.setText(engine_label)
         self._elapsed.setText(f"{event.elapsed_seconds:.1f} 秒")
 
         if event.progress is None:
