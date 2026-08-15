@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T11:01:28.3883486+08:00"
+updated_at: "2026-08-15T11:05:32.2779722+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -58,6 +58,7 @@ last_completed:
   - "确认 Excel COM 会改写打开的源 xls 内部内容，已使用临时副本隔离并增加回归测试"
   - "完成 GridDataSource 协议、稀疏编辑覆盖层和可编辑 WorkbookTableModel"
   - "完成 1048576x256 逻辑网格的首屏、末端跳转、访问次数和 Python 内存性能验证"
+  - "大表格性能原型已快进合并到本地 main，临时 worktree 与分支已清理"
 
 next_actions:
   - "确认阶段 1 后台单任务队列、进度与取消风险原型方案"
@@ -145,13 +146,6 @@ recent_decisions:
 
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
-  - "pyproject.toml"
-  - "src/hyacinth/grid/__init__.py"
-  - "src/hyacinth/grid/data_source.py"
-  - "src/hyacinth/grid/model.py"
-  - "tests/grid/test_data_source.py"
-  - "tests/grid/test_model.py"
-  - "tests/grid/test_performance.py"
 
 verification:
   status: "passed"
@@ -169,5 +163,6 @@ verification:
     - "1048576x256 模型创建 0.094ms，Python 峰值 1512B，创建时底层读取 0"
     - "1920x1080 首屏 40.8ms、末端跳转 30.1ms，两次底层读取均为 665 个单元格"
     - "稀疏覆盖层只保存编辑坐标，命中编辑时不访问基础数据源"
+    - "合并到 main 后复验：21 passed，首屏 37.4ms、末端跳转 22.9ms、读取次数均为 665"
   worker_sessions: {}
-  last_result: "阶段 1 大表格模型与交互性能原型全部验证通过，等待关键节点提交"
+  last_result: "阶段 1 大表格性能原型已合并到本地 main，全部质量门和性能阈值通过"
