@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from multiprocessing.connection import Connection
 from typing import Protocol
 
+from hyacinth.excel.contracts import EngineName
 from hyacinth.tasks.contracts import TaskEvent, TaskRequest, TaskState
 
 
@@ -28,12 +29,16 @@ class TaskContext:
         started_at: float,
     ) -> None:
         self._request = request
+        self._engine = request.engine
         self._send_event = send_event
         self._cancel_flag = cancel_flag
         self._started_at = started_at
 
     def report_progress(self, progress: float | None, message: str = "") -> None:
         self._send_event(self._event(TaskState.RUNNING, progress=progress, message=message))
+
+    def set_engine(self, engine: EngineName) -> None:
+        self._engine = engine
 
     def cancel_requested(self) -> bool:
         return self._cancel_flag.is_set()
@@ -66,7 +71,7 @@ class TaskContext:
             state=state,
             name=self._request.name,
             file_id=self._request.file_id,
-            engine=self._request.engine,
+            engine=self._engine,
             progress=progress,
             elapsed_seconds=time.monotonic() - self._started_at,
             message=message,

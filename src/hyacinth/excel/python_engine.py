@@ -4,6 +4,7 @@ import xlrd  # type: ignore[import-untyped]
 from openpyxl import Workbook
 
 from hyacinth.excel.contracts import (
+    ConversionProgress,
     ConversionResult,
     EngineName,
     capabilities_for,
@@ -14,20 +15,37 @@ class PythonExcelEngine:
     name = EngineName.PYTHON
     capabilities = capabilities_for(name)
 
-    def convert_xls_to_xlsx(self, source: Path, destination: Path) -> ConversionResult:
+    def convert_xls_to_xlsx(
+        self,
+        source: Path,
+        destination: Path,
+        progress: ConversionProgress | None = None,
+    ) -> ConversionResult:
         source_workbook = xlrd.open_workbook(str(source), formatting_info=True)
         target_workbook = Workbook()
         default_sheet = target_workbook.active
         assert default_sheet is not None
         target_workbook.remove(default_sheet)
 
+        total_rows = sum(sheet.nrows for sheet in source_workbook.sheets())
+        completed_rows = 0
         for source_sheet in source_workbook.sheets():
             target_sheet = target_workbook.create_sheet(source_sheet.name)
             for row_index in range(source_sheet.nrows):
+                if progress is not None:
+                    progress.check_cancelled()
                 for column_index in range(source_sheet.ncols):
                     source_cell = source_sheet.cell(row_index, column_index)
                     value = _cell_value(source_cell, source_workbook.datemode)
                     target_sheet.cell(row_index + 1, column_index + 1, value)
+                completed_rows += 1
+                if progress is not None and (
+                    completed_rows == total_rows or completed_rows % 100 == 0
+                ):
+                    progress.report_progress(
+                        completed_rows / max(total_rows, 1),
+                        f"正在转换工作表 {source_sheet.name}",
+                    )
 
             for row_low, row_high, column_low, column_high in source_sheet.merged_cells:
                 target_sheet.merge_cells(
@@ -38,6 +56,8 @@ class PythonExcelEngine:
                 )
 
         destination.parent.mkdir(parents=True, exist_ok=True)
+        if progress is not None:
+            progress.check_cancelled()
         target_workbook.save(destination)
         return ConversionResult(
             engine=self.name,

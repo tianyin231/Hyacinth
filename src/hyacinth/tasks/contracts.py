@@ -21,7 +21,7 @@ class TaskRequest:
     task_id: str
     name: str
     file_id: str
-    engine: EngineName
+    engine: EngineName | None
     operation: str
     payload: dict[str, object] = field(default_factory=dict)
 
@@ -32,7 +32,7 @@ class TaskEvent:
     state: TaskState
     name: str
     file_id: str
-    engine: EngineName
+    engine: EngineName | None
     progress: float | None = None
     elapsed_seconds: float = 0.0
     message: str = ""

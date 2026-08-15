@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import Protocol
 
 
 class EngineName(StrEnum):
@@ -25,6 +26,12 @@ class ConversionResult:
     engine: EngineName
     output_path: Path
     warnings: tuple[ConversionWarning, ...] = ()
+
+
+class ConversionProgress(Protocol):
+    def report_progress(self, progress: float | None, message: str = "") -> None: ...
+
+    def check_cancelled(self) -> None: ...
 
 
 def capabilities_for(engine: EngineName) -> EngineCapabilities:

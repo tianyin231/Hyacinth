@@ -8,7 +8,12 @@ from typing import Protocol, cast
 
 from win32com.client import DispatchEx  # type: ignore[import-untyped]
 
-from hyacinth.excel.contracts import ConversionResult, EngineName, capabilities_for
+from hyacinth.excel.contracts import (
+    ConversionProgress,
+    ConversionResult,
+    EngineName,
+    capabilities_for,
+)
 
 
 class ExcelApplication(Protocol):
@@ -45,7 +50,12 @@ class ComExcelEngine:
     name = EngineName.COM
     capabilities = capabilities_for(name)
 
-    def convert_xls_to_xlsx(self, source: Path, destination: Path) -> ConversionResult:
+    def convert_xls_to_xlsx(
+        self,
+        source: Path,
+        destination: Path,
+        progress: ConversionProgress | None = None,
+    ) -> ConversionResult:
         destination.parent.mkdir(parents=True, exist_ok=True)
         with TemporaryDirectory(prefix="hyacinth-com-") as temporary_directory:
             safe_source = Path(temporary_directory) / source.name
