@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T19:38:32.9094173+08:00"
+updated_at: "2026-08-15T20:00:09.1776623+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 删除空白行垂直切片"
-  next_milestone: "评估条件筛选的 Excel AutoFilter 保真方案"
+  current_phase: "阶段 1 条件筛选方案评估"
+  next_milestone: "条件筛选安全原生 AutoFilter 垂直切片（等待用户确认范围）"
 
 current_task:
-  id: "STAGE-1-DELETE-BLANK-ROWS-001"
-  status: "completed"
-  goal: "按已确认需求贯通删除空白行的整行/关键列规则、原始行号预览、精确应用、子版本和 HEAD 闭环"
+  id: "STAGE-1-CONDITION-FILTER-001"
+  status: "proposal-awaiting-user-confirmation"
+  goal: "在保留 Excel 筛选条件、隐藏不匹配行和可见预览的前提下，确定条件筛选第一垂直切片的原生可表达范围"
   owner: "codex-sol"
 
 last_completed:
@@ -163,15 +163,24 @@ last_completed:
   - "原生 1440x900 截图确认删除空白行配置页与 Fluent 四区壳层一致，无重叠或截断"
   - "删除空白行完整质量门通过：129 项测试、Ruff、Mypy strict、uv lock、uv build 和 git diff --check"
   - "删除空白行完整版本闭环已提交本地 main：c9927d2；本地 main 领先 origin/main 46 个提交，未推送"
+  - "核对条件筛选需求，确认默认应用筛选只隐藏不匹配行并保留条件，筛选并提取另建工作表，禁止物理删除"
+  - "本机 openpyxl 3.1.5 实验证实 AutoFilter 元数据和 row.hidden 可分别持久化，但 openpyxl 不执行筛选，当前 SQLite 预览也不识别隐藏行"
+  - "确认普通 Excel AutoFilter 跨列条件天然使用 AND；OR 只能在同一列的最多两个 CustomFilter 条件内原生表达，任意跨列 OR 无法同时满足保留原生筛选条件"
+  - "OpenCode DeepSeek 只读调研因持续扩展实验且未按时形成最终报告被中止；导出确认 provider/model 正确、零仓库文件改动，Codex/Sol 独立复核其实验事实"
 
 next_actions:
-  - "删除空白行之后评估条件筛选的 Excel AutoFilter 保真方案"
+  - "等待用户确认首个条件筛选切片采用原生可表达安全子集：应用筛选、最多两个条件、跨列仅 AND、同列允许 AND/OR"
+  - "确认后先实现后台条件计算、AutoFilter/row.hidden 原子预览和隐藏行感知的 SQLite/Qt 预览"
+  - "再接入条件参数面板、匹配统计、精确应用、子版本和 HEAD 端到端；筛选并提取作为后续独立切片"
   - "后续实现窗口状态持久化时，正常启动优先恢复用户上次位置、尺寸和最大化状态，1440x900 仅作为无保存状态时的默认值"
   - "后续将 COM 子进程扩展为结构化阶段事件，把安全关键范围从整段转换收窄到 SaveAs"
   - "每完成一个可独立验收的关键开发节点提交本地 Git"
   - "后续普通更改默认不推送远端，用户明确要求时再推送"
 
 blockers:
+  - id: "FILTER-NATIVE-OR-SEMANTICS-001"
+    status: "awaiting-user-scope-decision"
+    summary: "普通 Excel AutoFilter 无法表达跨不同列的任意 OR；推荐首切片跨列仅支持 AND、同列最多两个条件支持 AND/OR，筛选并提取后续可支持任意 OR"
   - id: "DEDUPLICATE-MIXED-TYPE-SEMANTICS-001"
     status: "resolved-by-exact-match-rule"
     summary: "按需求中的完全一致语义采用类型敏感比较：数字 1 与文本 '1' 不视为重复，数字 1 与 1.0 视为同一数值；定向测试已覆盖"
@@ -290,8 +299,12 @@ changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
 
 verification:
-  status: "delete-blank-rows-slice-complete"
+  status: "condition-filter-fidelity-researched-proposal-pending"
   commands:
+    - "只读核对需求讨论记录第 2、17、18、19.8 节和当前处理预览、应用版本、SQLite 预览索引与 Qt 表格"
+    - "uv run python -c 检查 openpyxl 3.1.5 AutoFilter/FilterColumn/CustomFilters 类型与源码"
+    - "OpenCode DeepSeek BytesIO/zipfile 实验 AutoFilter、row.hidden、已有筛选、表格、公式和 CustomFilter XML"
+    - "opencode export ses_ffab977f4ffeY2xCP3RnL8rQhT 核验 provider/model/finish/files changed"
     - "uv run pytest --override-ini addopts='' tests/processing/test_blank_rows_preview.py tests/processing/test_apply_version.py tests/versioning/test_widget.py tests/test_app.py -q"
     - "uv run python scripts/capture_ui_states.py"
     - "原图目视检查 output/playwright/delete-blank-rows-configured.png"
@@ -348,6 +361,11 @@ verification:
     - "OpenCode DeepSeek session ses_ffb779869ffetPKJvDGwsXSdcX 导出并核验 provider/model/finish/files changed"
     - "OpenCode DeepSeek session ses_ffb6eb165ffeExum72T3S31KLf 导出并核验 provider/model/finish 与实际写入范围"
   evidence:
+    - "AutoFilter.add_filter_column 只写筛选条件 XML，不会计算或隐藏行；row.hidden 可单独往返保存"
+    - "当前 preview/index_task.py 只索引单元格值，不存储隐藏行，Qt 预览不会自动呈现筛选结果"
+    - "同列两个 CustomFilter 可通过 and=0/1 表达 OR/AND；不同列 filterColumn 在 Excel 语义中组合为 AND"
+    - "工作表级 AutoFilter 与 Excel 表格自带 AutoFilter 会并存，首切片应阻止表格区域以避免双重筛选冲突"
+    - "Worker 会话 ses_ffab977f4ffeY2xCP3RnL8rQhT：provider opencode-go、model deepseek-v4-flash、finish null（中止）、FilesChanged 0"
     - "完整闭环关键节点本地提交：c9927d2；预览核心提交：c65941d；均未推送"
     - "删除空白行核心、应用、控件和主窗口定向回归：35 passed in 4.78s"
     - "主窗口端到端确认原始第 3 行被删除，应用 operation 为 delete-blank-rows，新 HEAD 指向子版本且临时目录清理"
@@ -420,6 +438,12 @@ verification:
     - "最终全量复验：101 passed in 25.36s；Ruff check/format、Mypy strict、uv lock、uv build 和 git diff --check 全部通过"
     - "用户未跟踪的 追加需求.txt 未读取、未修改、未纳入提交；本次不推送"
   worker_sessions:
+    STAGE-1-FILTER-FIDELITY-RESEARCH-001:
+      session_id: "ses_ffab977f4ffeY2xCP3RnL8rQhT"
+      provider: "opencode-go"
+      model: "deepseek-v4-flash"
+      finish: "aborted"
+      result: "只读调研完成主要 AutoFilter/row.hidden XML 实验但持续扩展且未形成最终报告，Codex/Sol 中止；零仓库文件改动，已独立复核原生表达边界和预览索引缺口"
     STAGE-1-DELETE-DUPLICATES-RESEARCH-001:
       session_id: "ses_ffaeb480cffenoGpIW35jjjDzt"
       provider: "opencode-go"
@@ -504,4 +528,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "删除空白行两阶段版本闭环已完成并提交本地 main：c65941d（预览核心）、c9927d2（完整闭环）；129 项测试和全部质量门通过，用户未跟踪的追加需求.txt 保持原样，未推送"
+  last_result: "条件筛选保真评估完成：推荐先做原生可表达的应用筛选安全子集，最多两个条件、跨列仅 AND、同列允许 AND/OR；筛选并提取和任意跨列 OR 后续独立处理，当前等待用户确认"
