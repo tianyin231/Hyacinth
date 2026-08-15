@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T10:53:05.4251239+08:00"
+updated_at: "2026-08-15T11:01:28.3883486+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -7,7 +7,7 @@ project:
   root: "E:\\codex_work\\ExcelSorf"
   status: "active-development"
   repository: "https://github.com/tianyin231/Hyacinth"
-  implementation: "stage-1-engine-prototype"
+  implementation: "stage-1-grid-performance-prototype"
 
 sources:
   canonical_requirements: "E:\\codex_work\\ExcelSorf\\需求讨论记录.md"
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "阶段 1 大表格模型与交互性能风险原型已启动"
-  next_milestone: "阶段 1 大表格模型与交互性能风险原型"
+  current_phase: "阶段 1 大表格模型与交互性能风险原型已完成"
+  next_milestone: "阶段 1 后台任务队列与取消风险原型"
 
 current_task:
   id: "STAGE-1-GRID-PERFORMANCE-001"
-  status: "in_progress"
-  goal: "验证 QAbstractTableModel 在大规模逻辑数据下的按需访问、内存和滚动性能"
+  status: "completed"
+  goal: "已验证 QAbstractTableModel 在大规模逻辑数据下的按需访问、内存和滚动性能"
   owner: "codex-sol"
 
 last_completed:
@@ -56,13 +56,18 @@ last_completed:
   - "确认 COM 保留公式与基础格式；Python 降级保留基础数据但不保留 xls 公式表达式和复杂样式"
   - "阶段 1 双引擎原型已快进合并到本地 main，临时 worktree 与分支已清理"
   - "确认 Excel COM 会改写打开的源 xls 内部内容，已使用临时副本隔离并增加回归测试"
+  - "完成 GridDataSource 协议、稀疏编辑覆盖层和可编辑 WorkbookTableModel"
+  - "完成 1048576x256 逻辑网格的首屏、末端跳转、访问次数和 Python 内存性能验证"
 
 next_actions:
-  - "在隔离 worktree 中按 TDD 实施双层合成数据性能原型"
+  - "确认阶段 1 后台单任务队列、进度与取消风险原型方案"
   - "每完成一个可独立验收的关键开发节点提交本地 Git"
   - "后续普通更改默认不推送远端，用户明确要求时再推送"
 
 blockers:
+  - id: "ENV-PERF-BASELINE-001"
+    status: "future"
+    summary: "大表格暂定阈值已在 16GB/20 逻辑处理器环境通过，仍需在 4 核/8GB/1080p 基线环境复测"
   - id: "ENGINE-PYTHON-FIDELITY-001"
     status: "confirmed-risk"
     summary: "Python 降级转换 xls 时公式只能保留缓存值，复杂样式可能丢失，必须持续显示兼容模式限制"
@@ -140,17 +145,29 @@ recent_decisions:
 
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
-  - "src/hyacinth/excel/com_engine.py"
-  - "tests/excel/test_com_conversion.py"
+  - "pyproject.toml"
+  - "src/hyacinth/grid/__init__.py"
+  - "src/hyacinth/grid/data_source.py"
+  - "src/hyacinth/grid/model.py"
+  - "tests/grid/test_data_source.py"
+  - "tests/grid/test_model.py"
+  - "tests/grid/test_performance.py"
 
 verification:
   status: "passed"
   commands:
-    - "读取需求讨论记录第 3、16、18 节的大表格与交互性能要求"
-    - "核验 Python、PySide6、Windows 内存与处理器环境"
+    - "uv lock --check"
+    - "uv sync --locked --python 3.12"
+    - "$env:QT_QPA_PLATFORM='offscreen'; uv run pytest"
+    - "$env:QT_QPA_PLATFORM='offscreen'; uv run pytest tests/grid/test_performance.py -q -s"
+    - "uv run ruff check ."
+    - "uv run ruff format --check ."
+    - "uv run mypy"
+    - "uv build"
   evidence:
-    - "需求要求 QTableView/QAbstractTableModel 只渲染可见区域，不为每个单元格创建控件"
-    - "交互反馈目标 100ms，具体大表格上限必须通过原型校准"
-    - "当前验证环境：Python 3.12.13、PySide6 6.11.1、16 GB 内存、20 逻辑处理器"
+    - "pytest：21 passed；Ruff check/format、Mypy strict 和 uv build 全部通过"
+    - "1048576x256 模型创建 0.094ms，Python 峰值 1512B，创建时底层读取 0"
+    - "1920x1080 首屏 40.8ms、末端跳转 30.1ms，两次底层读取均为 665 个单元格"
+    - "稀疏覆盖层只保存编辑坐标，命中编辑时不访问基础数据源"
   worker_sessions: {}
-  last_result: "大表格性能原型方案 A 已确认并开始执行"
+  last_result: "阶段 1 大表格模型与交互性能原型全部验证通过，等待关键节点提交"

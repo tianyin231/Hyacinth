@@ -31,7 +31,10 @@ packages = ["src/hyacinth"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
-markers = ["integration: requires locally installed external applications"]
+markers = [
+    "integration: requires locally installed external applications",
+    "performance: validates provisional performance thresholds",
+]
 testpaths = ["tests"]
 
 [tool.ruff]
