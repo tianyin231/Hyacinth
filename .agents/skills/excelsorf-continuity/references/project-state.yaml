@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-15T10:15:55.7441300+08:00"
+updated_at: "2026-08-15T10:20:55.5574215+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -50,6 +50,7 @@ last_completed:
   - "使用 opencode-go/deepseek-v4-flash Worker 独立梳理项目目标，Codex/Sol 已交叉验证"
   - "初始化 main 分支并将当前 68 个文件首次推送到 tianyin231/Hyacinth"
   - "完成 uv/Python 3.12、PySide6 最小应用、测试、静态检查和构建工程基线"
+  - "阶段 0 工程基线已快进合并到本地 main"
 
 next_actions:
   - "确认阶段 1 首个风险原型方案：Excel COM/Python 双引擎探测与 xls/xlsx 格式保真验证"
@@ -65,6 +66,13 @@ blockers:
     summary: "需求讨论记录第 43 节中的项目仍需在后续与客户复核"
 
 recent_decisions:
+  - id: "DEC-20260815-007"
+    date: "2026-08-15"
+    status: "approved"
+    summary: "保留用户将 ui-ux-pro-max 从 .agent/skills 迁移到 .agents/skills 的改动并提交到 main"
+    source: "用户当前会话明确确认"
+    supersedes: "none"
+    impact: "本地 Skill 目录布局与 main 工作树"
   - id: "DEC-20260815-006"
     date: "2026-08-15"
     status: "approved"
@@ -109,6 +117,8 @@ recent_decisions:
     impact: "开发顺序和里程碑"
 
 changed_files:
+  - ".agent/skills/ui-ux-pro-max/（删除）"
+  - ".agents/skills/ui-ux-pro-max/（新增）"
   - ".gitignore"
   - ".python-version"
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
@@ -134,5 +144,7 @@ verification:
     - "pytest：2 passed"
     - "Ruff check/format：全部通过；Mypy strict：4 个源文件无问题"
     - "uv build：成功生成 hyacinth-0.1.0 源码包和 wheel"
+    - "阶段 0 合并到 main 后复验：pytest、Ruff、Mypy、build 和状态校验全部通过"
+    - "ui-ux-pro-max 迁移目录共 33 个文件；敏感扫描未发现真实凭据"
   worker_sessions: {}
-  last_result: "阶段 0 工程基线全部质量门通过，等待关键节点提交"
+  last_result: "阶段 0 已合并到本地 main 并复验通过，用户目录迁移可提交"
