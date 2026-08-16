@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-16T12:34:05+08:00"
+updated_at: "2026-08-16T12:51:26+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -256,6 +256,7 @@ last_completed:
   - "完成文件级回收站两个切片：files 表 deleted_at 软删除/恢复，文件列表右键菜单与 Delete 键删除，工具栏回收站按钮启用并支持按导入时间恢复原位"
   - "永久删除采用后台 purge-file 任务：目录先改名暂存、再删数据库记录、失败回滚改名，最后清理磁盘，只有回收站中的文件可清除"
   - "导入与应用任务返回的记录补齐 imported_at，catalog 只读发现跳过已软删除文件目录和 .purge-* 暂存目录，避免删除后重启复活"
+  - "用户反馈右键删除版本节点后未在回收站出现；按需求第 12 节补齐：回收站同时列出已删除文件与版本节点条目，版本条目可一键恢复并刷新当前版本树，永久删除仍仅限文件条目"
 
 next_actions:
   - "用户实机运行 uv run hyacinth，复验文件删除、回收站恢复与永久删除流程"
@@ -446,7 +447,7 @@ changed_files:
 verification:
   status: "passed-awaiting-real-machine-validation"
   commands:
-    - "uv run pytest：214 passed in 34.60s（本轮新增 6 项回收站存储/任务单测与 3 项界面测试）"
+    - "uv run pytest：215 passed in 30.75s（回收站版本条目恢复新增 1 项界面测试）"
     - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check：全部通过"
     - "uv run python scripts/capture_ui_states.py --output output/playwright：8 张截图全部生成"
     - "本轮需求记录变更仅文档更新，无代码影响；完成度评估基于对 app.py、ui/shell.py、versioning/store.py、library/widget.py、preview/edit_session.py、tasks/status_widget.py 的逐文件阅读与 git log 核对"
@@ -582,7 +583,8 @@ verification:
     - "OpenCode DeepSeek session ses_ffb779869ffetPKJvDGwsXSdcX 导出并核验 provider/model/finish/files changed"
     - "OpenCode DeepSeek session ses_ffb6eb165ffeExum72T3S31KLf 导出并核验 provider/model/finish 与实际写入范围"
   evidence:
-    - "recycle-bin.png：回收站对话框显示“销售报表.xlsx · 2 个版本 · 删除于 2026-08-16 12:32”，恢复/永久删除按钮启用且随选中变化，无重叠或截断"
+    - "recycle-bin.png：回收站同时显示“文件 · 销售报表.xlsx · 2 个版本”与“版本 · 销售报表.xlsx / 多列排序”条目，恢复按钮随选中启用、永久删除仅文件条目启用，无重叠或截断"
+    - "版本条目恢复测试：软删除子版本进入回收站，恢复后版本树节点 deleted 属性为 False 且列表清空"
     - "存储层测试覆盖软删除进入回收站、恢复回到原位、陈旧 HEAD/重复删除拒绝、purge 物理删除目录与记录、未软删除拒绝清除和真实常驻 Worker"
     - "界面测试覆盖右键信号删除后清空当前预览与状态栏、重启不再显示已删文件、回收站恢复回到文件列表、永久删除经确认后由后台任务清除磁盘目录"
     - "fluent-shell-populated.png：状态栏右侧显示 XLSX 徽标与“版本总占用 4.9 KB · 当前预览 4.9 KB”，与左侧任务状态无重叠或截断"

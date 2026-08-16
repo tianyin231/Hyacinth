@@ -1679,3 +1679,64 @@ def test_recycle_bin_purges_file_after_confirmation(qtbot: QtBot, tmp_path: Path
     qtbot.waitUntil(lambda: bin_list.count() == 0, timeout=2000)
     assert not (library_root / "files" / record.file_id).exists()
     assert store.list_deleted_files() == ()
+
+
+def test_recycle_bin_lists_and_restores_deleted_version_node(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    root = record.head_version
+    assert root is not None
+    child_snapshot = library_root / "files/file-1/versions/version-2/snapshot.xlsx"
+    child_snapshot.parent.mkdir(parents=True)
+    child_snapshot.write_bytes(record.working_path.read_bytes() + b"child-extra")
+    child = VersionRecord(
+        "version-2",
+        record.file_id,
+        root.version_id,
+        "多列排序",
+        datetime(2026, 8, 16, 9, 0, tzinfo=UTC),
+        "sort",
+        None,
+        child_snapshot,
+        sha256(child_snapshot.read_bytes()).hexdigest(),
+    )
+    store = MetadataStore(library_root)
+    store.record_child_version(child, root.version_id)
+    store.soft_delete_version(record.file_id, child.version_id, child.version_id)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+    from hyacinth.ui import RecycleBinDialog
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    recycle_button = _child(window, QPushButton, "toolbar-recycle-button")
+
+    qtbot.mouseClick(recycle_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    dialog = window.findChild(RecycleBinDialog, "recycle-bin-dialog")
+    assert dialog is not None
+    bin_list = _child(dialog, QListWidget, "recycle-file-list")
+    assert bin_list.count() == 1
+    entry_text = bin_list.item(0).text()
+    assert entry_text.startswith("版本")
+    assert record.display_name in entry_text
+    assert "多列排序" in entry_text
+    bin_list.setCurrentRow(0)
+
+    qtbot.mouseClick(
+        _child(dialog, QPushButton, "recycle-restore-button"), Qt.MouseButton.LeftButton
+    )  # type: ignore[no-untyped-call]
+
+    assert store.get_version(record.file_id, child.version_id).deleted_at is None
+    assert bin_list.count() == 0
+    view = _child(window, QGraphicsView, "version-tree-view")
+    cards = {
+        str(proxy.widget().property("version-id")): proxy.widget()
+        for proxy in view.scene().items()
+        if isinstance(proxy, QGraphicsProxyWidget) and proxy.widget() is not None
+    }
+    assert cards[child.version_id].property("deleted") is False

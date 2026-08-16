@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -48,7 +50,7 @@ from PySide6.QtWidgets import (
 )
 
 from hyacinth.ui.icons import fluent_icon
-from hyacinth.versioning import ImportedWorkbook, VersionLayout, VersionRecord
+from hyacinth.versioning import VersionLayout, VersionRecord
 
 APP_STYLESHEET = """
 QMainWindow#main-window, QWidget#workspace-root {
@@ -1947,33 +1949,66 @@ class VersionStorageStatus(QFrame):
         )
 
 
+@dataclass(frozen=True, slots=True)
+class RecycleEntry:
+    kind: str
+    file_id: str
+    file_display_name: str
+    version_id: str | None = None
+    version_name: str | None = None
+    version_count: int = 0
+    deleted_at: datetime | None = None
+
+    @property
+    def deleted_at_text(self) -> str:
+        return (
+            self.deleted_at.astimezone().strftime("%Y-%m-%d %H:%M")
+            if self.deleted_at is not None
+            else ""
+        )
+
+    @property
+    def display_text(self) -> str:
+        if self.kind == "file":
+            return (
+                f"文件 · {self.file_display_name} · {self.version_count} 个版本"
+                f" · 删除于 {self.deleted_at_text}"
+            )
+        return (
+            f"版本 · {self.file_display_name} / {self.version_name} · 删除于 {self.deleted_at_text}"
+        )
+
+
 class RecycleBinDialog(QDialog):
-    restore_requested = Signal(str)
-    purge_requested = Signal(str)
+    restore_file_requested = Signal(str)
+    restore_version_requested = Signal(str, str)
+    purge_file_requested = Signal(str)
 
     def __init__(
         self,
-        records: tuple[tuple[ImportedWorkbook, int], ...] = (),
+        entries: tuple[RecycleEntry, ...] = (),
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("recycle-bin-dialog")
         self.setWindowTitle("回收站")
-        self.resize(520, 380)
+        self.resize(560, 400)
         self.setModal(False)
 
-        self._file_list = QListWidget(self)
-        self._file_list.setObjectName("recycle-file-list")
-        self._file_list.setAccessibleName("回收站文件列表")
-        self._file_list.currentItemChanged.connect(self._update_actions)
+        self._entry_list = QListWidget(self)
+        self._entry_list.setObjectName("recycle-file-list")
+        self._entry_list.setAccessibleName("回收站条目列表")
+        self._entry_list.currentItemChanged.connect(self._update_actions)
 
-        self._restore = _tool_button("恢复到文件列表", "recycle-restore-button", self)
-        self._restore.setAccessibleName("恢复选中的已删除文件")
+        self._restore = _tool_button("恢复选中项", "recycle-restore-button", self)
+        self._restore.setAccessibleName("恢复选中的已删除文件或版本")
         self._restore.clicked.connect(self._emit_restore)
         self._purge = _tool_button("永久删除", "recycle-purge-button", self)
         self._purge.setAccessibleName("永久删除选中的文件")
         self._purge.clicked.connect(self._emit_purge)
-        self._hint = QLabel("恢复的文件会回到删除前的位置；永久删除无法撤销", self)
+        self._hint = QLabel(
+            "文件恢复后回到删除前的位置；版本恢复后回到原版本树；永久删除无法撤销", self
+        )
         self._hint.setProperty("class", "form-label")
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, self)
@@ -1983,7 +2018,7 @@ class RecycleBinDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 14, 14, 12)
         layout.setSpacing(9)
-        layout.addWidget(self._file_list, 1)
+        layout.addWidget(self._entry_list, 1)
         layout.addWidget(self._hint)
         actions_row = QHBoxLayout()
         actions_row.addWidget(self._restore)
@@ -1991,48 +2026,46 @@ class RecycleBinDialog(QDialog):
         actions_row.addStretch()
         actions_row.addWidget(buttons)
         layout.addLayout(actions_row)
-        self.refresh(records)
+        self.refresh(entries)
 
-    def refresh(self, records: tuple[tuple[ImportedWorkbook, int], ...]) -> None:
-        self._file_list.clear()
-        for record, version_count in records:
-            deleted_at = (
-                record.deleted_at.astimezone().strftime("%Y-%m-%d %H:%M")
-                if record.deleted_at is not None
-                else ""
-            )
-            item = QListWidgetItem(
-                f"{record.display_name} · {version_count} 个版本 · 删除于 {deleted_at}"
-            )
-            item.setData(Qt.ItemDataRole.UserRole, record.file_id)
+    def refresh(self, entries: tuple[RecycleEntry, ...]) -> None:
+        self._entry_list.clear()
+        for entry in entries:
+            item = QListWidgetItem(entry.display_text)
+            item.setData(Qt.ItemDataRole.UserRole, entry)
             item.setSizeHint(QSize(0, 34))
-            self._file_list.addItem(item)
+            self._entry_list.addItem(item)
         self._update_actions()
 
-    def selected_file_id(self) -> str | None:
-        item = self._file_list.currentItem()
-        return None if item is None else str(item.data(Qt.ItemDataRole.UserRole))
+    def selected_entry(self) -> RecycleEntry | None:
+        item = self._entry_list.currentItem()
+        data = None if item is None else item.data(Qt.ItemDataRole.UserRole)
+        return data if isinstance(data, RecycleEntry) else None
 
     def mark_busy(self, busy: bool) -> None:
         self._restore.setEnabled(not busy)
         self._purge.setEnabled(not busy)
-        self._file_list.setEnabled(not busy)
+        self._entry_list.setEnabled(not busy)
 
     def _emit_restore(self) -> None:
-        file_id = self.selected_file_id()
-        if file_id is not None:
-            self.restore_requested.emit(file_id)
+        entry = self.selected_entry()
+        if entry is None:
+            return
+        if entry.kind == "file":
+            self.restore_file_requested.emit(entry.file_id)
+        elif entry.version_id is not None:
+            self.restore_version_requested.emit(entry.file_id, entry.version_id)
 
     def _emit_purge(self) -> None:
-        file_id = self.selected_file_id()
-        if file_id is not None:
-            self.purge_requested.emit(file_id)
+        entry = self.selected_entry()
+        if entry is not None and entry.kind == "file":
+            self.purge_file_requested.emit(entry.file_id)
 
     def _update_actions(
         self,
         _current: QListWidgetItem | None = None,
         _previous: QListWidgetItem | None = None,
     ) -> None:
-        has_selection = self._file_list.currentItem() is not None
-        self._restore.setEnabled(has_selection)
-        self._purge.setEnabled(has_selection)
+        entry = self.selected_entry()
+        self._restore.setEnabled(entry is not None)
+        self._purge.setEnabled(entry is not None and entry.kind == "file")

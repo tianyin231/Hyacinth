@@ -1,5 +1,6 @@
 import shutil
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
@@ -69,6 +70,7 @@ from hyacinth.ui import (
     CommandBar,
     FunctionPanel,
     RecycleBinDialog,
+    RecycleEntry,
     VersionStorageStatus,
     VersionTreePanel,
     WorkbookEditorFrame,
@@ -1192,23 +1194,49 @@ class HyacinthMainWindow(QMainWindow):
     def _open_recycle_bin(self) -> None:
         if self._recycle_dialog is None:
             self._recycle_dialog = RecycleBinDialog(parent=self)
-            self._recycle_dialog.restore_requested.connect(self._restore_file_from_bin)
-            self._recycle_dialog.purge_requested.connect(self._request_purge_file)
+            self._recycle_dialog.restore_file_requested.connect(self._restore_file_from_bin)
+            self._recycle_dialog.restore_version_requested.connect(self._restore_version_from_bin)
+            self._recycle_dialog.purge_file_requested.connect(self._request_purge_file)
         self._refresh_recycle_bin()
         self._recycle_dialog.show()
         self._recycle_dialog.raise_()
         self._recycle_dialog.activateWindow()
 
-    def _recycle_records(self) -> tuple[tuple[ImportedWorkbook, int], ...]:
+    def _recycle_entries(self) -> tuple[RecycleEntry, ...]:
         store = MetadataStore(self._library_root)
-        return tuple(
-            (record, len(store.list_versions(record.file_id)))
-            for record in store.list_deleted_files()
+        entries: list[RecycleEntry] = []
+        for record in store.list_deleted_files():
+            entries.append(
+                RecycleEntry(
+                    kind="file",
+                    file_id=record.file_id,
+                    file_display_name=record.display_name,
+                    version_count=len(store.list_versions(record.file_id)),
+                    deleted_at=record.deleted_at,
+                )
+            )
+        for record in store.list_workbooks():
+            for version in store.list_versions(record.file_id):
+                if version.deleted_at is None:
+                    continue
+                entries.append(
+                    RecycleEntry(
+                        kind="version",
+                        file_id=record.file_id,
+                        file_display_name=record.display_name,
+                        version_id=version.version_id,
+                        version_name=version.name,
+                        deleted_at=version.deleted_at,
+                    )
+                )
+        entries.sort(
+            key=lambda entry: entry.deleted_at or datetime.now().astimezone(), reverse=True
         )
+        return tuple(entries)
 
     def _refresh_recycle_bin(self) -> None:
         if self._recycle_dialog is not None:
-            self._recycle_dialog.refresh(self._recycle_records())
+            self._recycle_dialog.refresh(self._recycle_entries())
 
     def _restore_file_from_bin(self, file_id: str) -> None:
         try:
@@ -1218,6 +1246,21 @@ class HyacinthMainWindow(QMainWindow):
             self._refresh_recycle_bin()
             return
         self._file_library.restore_workbook(record)
+        self._refresh_recycle_bin()
+
+    def _restore_version_from_bin(self, file_id: str, version_id: str) -> None:
+        try:
+            MetadataStore(self._library_root).restore_version(file_id, version_id)
+        except ValueError as error:
+            self._error_presenter(self, str(error))
+            self._refresh_recycle_bin()
+            return
+        current = self._current_workbook
+        if current is not None and current.file_id == file_id:
+            refreshed = MetadataStore(self._library_root).get_workbook(file_id)
+            self._current_workbook = refreshed
+            self._file_library.replace_workbook(refreshed)
+            self._show_versions(refreshed)
         self._refresh_recycle_bin()
 
     def _request_purge_file(self, file_id: str) -> None:
