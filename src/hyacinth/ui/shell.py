@@ -478,6 +478,8 @@ class FunctionPanel(QFrame):
     deduplicate_preview_requested = Signal(str, object)
     delete_blank_rows_preview_requested = Signal(str, object)
     filter_preview_requested = Signal(str, object)
+    trim_preview_requested = Signal(str, object)
+    find_replace_requested = Signal(str, object)
     cancel_requested = Signal()
     apply_requested = Signal()
 
@@ -519,6 +521,8 @@ class FunctionPanel(QFrame):
         self._operation.addItem("删除重复行", "deduplicate")
         self._operation.addItem("删除空白行", "delete_blank_rows")
         self._operation.addItem("条件筛选", "filter")
+        self._operation.addItem("清除首尾空格", "trim")
+        self._operation.addItem("查找替换", "find_replace")
         self._operation.currentIndexChanged.connect(self._switch_operation)
         self._sheet = self._field(body_layout, "处理工作表", "sort-sheet")
         self._sheet.currentTextChanged.connect(self._refresh_columns)
@@ -706,12 +710,92 @@ class FunctionPanel(QFrame):
         self._refresh_filter_operators(first=True)
         self._refresh_filter_operators(first=False)
 
+        trim_page = QWidget(body)
+        trim_layout = QVBoxLayout(trim_page)
+        trim_layout.setContentsMargins(0, 0, 0, 0)
+        trim_layout.setSpacing(5)
+        trim_label = QLabel("清理的关键列", trim_page)
+        trim_label.setProperty("class", "form-label")
+        self._trim_columns = QListWidget(trim_page)
+        self._trim_columns.setObjectName("trim-key-columns")
+        self._trim_columns.setAccessibleName("清理空格的关键列")
+        self._trim_columns.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        self._trim_columns.setMaximumHeight(92)
+        self._trim_collapse = QCheckBox("同时压缩中间连续空格", trim_page)
+        self._trim_collapse.setObjectName("trim-collapse-spaces")
+        trim_note = QLabel(
+            "只处理文本单元格 · 删除首尾空格/制表/换行/全角空格 · 未选列时清理全部列",
+            trim_page,
+        )
+        trim_note.setObjectName("trim-note")
+        trim_note.setWordWrap(True)
+        self._trim_details = QPushButton("查看将清理的单元格", trim_page)
+        self._trim_details.setObjectName("trim-details-button")
+        self._trim_details.setProperty("class", "tool-button")
+        self._trim_details.setEnabled(False)
+        self._trim_details.clicked.connect(self._show_trim_details)
+        trim_layout.addWidget(trim_label)
+        trim_layout.addWidget(self._trim_columns)
+        trim_layout.addWidget(self._trim_collapse)
+        trim_layout.addWidget(trim_note)
+        trim_layout.addWidget(self._trim_details)
+        trim_layout.addStretch()
+
+        find_page = QWidget(body)
+        find_layout = QVBoxLayout(find_page)
+        find_layout.setContentsMargins(0, 0, 0, 0)
+        find_layout.setSpacing(5)
+        self._find_text = self._find_field(find_layout, "查找内容", "find-text")
+        self._replace_text = self._find_field(find_layout, "替换为", "replace-text")
+        self._find_scope = self._field(find_layout, "范围", "find-scope")
+        self._find_scope.addItem("当前工作表", "sheet")
+        self._find_scope.addItem("全部工作表", "all")
+        self._find_mode = self._field(find_layout, "模式", "find-mode")
+        self._find_mode.addItem("值与文本", "values")
+        self._find_mode.addItem("公式（修改公式文本）", "formulas")
+        self._find_match_case = QCheckBox("区分大小写", find_page)
+        self._find_match_case.setObjectName("find-match-case")
+        self._find_whole_cell = QCheckBox("完全匹配整个单元格", find_page)
+        self._find_whole_cell.setObjectName("find-whole-cell")
+        self._find_trim = QCheckBox("匹配时忽略首尾空格", find_page)
+        self._find_trim.setObjectName("find-trim")
+        self._find_result = QLabel("", find_page)
+        self._find_result.setObjectName("find-result")
+        self._find_result.setWordWrap(True)
+        self._find_details = QPushButton("查看匹配明细", find_page)
+        self._find_details.setObjectName("find-details-button")
+        self._find_details.setProperty("class", "tool-button")
+        self._find_details.setEnabled(False)
+        self._find_details.clicked.connect(self._show_find_details)
+        find_actions = QHBoxLayout()
+        self._find_only_button = _tool_button("只查找", "find-only-button", find_page)
+        self._find_only_button.clicked.connect(self._emit_find_only)
+        self._replace_all_button = _tool_button("全部替换并预览", "replace-all-button", find_page)
+        self._replace_all_button.setProperty("class", "tool-button")
+        self._replace_all_button.clicked.connect(self._emit_replace_all)
+        find_actions.addWidget(self._find_only_button)
+        find_actions.addWidget(self._replace_all_button)
+        find_note = QLabel("公式模式会修改公式表达式，请确认风险", find_page)
+        find_note.setObjectName("find-note")
+        find_note.setWordWrap(True)
+        find_layout.addWidget(self._find_match_case)
+        find_layout.addWidget(self._find_whole_cell)
+        find_layout.addWidget(self._find_trim)
+        find_layout.addLayout(find_actions)
+        find_layout.addWidget(self._find_result)
+        find_layout.addWidget(self._find_details)
+        find_layout.addWidget(find_note)
+        find_layout.addStretch()
+        self._find_mode.currentIndexChanged.connect(self._update_find_mode_warning)
+
         self._parameter_stack = QStackedWidget(body)
         self._parameter_stack.setObjectName("processing-parameter-stack")
         self._parameter_stack.addWidget(sort_page)
         self._parameter_stack.addWidget(deduplicate_page)
         self._parameter_stack.addWidget(blank_rows_page)
         self._parameter_stack.addWidget(filter_page)
+        self._parameter_stack.addWidget(trim_page)
+        self._parameter_stack.addWidget(find_page)
         body_layout.addWidget(self._parameter_stack, 1)
 
         self._state = QLabel("选择文件后可配置处理功能", body)
@@ -721,6 +805,8 @@ class FunctionPanel(QFrame):
         body_layout.addWidget(self._state)
         self._duplicate_mapping: tuple[tuple[int, tuple[int, ...]], ...] = ()
         self._deleted_blank_row_numbers: tuple[int, ...] = ()
+        self._trimmed_cells: tuple[tuple[str, str, str, str], ...] = ()
+        self._find_changes: tuple[tuple[str, int, int, str, str], ...] = ()
 
         self._footer = QFrame(self)
         self._footer.setObjectName("function-footer")
@@ -787,6 +873,15 @@ class FunctionPanel(QFrame):
             self._filter_second_operator,
             self._filter_second_value,
             self._filter_second_second_value,
+            self._trim_columns,
+            self._trim_collapse,
+            self._find_text,
+            self._replace_text,
+            self._find_scope,
+            self._find_mode,
+            self._find_match_case,
+            self._find_whole_cell,
+            self._find_trim,
         )
         self.clear_workbook()
 
@@ -814,6 +909,7 @@ class FunctionPanel(QFrame):
         self._secondary.clear()
         self._deduplicate_columns.clear()
         self._blank_rows_columns.clear()
+        self._trim_columns.clear()
         self._filter_first_column.clear()
         self._filter_second_column.clear()
         self._duplicate_mapping = ()
@@ -962,6 +1058,8 @@ class FunctionPanel(QFrame):
             self._deduplicate_columns.item(index).setData(Qt.ItemDataRole.UserRole, index)
             self._blank_rows_columns.addItem(label)
             self._blank_rows_columns.item(index).setData(Qt.ItemDataRole.UserRole, index)
+            self._trim_columns.addItem(label)
+            self._trim_columns.item(index).setData(Qt.ItemDataRole.UserRole, index)
             self._filter_first_column.addItem(label, index)
             self._filter_second_column.addItem(label, index)
         self._set_config_enabled(bool(self._headers_by_sheet))
@@ -977,6 +1075,16 @@ class FunctionPanel(QFrame):
         self._deduplicate_trim.setChecked(False)
         self._blank_rows_columns.clearSelection()
         self._blank_rows_allow_unsafe.setChecked(False)
+        self._trim_columns.clearSelection()
+        self._trim_collapse.setChecked(False)
+        self._find_text.clear()
+        self._replace_text.clear()
+        self._find_scope.setCurrentIndex(0)
+        self._find_mode.setCurrentIndex(0)
+        self._find_match_case.setChecked(False)
+        self._find_whole_cell.setChecked(False)
+        self._find_trim.setChecked(False)
+        self._find_result.setText("")
         self._filter_first_type.setCurrentIndex(0)
         self._filter_first_value.clear()
         self._filter_first_second_value.clear()
@@ -1011,6 +1119,12 @@ class FunctionPanel(QFrame):
             return
         if operation == "filter":
             self._emit_filter_preview()
+            return
+        if operation == "trim":
+            self._emit_trim_preview()
+            return
+        if operation == "find_replace":
+            self._emit_replace_all()
             return
         primary = self._primary.currentData()
         if not isinstance(primary, int):
@@ -1100,6 +1214,8 @@ class FunctionPanel(QFrame):
             "deduplicate": 1,
             "delete_blank_rows": 2,
             "filter": 3,
+            "trim": 4,
+            "find_replace": 5,
         }.get(operation, 0)
         self._parameter_stack.setCurrentIndex(page_index)
         if self._headers_by_sheet:
@@ -1109,6 +1225,8 @@ class FunctionPanel(QFrame):
             "deduplicate": "预览删除重复行结果",
             "delete_blank_rows": "预览删除空白行结果",
             "filter": "预览条件筛选结果",
+            "trim": "预览清除空格结果",
+            "find_replace": "全部替换并预览",
         }
         self._preview.setAccessibleName(accessible_names.get(operation, "预览处理结果"))
 
@@ -1119,6 +1237,10 @@ class FunctionPanel(QFrame):
             return "选择关键列后预览；未选择时删除整行均为空的行"
         if self._operation.currentData() == "filter":
             return "配置条件后预览匹配数量和实际可见行"
+        if self._operation.currentData() == "trim":
+            return "选择关键列后预览；未选择时清理全部文本列"
+        if self._operation.currentData() == "find_replace":
+            return "输入查找内容后可只查找，或全部替换并预览"
         return "配置排序条件后预览完整数据行"
 
     def _refresh_filter_operators(self, *, first: bool) -> None:
@@ -1184,6 +1306,165 @@ class FunctionPanel(QFrame):
         layout.addWidget(table)
         layout.addWidget(buttons)
         dialog.exec()
+
+    def _find_field(self, layout: QVBoxLayout, label: str, name: str) -> QLineEdit:
+        label_widget = QLabel(label, self)
+        label_widget.setProperty("class", "form-label")
+        field = QLineEdit(self)
+        field.setObjectName(name)
+        field.setProperty("class", "field-control")
+        field.setAccessibleName(label)
+        layout.addWidget(label_widget)
+        layout.addWidget(field)
+        return field
+
+    def _emit_trim_preview(self) -> None:
+        key_columns = [
+            item.data(Qt.ItemDataRole.UserRole) for item in self._trim_columns.selectedItems()
+        ]
+        self.trim_preview_requested.emit(
+            self._sheet.currentText(),
+            {
+                "key_columns": key_columns,
+                "collapse_spaces": self._trim_collapse.isChecked(),
+            },
+        )
+
+    def _emit_find_only(self) -> None:
+        payload = self._find_payload(replace_all=False)
+        if payload is not None:
+            self.find_replace_requested.emit(self._sheet.currentText(), payload)
+
+    def _emit_replace_all(self) -> None:
+        payload = self._find_payload(replace_all=True)
+        if payload is not None:
+            self.find_replace_requested.emit(self._sheet.currentText(), payload)
+
+    def _find_payload(self, *, replace_all: bool) -> dict[str, object] | None:
+        find_text = self._find_text.text()
+        if not find_text:
+            self.set_error("请输入查找内容")
+            return None
+        return {
+            "all_sheets": self._find_scope.currentData() == "all",
+            "mode": self._find_mode.currentData(),
+            "find_text": find_text,
+            "replace_text": self._replace_text.text(),
+            "match_case": self._find_match_case.isChecked(),
+            "whole_cell": self._find_whole_cell.isChecked(),
+            "trim_whitespace": self._find_trim.isChecked(),
+            "replace_all": replace_all,
+        }
+
+    def _update_find_mode_warning(self, _index: int = -1) -> None:
+        risky = self._find_mode.currentData() == "formulas"
+        self._find_result.setText("公式模式将修改公式表达式，请谨慎操作" if risky else "")
+
+    def set_trim_preview_ready(
+        self,
+        trimmed_cells: tuple[tuple[str, str, str, str], ...],
+        message: str | None = None,
+    ) -> None:
+        self._trimmed_cells = trimmed_cells
+        summary = f"将清理 {len(trimmed_cells)} 个单元格"
+        self.set_preview_ready(
+            f"{message} · {summary}" if message else f"临时结果已就绪 · {summary}"
+        )
+        self._trim_details.setEnabled(bool(trimmed_cells))
+
+    def set_find_result(
+        self,
+        message: str,
+        changes: tuple[tuple[str, int, int, str, str], ...],
+    ) -> None:
+        self._find_changes = changes
+        self._find_result.setText(message)
+        self._find_details.setEnabled(bool(changes))
+        if changes:
+            self._state.setText(message)
+            self._set_state_error(False)
+
+    def _show_trim_details(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("将清理的单元格")
+        dialog.resize(560, 420)
+        table = QTableView(dialog)
+        table.setObjectName("trim-details-table")
+        table.setModel(TrimDetailsModel(self._trimmed_cells, table))
+        table.horizontalHeader().setStretchLastSection(True)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dialog)
+        buttons.rejected.connect(dialog.reject)
+        buttons.accepted.connect(dialog.accept)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(table)
+        layout.addWidget(buttons)
+        dialog.exec()
+
+    def _show_find_details(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("匹配明细")
+        dialog.resize(620, 420)
+        table = QTableView(dialog)
+        table.setObjectName("find-details-table")
+        table.setModel(FindDetailsModel(self._find_changes, table))
+        table.horizontalHeader().setStretchLastSection(True)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dialog)
+        buttons.rejected.connect(dialog.reject)
+        buttons.accepted.connect(dialog.accept)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(table)
+        layout.addWidget(buttons)
+        dialog.exec()
+
+    def open_operation(self, operation: str, *, columns: list[int] | None = None) -> bool:
+        index = self._operation.findData(operation)
+        if index < 0:
+            return False
+        self._operation.setCurrentIndex(index)
+        self._switch_operation()
+        if columns and operation in {"deduplicate", "delete_blank_rows", "trim"}:
+            target = {
+                "deduplicate": self._deduplicate_columns,
+                "delete_blank_rows": self._blank_rows_columns,
+                "trim": self._trim_columns,
+            }[operation]
+            target.clearSelection()
+            for column in columns:
+                for row in range(target.count()):
+                    item = target.item(row)
+                    if item is not None and item.data(Qt.ItemDataRole.UserRole) == column:
+                        item.setSelected(True)
+        return True
+
+    def quick_sort(self, column: int, direction: str) -> bool:
+        index = self._operation.findData("sort")
+        if index < 0 or not self._headers_by_sheet:
+            return False
+        self._operation.setCurrentIndex(index)
+        self._switch_operation()
+        for row in range(self._primary.count()):
+            if self._primary.itemData(row) == column:
+                self._primary.setCurrentIndex(row)
+                break
+        direction_index = self._primary_direction.findData(direction)
+        if direction_index >= 0:
+            self._primary_direction.setCurrentIndex(direction_index)
+        self._secondary.setCurrentIndex(0)
+        if self._preview.isEnabled():
+            self._emit_preview()
+        return True
+
+    def open_filter_for_column(self, column: int) -> bool:
+        index = self._operation.findData("filter")
+        if index < 0 or not self._headers_by_sheet:
+            return False
+        self._operation.setCurrentIndex(index)
+        self._switch_operation()
+        for row in range(self._filter_first_column.count()):
+            if self._filter_first_column.itemData(row) == column:
+                self._filter_first_column.setCurrentIndex(row)
+                break
+        return True
 
     def _show_blank_rows_details(self) -> None:
         dialog = QDialog(self)
@@ -1296,6 +1577,72 @@ class FileVersionTree:
     versions: tuple[VersionRecord, ...]
     head_version_id: str | None
     layouts: dict[str, VersionLayout]
+
+
+class TrimDetailsModel(QAbstractTableModel):
+    def __init__(
+        self,
+        cells: tuple[tuple[str, str, str, str], ...],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._cells = cells
+
+    def rowCount(self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()) -> int:
+        return 0 if parent.isValid() else len(self._cells)
+
+    def columnCount(self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()) -> int:
+        return 0 if parent.isValid() else 3
+
+    def data(
+        self,
+        index: QModelIndex | QPersistentModelIndex,
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> object | None:
+        if not index.isValid() or role != Qt.ItemDataRole.DisplayRole:
+            return None
+        row_text, column_text, before, after = self._cells[index.row()]
+        return (row_text, column_text, f"{before} → {after}")[index.column()]
+
+    def headerData(
+        self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole
+    ) -> object | None:
+        if orientation is not Qt.Orientation.Horizontal or role != Qt.ItemDataRole.DisplayRole:
+            return None
+        return ("行", "列", "内容变化")[section]
+
+
+class FindDetailsModel(QAbstractTableModel):
+    def __init__(
+        self,
+        changes: tuple[tuple[str, int, int, str, str], ...],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._changes = changes
+
+    def rowCount(self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()) -> int:
+        return 0 if parent.isValid() else len(self._changes)
+
+    def columnCount(self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()) -> int:
+        return 0 if parent.isValid() else 4
+
+    def data(
+        self,
+        index: QModelIndex | QPersistentModelIndex,
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> object | None:
+        if not index.isValid() or role != Qt.ItemDataRole.DisplayRole:
+            return None
+        sheet, row, column, before, after = self._changes[index.row()]
+        return (sheet, f"R{row}C{column}", before, after)[index.column()]
+
+    def headerData(
+        self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole
+    ) -> object | None:
+        if orientation is not Qt.Orientation.Horizontal or role != Qt.ItemDataRole.DisplayRole:
+            return None
+        return ("工作表", "位置", "修改前", "修改后")[section]
 
 
 class _VersionTreeView(QGraphicsView):

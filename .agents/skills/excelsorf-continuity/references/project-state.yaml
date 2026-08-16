@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-16T17:09:25+08:00"
+updated_at: "2026-08-16T17:45:28+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -35,9 +35,9 @@ delivery:
   next_milestone: "用户实机复验版本图谱全向平移、节点边界和专注模式"
 
 current_task:
-  id: "NEXT-PRIORITIES-ANALYSIS-001"
-  status: "analysis-delivered-awaiting-direction-confirmation"
-  goal: "全局画布多轮实机反馈全部闭环；分析下一步开发方向并等待用户确认"
+  id: "TABLE-ENTRY-PROCESSING-001"
+  status: "implementation-completed-awaiting-real-machine-validation"
+  goal: "按 DEC-20260816-035 实现处理功能入口下沉表格：列头菜单、右键菜单、选区预填、Ctrl+F/H，新增清除首尾空格与查找替换"
   owner: "codex-sol"
 
 last_completed:
@@ -277,11 +277,14 @@ last_completed:
   - "用户复验布局记忆生效；改进泳道变动观感：宽高预留增长空间（新增分支不再推挤后续泳道）、背景改半透明柔和色调"
   - "修复点击其他文件节点时视口不跟随：跨文件节点点击现在将视口聚焦到被点击节点；文件列表点击聚焦 HEAD 行为不变"
   - "按用户决定抛弃泳道背景矩形（DEC-20260816-033）：背景只能向下扩散且与节点自由拖动冲突；文件分区改用文件名标签胶囊（当前文件蓝底白字、其他灰底），标签保留泳道点击切换"
-  - "用户进一步要求：抛弃文件名标签胶囊（节点卡片自带文件名，归属可辨），同时删除依附标签的泳道点击切换机制"
+  - "完成 DEC-20260816-035 第一批：表格列头点击菜单（升/降序直接生成排序预览、按此列筛选预填列）与右键处理菜单（删除重复行/空白行/清除空格/查找替换，按选中列预填），Ctrl+F/Ctrl+H 打开查找替换，顶部工具栏保留"
+  - "新增清除首尾空格完整闭环：文本单元格首尾空格/制表/换行/全角/不间断空格清理、可选压缩中间空格、关键列限定、明细对照、预览与应用版本化"
+  - "新增查找与替换完整闭环：值与文本/公式两种模式、区分大小写/整格匹配/忽略首尾空格、当前工作表或全部工作表、只查找返回匹配明细不落盘、全部替换两阶段提交生成版本"
   - "节点布局改为画布绝对坐标钉定（DEC-20260816-034）：固定与记忆位置永不再动，新节点树形定位并对全画布已定位节点避让；把 A 文件节点拖到 B 文件旁后任何重建都不再移动它，也不再自动调整 B 文件节点"
 
 next_actions:
-  - "等待用户确认 DEC-20260816-035（处理功能入口下沉表格）：第一批为列头下拉+右键菜单+选区预填+查找替换+清除首尾空格"
+  - "用户实机复验表格入口：列头点击菜单排序/筛选、右键处理菜单预填、Ctrl+F/H 查找替换、清除空格与替换的两阶段提交"
+  - "第二批入口化：删除/调整列、自动列宽表头样式（需求第 19.6/19.7 节）"
   - "下次画布改动时给所有根节点加独立于 HEAD 的'根版本'标记（需求第 47 节待实施项）"
   - "用户实机运行 uv run hyacinth，复验全局画布：多文件泳道显示、跨文件节点点击切换、文件列表点击定位 HEAD、专注模式位置保持"
   - "用户实机运行 uv run hyacinth，复验专注模式进入/退出画布位置保持"
@@ -379,7 +382,7 @@ blockers:
 recent_decisions:
   - id: "DEC-20260816-035"
     date: "2026-08-16"
-    status: "proposed-awaiting-confirmation"
+    status: "approved-and-implemented"
     summary: "处理功能入口下沉到右侧表格：列头下拉（升降序/筛选）、右键菜单（区域处理+查找替换）、Ctrl+H/F，参数面板转为确认与预览状态台，两阶段提交不变"
     source: "用户提出 Excel 功能应结合到表格并保持原生使用逻辑"
     supersedes: "第 16 节中功能面板作为唯一入口的表述（保留为确认台）"
@@ -494,7 +497,7 @@ changed_files:
 verification:
   status: "passed-awaiting-real-machine-validation"
   commands:
-    - "uv run pytest：229 passed（绝对坐标钉定回归：file-1 增加子版本重建后 file-2 固定节点位置逐一不变；布局记忆测试沿用绝对语义）"
+    - "uv run pytest：242 passed（新增 trim/查找替换核心单测 11 项与表格入口端到端 2 项：右键入口预填→预览→应用生成 trim-whitespace/find-replace 子版本、只查找返回匹配清单）"
     - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check：全部通过"
     - "uv run python scripts/capture_ui_states.py --output output/playwright：8 张截图全部生成"
     - "本轮需求记录变更仅文档更新，无代码影响；完成度评估基于对 app.py、ui/shell.py、versioning/store.py、library/widget.py、preview/edit_session.py、tasks/status_widget.py 的逐文件阅读与 git log 核对"

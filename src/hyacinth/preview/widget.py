@@ -1,9 +1,18 @@
 from PySide6.QtCore import QAbstractItemModel, Qt, Signal
-from PySide6.QtGui import QCloseEvent, QColor, QPainter, QPaintEvent, QPen
+from PySide6.QtGui import (
+    QCloseEvent,
+    QColor,
+    QContextMenuEvent,
+    QCursor,
+    QPainter,
+    QPaintEvent,
+    QPen,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
     QLabel,
+    QMenu,
     QPushButton,
     QStackedWidget,
     QTabBar,
@@ -43,6 +52,9 @@ class ReadOnlyWorkbookTableView(QTableView):
 class WorkbookPreviewWidget(QFrame):
     import_requested = Signal()
     edit_state_changed = Signal(bool, bool, bool)
+    header_sort_requested = Signal(int, str)
+    header_filter_requested = Signal(int)
+    processing_menu_requested = Signal(str, list)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -108,7 +120,10 @@ class WorkbookPreviewWidget(QFrame):
         self._table.setAlternatingRowColors(False)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
-        self._table.horizontalHeader().setDefaultSectionSize(96)
+        header = self._table.horizontalHeader()
+        header.setSectionsClickable(True)
+        header.sectionClicked.connect(self._show_header_menu)
+        header.setDefaultSectionSize(96)
         self._table.horizontalHeader().setMinimumSectionSize(48)
         self._table.verticalHeader().setDefaultSectionSize(24)
 
@@ -137,6 +152,46 @@ class WorkbookPreviewWidget(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._stack)
+
+    def _show_header_menu(self, column: int) -> None:
+        menu = QMenu(self._table)
+        sort_asc = menu.addAction("升序")
+        sort_desc = menu.addAction("降序")
+        menu.addSeparator()
+        filter_action = menu.addAction("按此列筛选…")
+        chosen = menu.exec(QCursor.pos())
+        if chosen is sort_asc:
+            self.header_sort_requested.emit(column, "asc")
+        elif chosen is sort_desc:
+            self.header_sort_requested.emit(column, "desc")
+        elif chosen is filter_action:
+            self.header_filter_requested.emit(column)
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        if self._table.model() is None or self._table.model().rowCount() == 0:
+            super().contextMenuEvent(event)
+            return
+        columns = sorted(
+            {
+                index.column()
+                for index in self._table.selectionModel().selectedIndexes()
+                if index.isValid()
+            }
+        )
+        menu = QMenu(self)
+        deduplicate = menu.addAction("删除重复行…")
+        blank_rows = menu.addAction("删除空白行…")
+        trim = menu.addAction("清除首尾空格…")
+        find_replace = menu.addAction("查找替换…")
+        chosen = menu.exec(event.globalPos())
+        actions = {
+            deduplicate: "deduplicate",
+            blank_rows: "delete_blank_rows",
+            trim: "trim",
+            find_replace: "find_replace",
+        }
+        if chosen in actions:
+            self.processing_menu_requested.emit(actions[chosen], columns)
 
     def set_loading(self, display_name: str) -> None:
         self._close_source()

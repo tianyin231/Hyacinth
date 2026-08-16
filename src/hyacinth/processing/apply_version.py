@@ -25,6 +25,8 @@ APPLY_SORT_PREVIEW_OPERATION = "apply-sort-preview"
 APPLY_DEDUPLICATE_PREVIEW_OPERATION = "apply-deduplicate-preview"
 APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION = "apply-delete-blank-rows-preview"
 APPLY_FILTER_PREVIEW_OPERATION = "apply-filter-preview"
+APPLY_TRIM_PREVIEW_OPERATION = "apply-trim-preview"
+APPLY_FIND_REPLACE_PREVIEW_OPERATION = "apply-find-replace-preview"
 SAVE_MANUAL_EDITS_OPERATION = "save-manual-edits"
 COPY_CHUNK_SIZE = 1024 * 1024
 
@@ -363,8 +365,94 @@ def apply_delete_blank_rows_preview_task(request: TaskRequest, context: TaskCont
     return run_apply_delete_blank_rows_preview_task(request, context)
 
 
+def run_apply_trim_preview_task(
+    request: TaskRequest,
+    context: ApplyVersionTaskContext,
+    *,
+    metadata_store_factory: MetadataStoreFactory = MetadataStore,
+) -> ImportedWorkbook:
+    sheet_name = _payload_string(request, "sheet_name")
+    key_columns = request.payload.get("key_columns")
+    collapse_spaces = request.payload.get("collapse_spaces")
+    trimmed_cells = request.payload.get("trimmed_cells")
+    if not isinstance(key_columns, list):
+        raise ValueError("任务参数缺少关键列：key_columns")
+    if not isinstance(collapse_spaces, bool):
+        raise ValueError("任务参数 collapse_spaces 必须是布尔值")
+    if not isinstance(trimmed_cells, int) or isinstance(trimmed_cells, bool) or trimmed_cells < 1:
+        raise ValueError("任务参数 trimmed_cells 必须是大于 0 的整数")
+    return _run_apply_preview_task(
+        request,
+        context,
+        metadata_store_factory=metadata_store_factory,
+        version_name="清除首尾空格",
+        operation="trim-whitespace",
+        parameters={
+            "sheet_name": sheet_name,
+            "key_columns": key_columns,
+            "collapse_spaces": collapse_spaces,
+            "trimmed_cells": trimmed_cells,
+        },
+    )
+
+
+def run_apply_find_replace_preview_task(
+    request: TaskRequest,
+    context: ApplyVersionTaskContext,
+    *,
+    metadata_store_factory: MetadataStoreFactory = MetadataStore,
+) -> ImportedWorkbook:
+    sheet_name = _payload_string(request, "sheet_name")
+    mode = request.payload.get("mode")
+    find_text = request.payload.get("find_text")
+    replace_text = request.payload.get("replace_text")
+    match_case = request.payload.get("match_case")
+    whole_cell = request.payload.get("whole_cell")
+    trim_whitespace = request.payload.get("trim_whitespace")
+    sheets = request.payload.get("sheets")
+    replaced = request.payload.get("replaced")
+    if mode not in {"values", "formulas"}:
+        raise ValueError("任务参数 mode 必须为 values 或 formulas")
+    if not isinstance(find_text, str) or not find_text:
+        raise ValueError("任务参数缺少查找内容：find_text")
+    if not isinstance(replace_text, str):
+        raise ValueError("任务参数 replace_text 必须是字符串")
+    if not all(isinstance(item, bool) for item in (match_case, whole_cell, trim_whitespace)):
+        raise ValueError("查找替换选项必须是布尔值")
+    if not isinstance(sheets, list) or not sheets:
+        raise ValueError("任务参数缺少范围工作表：sheets")
+    if not isinstance(replaced, int) or isinstance(replaced, bool) or replaced < 1:
+        raise ValueError("任务参数 replaced 必须是大于 0 的整数")
+    return _run_apply_preview_task(
+        request,
+        context,
+        metadata_store_factory=metadata_store_factory,
+        version_name="查找与替换" if mode == "values" else "替换公式文本",
+        operation="find-replace",
+        parameters={
+            "sheet_name": sheet_name,
+            "sheets": sheets,
+            "mode": mode,
+            "find_text": find_text,
+            "replace_text": replace_text,
+            "match_case": match_case,
+            "whole_cell": whole_cell,
+            "trim_whitespace": trim_whitespace,
+            "replaced": replaced,
+        },
+    )
+
+
 def apply_filter_preview_task(request: TaskRequest, context: TaskContext) -> object:
     return run_apply_filter_preview_task(request, context)
+
+
+def apply_trim_preview_task(request: TaskRequest, context: TaskContext) -> object:
+    return run_apply_trim_preview_task(request, context)
+
+
+def apply_find_replace_preview_task(request: TaskRequest, context: TaskContext) -> object:
+    return run_apply_find_replace_preview_task(request, context)
 
 
 def save_manual_edits_task(request: TaskRequest, context: TaskContext) -> object:
@@ -377,6 +465,8 @@ def apply_version_handlers() -> dict[str, TaskHandler]:
         APPLY_DEDUPLICATE_PREVIEW_OPERATION: apply_deduplicate_preview_task,
         APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION: apply_delete_blank_rows_preview_task,
         APPLY_FILTER_PREVIEW_OPERATION: apply_filter_preview_task,
+        APPLY_TRIM_PREVIEW_OPERATION: apply_trim_preview_task,
+        APPLY_FIND_REPLACE_PREVIEW_OPERATION: apply_find_replace_preview_task,
         SAVE_MANUAL_EDITS_OPERATION: save_manual_edits_task,
     }
 
