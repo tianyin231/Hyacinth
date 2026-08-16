@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-16T14:16:22+08:00"
+updated_at: "2026-08-16T16:15:38+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -269,6 +269,8 @@ last_completed:
   - "版本树标题栏新增'重整布局'按钮：二次确认列出受影响文件后清除全部手动布局恢复默认排布"
   - "默认排布改为树形算法：叶子按序占行、父节点居中于子树区间"
   - "修复泳道背景空点消失：addRect/addSimpleText 返回项未保存 Python 引用，场景重建后被 PySide6 垃圾回收连带销毁；现与连线一样持有引用，并增加强制 gc.collect 回归"
+  - "用户复验后修复泳道错位：固定节点坐标改为泳道内容区相对坐标，其他文件泳道高度变化时固定节点随泳道移动，不再与背景错位"
+  - "版本树标题栏新增画布模式切换按钮：仅看当前文件 ⇄ 查看全部文件，切换时按当前文件泳道相对位置恢复视口（DEC-20260816-031）"
 
 next_actions:
   - "用户实机复验六项修复：泳道强调随文件切换、泳道点击切换、已删节点拖动与永久删除、重整布局确认、树形排布"
@@ -366,6 +368,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260816-031"
+    date: "2026-08-16"
+    status: "approved-and-implemented"
+    summary: "固定节点坐标改为泳道内相对坐标（结构根治泳道错位）；版本树新增单文件/多文件画布模式切换按钮，切换保持当前文件泳道相对视口位置"
+    source: "用户实机复验全局画布后提出泳道错位与模式切换需求"
+    supersedes: "none"
+    impact: "version_layouts 的 y 语义改为泳道内容区相对坐标、VersionTreePanel 渲染/提交换算与模式切换按钮、需求讨论记录第 47 节补充"
   - id: "DEC-20260816-030"
     date: "2026-08-16"
     status: "approved-and-implemented"
@@ -429,13 +438,6 @@ recent_decisions:
     source: "用户当前会话明确调整开发优先级"
     supersedes: "none"
     impact: "需求讨论记录第 45 节、当前里程碑、版本树 UI、MetadataStore、工作副本/HEAD 切换和端到端测试顺序"
-  - id: "DEC-20260815-021"
-    date: "2026-08-15"
-    status: "approved"
-    summary: "条件筛选首切片采用原生可表达安全子集：应用筛选、最多两个条件、跨列仅 AND、同列允许 AND/OR；筛选并提取后续实现"
-    source: "用户当前会话确认推荐方案"
-    supersedes: "none"
-    impact: "需求讨论记录第 19.8 节、隐藏行预览索引、筛选后台任务、FunctionPanel 参数页、应用版本和端到端测试"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
   - "需求讨论记录.md"
@@ -462,7 +464,7 @@ changed_files:
 verification:
   status: "passed-awaiting-real-machine-validation"
   commands:
-    - "uv run pytest：227 passed（泳道背景 GC 回归新增 1 项：重建画布并强制 gc.collect 后两个泳道背景矩形仍存在）"
+    - "uv run pytest：229 passed（新增 2 项：模式切换过滤与视口保持、file-1 增加子版本后 file-2 固定节点与泳道背景对齐不变）"
     - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check：全部通过"
     - "uv run python scripts/capture_ui_states.py --output output/playwright：8 张截图全部生成"
     - "本轮需求记录变更仅文档更新，无代码影响；完成度评估基于对 app.py、ui/shell.py、versioning/store.py、library/widget.py、preview/edit_session.py、tasks/status_widget.py 的逐文件阅读与 git log 核对"

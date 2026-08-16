@@ -291,7 +291,8 @@ def test_version_tree_drag_moves_connected_edge_and_emits_persisted_position(
     }
     edges = [item for item in view.scene().items() if isinstance(item, QGraphicsLineItem)]
     assert proxies[root.version_id].pos().x() == 80.0
-    assert proxies[root.version_id].pos().y() == 60.0
+    # 固定坐标的 y 是泳道内容区相对坐标：泳道顶 82 + 相对 60
+    assert proxies[root.version_id].pos().y() == 142.0
     assert len(edges) == 1
     old_line = edges[0].line()
     root_card = proxies[root.version_id].widget()
@@ -312,7 +313,8 @@ def test_version_tree_drag_moves_connected_edge_and_emits_persisted_position(
     assert moved_signal.args[0] == "file-1"
     assert moved_signal.args[1] == root.version_id
     assert moved_signal.args[2] > 80.0
-    assert moved_signal.args[3] > 60.0
+    # y 为泳道内容区相对坐标：固定根 60 + 拖动 35 - 泳道顶 82 > 0
+    assert moved_signal.args[3] > 0.0
     assert edges[0].line() != old_line
 
 
@@ -916,3 +918,61 @@ def test_lane_backgrounds_survive_gc_after_canvas_rebuild(
     gc.collect()
 
     assert lane_rect_count() == 2
+
+
+def test_view_mode_toggle_filters_current_file_and_keeps_position(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    from hyacinth.ui import FileVersionTree, VersionTreePanel
+
+    root_a = _record("root-a", None, "导入A", 8, tmp_path / "a.xlsx")
+    root_b = _record("root-b", None, "导入B", 9, tmp_path / "b.xlsx")
+    tree_a = FileVersionTree("file-a", "A.xlsx", (root_a,), "root-a", {})
+    tree_b = FileVersionTree("file-b", "B.xlsx", (root_b,), "root-b", {})
+    panel = VersionTreePanel()
+    qtbot.addWidget(panel)
+    panel.resize(700, 500)
+    panel.show()
+    panel.set_workbooks((tree_a, tree_b), current_file_id="file-a")
+    view = panel.findChild(QGraphicsView, "version-tree-view")
+    assert view is not None
+
+    def file_ids() -> set[str]:
+        return {
+            str(proxy.widget().property("file-id"))
+            for proxy in view.scene().items()
+            if isinstance(proxy, QGraphicsProxyWidget) and proxy.widget() is not None
+        }
+
+    proxy_a = next(
+        proxy
+        for proxy in view.scene().items()
+        if isinstance(proxy, QGraphicsProxyWidget)
+        and proxy.widget() is not None
+        and str(proxy.widget().property("version-id")) == "root-a"
+    )
+    view.centerOn(proxy_a)
+    center_before = view.mapToScene(view.viewport().rect().center())
+
+    mode_button = panel.findChild(QPushButton, "version-mode-toggle-button")
+    assert mode_button is not None
+    qtbot.mouseClick(mode_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    assert file_ids() == {"file-a"}
+    assert mode_button.text() == "查看全部文件"
+    proxy_a_after = next(
+        proxy
+        for proxy in view.scene().items()
+        if isinstance(proxy, QGraphicsProxyWidget)
+        and proxy.widget() is not None
+        and str(proxy.widget().property("version-id")) == "root-a"
+    )
+    center_after = view.mapToScene(view.viewport().rect().center())
+    assert abs(center_after.y() - center_before.y()) < 5.0
+    assert proxy_a_after.pos().y() == proxy_a.pos().y()
+
+    qtbot.mouseClick(mode_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    assert file_ids() == {"file-a", "file-b"}
+    assert mode_button.text() == "仅看当前文件"
