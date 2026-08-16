@@ -36,6 +36,12 @@ from hyacinth.versioning.purge_task import (
     run_purge_file_task,
     run_purge_version_task,
 )
+from hyacinth.versioning.restore_task import (
+    RESTORE_VERSION_OPERATION,
+    restore_version_handlers,
+    restore_version_task,
+    run_restore_version_task,
+)
 from hyacinth.versioning.storage_stats import (
     VERSION_STORAGE_STATS_OPERATION,
     VersionStorageStats,
@@ -55,6 +61,7 @@ __all__ = [
     "EXPORT_VERSION_OPERATION",
     "PURGE_FILE_OPERATION",
     "PURGE_VERSION_OPERATION",
+    "RESTORE_VERSION_OPERATION",
     "VERSION_STORAGE_STATS_OPERATION",
     "ExportedVersion",
     "ImportedWorkbook",
@@ -81,8 +88,11 @@ __all__ = [
     "run_export_version_task",
     "run_purge_file_task",
     "run_purge_version_task",
+    "run_restore_version_task",
     "run_version_storage_stats_task",
     "suggested_export_filename",
+    "restore_version_handlers",
+    "restore_version_task",
     "version_storage_stats_handlers",
     "version_storage_stats_task",
     "write_recovery_manifest",

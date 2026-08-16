@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QGraphicsProxyWidget,
     QGraphicsView,
     QLabel,
+    QLineEdit,
     QListWidget,
     QMainWindow,
     QPushButton,
@@ -55,12 +57,14 @@ from hyacinth.versioning import (
     CHECKOUT_VERSION_OPERATION,
     DELETE_VERSION_OPERATION,
     EXPORT_VERSION_OPERATION,
+    RESTORE_VERSION_OPERATION,
     VERSION_STORAGE_STATS_OPERATION,
     MetadataStore,
     VersionRecord,
     run_checkout_version_task,
     run_delete_version_task,
     run_export_version_task,
+    run_restore_version_task,
     run_version_storage_stats_task,
 )
 
@@ -492,6 +496,86 @@ def test_unsaved_cell_edits_block_close_until_discarded(qtbot: QtBot, tmp_path: 
     assert task_queue.shutdown_called
 
 
+def test_formula_bar_submits_and_follows_selection(qtbot: QtBot, tmp_path: Path) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    _serve_preview(qtbot, window, task_queue)
+    formula_name = _child(window, QLabel, "formula-name")
+    formula_input = _child(window, QLineEdit, "formula-value")
+    table = _child(window, QTableView, "preview-table")
+    model = table.model()
+    assert model is not None
+
+    # 当前 HEAD 可编辑：名称框跟随选中，内容框可输入
+    qtbot.waitUntil(lambda: formula_name.text() == "A1", timeout=500)
+    assert formula_input.isEnabled()
+    assert formula_input.text() == "名称"
+    table.setCurrentIndex(model.index(1, 1))
+    qtbot.waitUntil(lambda: formula_name.text() == "B2", timeout=500)
+    assert formula_input.text() == "2"
+
+    # Enter 提交写入当前单元格（与表格编辑同链路：脏计数 + 撤销）
+    formula_input.setText("5")
+    formula_input.returnPressed.emit()
+    qtbot.waitUntil(
+        lambda: model.data(model.index(1, 1), Qt.ItemDataRole.DisplayRole) == "5",
+        timeout=500,
+    )
+    assert window._workbook_preview.pending_edits()
+    qtbot.waitUntil(
+        lambda: _child(window, QLabel, "dirty-edits-label").isVisibleTo(window), timeout=500
+    )
+    window._workbook_preview.undo()
+    qtbot.waitUntil(
+        lambda: model.data(model.index(1, 1), Qt.ItemDataRole.DisplayRole) == "2",
+        timeout=500,
+    )
+
+    # 历史节点只读预览：名称框仍跟随，内容框禁用
+    root = record.head_version
+    assert root is not None
+    child_snapshot = library_root / "files/file-1/versions/version-2/snapshot.xlsx"
+    child_snapshot.parent.mkdir(parents=True)
+    child_snapshot.write_bytes(record.working_path.read_bytes())
+    MetadataStore(library_root).record_child_version(
+        VersionRecord(
+            "version-2",
+            record.file_id,
+            root.version_id,
+            "多列排序",
+            datetime(2026, 8, 15, 9, 0, tzinfo=UTC),
+            "sort",
+            EngineName.PYTHON,
+            child_snapshot,
+            sha256(child_snapshot.read_bytes()).hexdigest(),
+        ),
+        root.version_id,
+    )
+    window._current_workbook = MetadataStore(library_root).get_workbook(record.file_id)
+    window._preview_version(record.file_id, root.version_id)
+    historical_request = task_queue.submitted[-1]
+    assert historical_request.operation == BUILD_PREVIEW_INDEX_OPERATION
+    historical_preview = run_preview_index_task(historical_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            task_id=historical_request.task_id,
+            state=TaskState.SUCCEEDED,
+            name=historical_request.name,
+            file_id=record.file_id,
+            engine=None,
+            result=historical_preview,
+        )
+    )
+    qtbot.waitUntil(lambda: not formula_input.isEnabled(), timeout=500)
+    assert formula_name.text() == "A1"
+
+
 def test_version_node_save_as_exports_and_reports_destination(
     qtbot: QtBot,
     tmp_path: Path,
@@ -564,7 +648,10 @@ def test_main_runs_qt_event_loop() -> None:
     assert completed.returncode == 0, completed.stderr
 
 
-def test_main_window_connects_task_queue_to_status_bar(qtbot: QtBot) -> None:
+def test_main_window_connects_task_queue_to_status_bar(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
     event = TaskEvent(
         task_id="convert-1",
         state=TaskState.RUNNING,
@@ -578,7 +665,10 @@ def test_main_window_connects_task_queue_to_status_bar(qtbot: QtBot) -> None:
 
     from hyacinth.app import create_main_window
 
-    window = create_main_window(task_queue=task_queue)
+    # 注入空临时库：该测试此前误用真实 Documents\Hyacinth，启动的工作区
+    # 状态恢复会按真实库保存的“当前文件/预览节点”提交并取消预览任务，
+    # 既让断言依赖用户机器状态，也把测试窗口几何写进真实库。
+    window = create_main_window(task_queue=task_queue, library_root=tmp_path)
     qtbot.addWidget(window)
     window.show()
     status = _child(window, TaskStatusWidget, "task-status")
@@ -2068,3 +2158,263 @@ def test_other_file_nodes_never_move_when_lane_grows(qtbot: QtBot, tmp_path: Pat
     window._refresh_version_canvas()
 
     assert position_of("version-b") == before
+
+
+def _serve_preview(
+    qtbot: QtBot,
+    window: QMainWindow,
+    task_queue: FakeApplicationTaskQueue,
+) -> None:
+    request = task_queue.submitted[-1]
+    assert request.operation == BUILD_PREVIEW_INDEX_OPERATION
+    preview = run_preview_index_task(request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            task_id=request.task_id,
+            state=TaskState.SUCCEEDED,
+            name=request.name,
+            file_id=request.file_id,
+            engine=None,
+            result=preview,
+        )
+    )
+    table = _child(window, QTableView, "preview-table")
+    qtbot.waitUntil(lambda: table.model() is not None, timeout=2000)
+
+
+def test_version_meta_edit_and_milestone_toggle_update_store_and_cards(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    presented: list[tuple[str, str, bool]] = []
+
+    def meta_presenter(
+        _parent: QWidget, name: str, note: str, milestone: bool
+    ) -> tuple[str, str, bool] | None:
+        presented.append((name, note, milestone))
+        return ("发货基线", "周五发布前确认", True)
+
+    window = create_main_window(
+        task_queue=task_queue,
+        library_root=library_root,
+        version_meta_presenter=meta_presenter,
+    )
+    qtbot.addWidget(window)
+    window.show()
+    _serve_preview(qtbot, window, task_queue)
+    tree_panel = _child(window, VersionTreePanel, "version-tree-panel")
+
+    tree_panel.version_meta_edit_requested.emit(record.file_id, "version-1")
+
+    assert presented == [("导入原始文件", "", False)]
+    version = MetadataStore(library_root).get_version(record.file_id, "version-1")
+    assert version.name == "发货基线"
+    assert version.note == "周五发布前确认"
+    assert version.milestone is True
+    cards = {
+        str(proxy.widget().property("version-id")): proxy.widget()
+        for proxy in _child(window, QGraphicsView, "version-tree-view").scene().items()
+        if isinstance(proxy, QGraphicsProxyWidget) and proxy.widget() is not None
+    }
+    title = cards["version-1"].findChild(QLabel, "root-version-name")
+    assert title is not None and "★" in title.text()
+    assert cards["version-1"].toolTip() == "周五发布前确认"
+
+    tree_panel.version_milestone_toggle_requested.emit(record.file_id, "version-1")
+
+    assert MetadataStore(library_root).get_version(record.file_id, "version-1").milestone is False
+    cards = {
+        str(proxy.widget().property("version-id")): proxy.widget()
+        for proxy in _child(window, QGraphicsView, "version-tree-view").scene().items()
+        if isinstance(proxy, QGraphicsProxyWidget) and proxy.widget() is not None
+    }
+    title = cards["version-1"].findChild(QLabel, "root-version-name")
+    assert title is not None and "★" not in title.text()
+
+
+def test_restore_to_version_creates_recovery_child_node(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(
+        library_root,
+        [["名称", "数量"], ["banana", 1], ["apple", 2]],
+    )
+    root = record.head_version
+    assert root is not None
+    child_snapshot = library_root / "files/file-1/versions/version-2/snapshot.xlsx"
+    child_snapshot.parent.mkdir(parents=True)
+    child_workbook = Workbook()
+    child_sheet = child_workbook.active
+    assert child_sheet is not None
+    child_sheet.title = "销售"
+    for row in [["名称", "数量"], ["apple", 2], ["banana", 1]]:
+        child_sheet.append(row)
+    child_workbook.save(child_snapshot)
+    child_workbook.close()
+    record.working_path.write_bytes(child_snapshot.read_bytes())
+    child = VersionRecord(
+        "version-2",
+        record.file_id,
+        root.version_id,
+        "多列排序",
+        datetime(2026, 8, 15, 9, 0, tzinfo=UTC),
+        "sort",
+        EngineName.PYTHON,
+        child_snapshot,
+        sha256(child_snapshot.read_bytes()).hexdigest(),
+    )
+    store = MetadataStore(library_root)
+    store.record_child_version(child, root.version_id)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    _serve_preview(qtbot, window, task_queue)
+    tree_panel = _child(window, VersionTreePanel, "version-tree-panel")
+
+    tree_panel.version_restore_to_version_requested.emit(record.file_id, root.version_id)
+
+    restore_request = task_queue.submitted[-1]
+    assert restore_request.operation == RESTORE_VERSION_OPERATION
+    assert restore_request.payload["source_version_id"] == root.version_id
+    assert restore_request.payload["parent_version_id"] == child.version_id
+    request_count = len(task_queue.submitted)
+    restored = run_restore_version_task(restore_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            task_id=restore_request.task_id,
+            state=TaskState.SUCCEEDED,
+            name=restore_request.name,
+            file_id=restore_request.file_id,
+            engine=EngineName.PYTHON,
+            result=restored,
+        )
+    )
+    # 等轮询把恢复结果送达主窗口并触发新的预览请求。
+    qtbot.waitUntil(
+        lambda: (
+            len(task_queue.submitted) > request_count
+            and task_queue.submitted[-1].operation == BUILD_PREVIEW_INDEX_OPERATION
+        ),
+        timeout=500,
+    )
+    _serve_preview(qtbot, window, task_queue)
+
+    head = store.get_workbook(record.file_id).head_version
+    assert head is not None and head.operation == "restore"
+    assert head.parent_version_id == child.version_id
+    assert record.working_path.read_bytes() == root.snapshot_path.read_bytes()
+    versions = {v.version_id for v in store.list_versions(record.file_id)}
+    assert versions == {"version-1", "version-2", head.version_id}
+    assert window._previewed_version_id == head.version_id
+    table = _child(window, QTableView, "preview-table")
+    qtbot.waitUntil(lambda: table.model() is not None, timeout=2000)
+    assert table.model().data(table.model().index(1, 0)) == "banana"
+
+
+def test_workspace_state_persists_and_restores(qtbot: QtBot, tmp_path: Path) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    # 生成双工作表的工作副本，用于验证工作表级恢复（需求第 32 节）。
+    two_sheets = Workbook()
+    first = two_sheets.active
+    assert first is not None
+    first.title = "一月"
+    first.append(["名称"])
+    first.append(["apple"])
+    second = two_sheets.create_sheet("二月")
+    second.append(["名称"])
+    second.append(["banana"])
+    two_sheets.save(record.working_path)
+    two_sheets.close()
+    root = record.head_version
+    assert root is not None
+    root.snapshot_path.write_bytes(record.working_path.read_bytes())
+    # 第二个版本成为 HEAD，使根版本成为可预览的历史节点。
+    child_snapshot = library_root / "files/file-1/versions/version-2/snapshot.xlsx"
+    child_snapshot.parent.mkdir(parents=True)
+    child_snapshot.write_bytes(record.working_path.read_bytes())
+    child = VersionRecord(
+        "version-2",
+        record.file_id,
+        root.version_id,
+        "多列排序",
+        datetime(2026, 8, 15, 9, 0, tzinfo=UTC),
+        "sort",
+        EngineName.PYTHON,
+        child_snapshot,
+        sha256(child_snapshot.read_bytes()).hexdigest(),
+    )
+    MetadataStore(library_root).record_child_version(child, root.version_id)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    _serve_preview(qtbot, window, task_queue)
+    assert window._workbook_preview.set_current_sheet_by_name("二月")
+    # 关闭前正预览历史根节点（只读）：重开必须回到 HEAD 工作副本可编辑，
+    # 不能把用户锁进只读状态（DEC-20260816-040）。
+    window._preview_version(record.file_id, root.version_id)
+    historical_request = task_queue.submitted[-1]
+    assert historical_request.operation == BUILD_PREVIEW_INDEX_OPERATION
+    historical_preview = run_preview_index_task(historical_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            task_id=historical_request.task_id,
+            state=TaskState.SUCCEEDED,
+            name=historical_request.name,
+            file_id=record.file_id,
+            engine=None,
+            result=historical_preview,
+        )
+    )
+    table = _child(window, QTableView, "preview-table")
+    qtbot.waitUntil(lambda: table.model() is not None, timeout=2000)
+    formula_input = _child(window, QLineEdit, "formula-value")
+    qtbot.waitUntil(lambda: not formula_input.isEnabled(), timeout=500)
+    window.resize(900, 640)
+    window._main_splitter.setSizes([320, 360, 220])
+
+    assert window.close()
+
+    settings = MetadataStore(library_root)
+    assert settings.get_setting("workspace.current_file_id") == record.file_id
+    assert settings.get_setting("workspace.current_sheet") == "二月"
+    assert settings.get_setting("workspace.window_maximized") == "0"
+    assert settings.get_setting("workspace.window_geometry")
+    saved_sizes = json.loads(settings.get_setting("workspace.splitter_sizes") or "[]")
+    assert len(saved_sizes) == 3 and all(value > 0 for value in saved_sizes)
+
+    second_queue = FakeApplicationTaskQueue([])
+    reopened = create_main_window(task_queue=second_queue, library_root=library_root)
+    qtbot.addWidget(reopened)
+    reopened.show()
+    request = _preview_request_of(second_queue)
+    # 重开恢复的是 HEAD 工作副本（可编辑），不是关闭时查看的历史快照。
+    assert request.payload["working_path"] == str(record.working_path)
+    preview = run_preview_index_task(request, PreviewTaskContext())
+    second_queue.push_event(
+        TaskEvent(
+            task_id=request.task_id,
+            state=TaskState.SUCCEEDED,
+            name=request.name,
+            file_id=record.file_id,
+            engine=None,
+            result=preview,
+        )
+    )
+    qtbot.waitUntil(lambda: reopened._workbook_preview.current_sheet_name == "二月", timeout=2000)
+    assert reopened._main_splitter.sizes() == saved_sizes
+    # 重开回到 HEAD：公式栏输入框应可用（可编辑）。
+    qtbot.waitUntil(lambda: _child(reopened, QLineEdit, "formula-value").isEnabled(), timeout=500)

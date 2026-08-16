@@ -161,3 +161,53 @@ def test_preview_widget_edits_head_cells_and_supports_undo_redo(
     assert widget.pending_edits() == ()
     widget.redo()
     assert model.data(cell) == "二月"
+
+
+def test_formula_bar_tracks_current_cell_and_submits_text(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    from hyacinth.preview import WorkbookPreviewWidget
+
+    preview = _preview(tmp_path)
+    widget = WorkbookPreviewWidget()
+    qtbot.addWidget(widget)
+    events: list[tuple[str, str]] = []
+    widget.current_cell_changed.connect(lambda name, content: events.append((name, content)))
+    editable_modes: list[bool] = []
+    widget.edit_mode_changed.connect(editable_modes.append)
+
+    widget.show_preview(preview, editable=True)
+
+    # 模型上屏即报告首个单元格；内容为原始值（公式优先）
+    assert events[-1] == ("A1", "一月")
+    assert editable_modes[-1] is True
+    table = widget.findChild(QTableView, "preview-table")
+    assert table is not None
+    model = table.model()
+    assert model is not None
+    table.setCurrentIndex(model.index(1, 1))
+
+    assert events[-1] == ("B2", "")
+    table.setCurrentIndex(model.index(0, 0))
+
+    # 公式栏提交走与表格编辑相同的链路：编辑会话 + 撤销 + 脏计数
+    widget.submit_cell_text("二月")
+    assert model.data(model.index(0, 0)) == "二月"
+    assert widget.pending_edits()[0].value == "二月"
+    # 当前单元格内容变化后公式栏同步刷新
+    assert events[-1] == ("A1", "二月")
+    widget.undo()
+    assert events[-1] == ("A1", "一月")
+
+    # 只读模式：模式信号翻转，提交不产生编辑
+    widget.show_preview(preview, editable=False)
+    assert editable_modes[-1] is False
+    readonly_model = table.model()
+    assert readonly_model is not None and readonly_model is not model
+    table.setCurrentIndex(readonly_model.index(0, 0))
+    widget.submit_cell_text("不应写入")
+    assert widget.pending_edits() == ()
+
+    widget.clear_preview()
+    assert events[-1] == ("", "")

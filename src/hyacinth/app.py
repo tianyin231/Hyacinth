@@ -1,3 +1,4 @@
+import json
 import shutil
 from collections.abc import Callable
 from datetime import datetime
@@ -15,6 +16,7 @@ from PySide6.QtGui import (
     QShortcut,
 )
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QInputDialog,
     QMainWindow,
@@ -95,6 +97,7 @@ from hyacinth.ui import (
     RecycleEntry,
     SortDialog,
     TrimDetailsModel,
+    VersionMetaDialog,
     VersionStorageStatus,
     VersionTreePanel,
     WorkbookEditorFrame,
@@ -105,6 +108,7 @@ from hyacinth.versioning import (
     EXPORT_VERSION_OPERATION,
     PURGE_FILE_OPERATION,
     PURGE_VERSION_OPERATION,
+    RESTORE_VERSION_OPERATION,
     VERSION_STORAGE_STATS_OPERATION,
     ExportedVersion,
     MetadataStore,
@@ -115,6 +119,7 @@ from hyacinth.versioning import (
     export_version_handlers,
     purge_file_handlers,
     purge_version_handlers,
+    restore_version_handlers,
     suggested_export_filename,
     version_storage_stats_handlers,
 )
@@ -129,6 +134,7 @@ ErrorPresenter = Callable[[QWidget, str], None]
 ConfirmationPresenter = Callable[[QWidget, str, str], bool]
 VersionChoicePresenter = Callable[[QWidget, tuple[VersionRecord, ...]], str | None]
 UnsavedChangesPresenter = Callable[[QWidget, str, bool], str]
+VersionMetaPresenter = Callable[[QWidget, str, str, bool], tuple[str, str, bool] | None]
 SaveAsPicker = Callable[[QWidget, str], Path | None]
 ExportPresenter = Callable[[QWidget, Path], None]
 
@@ -165,12 +171,14 @@ class HyacinthMainWindow(QMainWindow):
         unsaved_changes_presenter: UnsavedChangesPresenter,
         save_as_picker: SaveAsPicker,
         export_presenter: ExportPresenter,
+        version_meta_presenter: VersionMetaPresenter | None = None,
     ) -> None:
         super().__init__()
         self.setObjectName("main-window")
         self.setWindowTitle("风信子")
         self.setWindowIcon(application_icon())
         self.setMinimumSize(MINIMUM_WINDOW_SIZE)
+        self._library_root = library_root
         self._apply_initial_window_geometry()
         self.setStyleSheet(APP_STYLESHEET)
 
@@ -178,7 +186,6 @@ class HyacinthMainWindow(QMainWindow):
         workspace_root.setObjectName("workspace-root")
         self.setCentralWidget(workspace_root)
 
-        self._library_root = library_root
         self._file_picker = file_picker
         self._error_presenter = error_presenter
         self._confirmation_presenter = confirmation_presenter
@@ -186,6 +193,7 @@ class HyacinthMainWindow(QMainWindow):
         self._unsaved_changes_presenter = unsaved_changes_presenter
         self._save_as_picker = save_as_picker
         self._export_presenter = export_presenter
+        self._version_meta_presenter = version_meta_presenter or ask_version_meta
         self._task_queue = task_queue
         self._import_task_ids: set[str] = set()
         self._preview_task_id: str | None = None
@@ -214,6 +222,9 @@ class HyacinthMainWindow(QMainWindow):
         self._manual_save_task_id: str | None = None
         self._manual_save_version_id: str | None = None
         self._checkout_task_id: str | None = None
+        self._restore_task_id: str | None = None
+        # 工作区状态恢复：首次预览上屏后要回到的工作表（需求第 32 节）。
+        self._pending_restore_sheet: str | None = None
         self._delete_task_id: str | None = None
         self._delete_version_id: str | None = None
         self._delete_file_id: str | None = None
@@ -254,6 +265,13 @@ class HyacinthMainWindow(QMainWindow):
         self._version_tree.version_position_changed.connect(self._save_version_position)
         self._version_tree.version_delete_requested.connect(self._request_delete_version)
         self._version_tree.version_restore_requested.connect(self._restore_deleted_version)
+        self._version_tree.version_restore_to_version_requested.connect(
+            self._request_restore_to_version
+        )
+        self._version_tree.version_meta_edit_requested.connect(self._request_edit_version_meta)
+        self._version_tree.version_milestone_toggle_requested.connect(
+            self._request_toggle_milestone
+        )
         self._version_tree.version_export_requested.connect(self._request_export_version)
         self._version_tree.version_purge_requested.connect(self._request_purge_version)
         self._version_tree.layout_reset_requested.connect(self._request_reset_layouts)
@@ -268,6 +286,10 @@ class HyacinthMainWindow(QMainWindow):
         )
         self._workbook_preview.processing_menu_requested.connect(self._one_step_processing)
         self._editor = WorkbookEditorFrame(self._workbook_preview, workspace_root)
+        # 公式栏联动（需求第 9 节）：选中单元格实时上屏，Enter 提交写入。
+        self._workbook_preview.current_cell_changed.connect(self._editor.set_formula_cell)
+        self._workbook_preview.edit_mode_changed.connect(self._editor.set_formula_editable)
+        self._editor.formula_edit_submitted.connect(self._workbook_preview.submit_cell_text)
         self._editor.sort_requested.connect(self._quick_sort_from_table)
         self._editor.multi_sort_requested.connect(lambda: self._open_sort_dialog())
         self._editor.one_step_requested.connect(self._one_step_processing)
@@ -307,6 +329,7 @@ class HyacinthMainWindow(QMainWindow):
         self._task_bridge.event_received.connect(self._apply_apply_event)
         self._task_bridge.event_received.connect(self._apply_manual_save_event)
         self._task_bridge.event_received.connect(self._apply_in_place_event)
+        self._task_bridge.event_received.connect(self._apply_restore_event)
         self._task_bridge.event_received.connect(self._apply_checkout_event)
         self._task_bridge.event_received.connect(self._apply_delete_event)
         self._task_bridge.event_received.connect(self._apply_export_event)
@@ -327,9 +350,7 @@ class HyacinthMainWindow(QMainWindow):
         find_shortcut.activated.connect(self._open_find_replace_dialog)
         replace_shortcut = QShortcut(QKeySequence("Ctrl+H"), self)
         replace_shortcut.activated.connect(self._open_find_replace_dialog)
-        current_workbook = self._file_library.current_workbook()
-        if current_workbook is not None:
-            self._select_workbook(current_workbook)
+        self._restore_workspace_state()
 
     def _set_version_focus_mode(self, enabled: bool) -> None:
         hidden_widgets: tuple[QWidget, ...] = (
@@ -363,6 +384,20 @@ class HyacinthMainWindow(QMainWindow):
         self._focus_restore_hidden = None
 
     def _apply_initial_window_geometry(self) -> None:
+        # 优先恢复上次保存的窗口几何与最大化状态（需求第 32 节）。
+        try:
+            settings = MetadataStore(self._library_root)
+        except OSError:
+            settings = None
+        geometry_hex = settings.get_setting("workspace.window_geometry") if settings else None
+        if geometry_hex:
+            restored = self.restoreGeometry(bytes.fromhex(geometry_hex))
+            if not restored:
+                self._apply_default_window_geometry()
+            return
+        self._apply_default_window_geometry()
+
+    def _apply_default_window_geometry(self) -> None:
         screen = QGuiApplication.primaryScreen()
         if screen is None:
             self.resize(DEFAULT_WINDOW_SIZE)
@@ -372,6 +407,46 @@ class HyacinthMainWindow(QMainWindow):
         self.resize(target)
         top_left = available.center() - QPoint(target.width() // 2, target.height() // 2)
         self.move(max(available.left(), top_left.x()), max(available.top(), top_left.y()))
+
+    def _restore_workspace_state(self) -> None:
+        """启动时恢复分隔比例、当前文件与当前工作表（§32）。
+
+        预览节点不跨会话恢复：重开固定回到当前 HEAD 工作副本（可编辑，
+        DEC-20260816-040）。
+        """
+        try:
+            settings = MetadataStore(self._library_root)
+        except OSError:
+            return
+        sizes_json = settings.get_setting("workspace.splitter_sizes")
+        if sizes_json:
+            try:
+                sizes = [int(value) for value in json.loads(sizes_json)]
+            except (TypeError, ValueError):
+                sizes = []
+            if len(sizes) == 3 and all(value > 0 for value in sizes):
+                self._main_splitter.setSizes(sizes)
+        if settings.get_setting("workspace.window_maximized") == "1":
+            self.showMaximized()
+        last_file_id = settings.get_setting("workspace.current_file_id")
+        if last_file_id:
+            self._file_library.select_workbook(last_file_id)
+            selected = self._file_library.current_workbook()
+            if selected is not None and selected.file_id == last_file_id:
+                # 工作表恢复必须在第一次预览加载前就位，成功上屏即应用。
+                sheet_name = settings.get_setting("workspace.current_sheet")
+                if sheet_name:
+                    self._pending_restore_sheet = sheet_name
+                # 只恢复到当前 HEAD 工作副本（可编辑）。历史节点只读预览不跨会话
+                # 恢复——否则重开软件即被锁进只读状态，用户会误以为编辑功能失效
+                # （DEC-20260816-040）。要看历史版本时在版本树点击即可。
+                self._select_workbook(selected)
+                return
+        if self._current_workbook is None:
+            # 没有可恢复的会话时保持原行为：自动选中最近的文件。
+            current_workbook = self._file_library.current_workbook()
+            if current_workbook is not None:
+                self._select_workbook(current_workbook)
 
     def _choose_import_file(self) -> None:
         source = self._file_picker(self)
@@ -478,6 +553,10 @@ class HyacinthMainWindow(QMainWindow):
                 self._set_processing_navigation_enabled(True)
             else:
                 self._editor.clear_banner()
+                # 启动恢复：第一次正式预览上屏后回到上次查看的工作表（§32）。
+                if self._pending_restore_sheet is not None:
+                    self._workbook_preview.set_current_sheet_by_name(self._pending_restore_sheet)
+                    self._pending_restore_sheet = None
             self._preview_task_id = None
         elif event.state is TaskState.FAILED:
             self._workbook_preview.set_error(event.message or "工作簿无法打开")
@@ -1206,6 +1285,112 @@ class HyacinthMainWindow(QMainWindow):
             self._set_processing_navigation_enabled(True)
             self._restore_current_head_preview()
 
+    def _request_restore_to_version(self, file_id: str, version_id: str) -> None:
+        """恢复到此版本：复制目标内容，在当前 HEAD 后生成恢复子节点（§12/31）。"""
+        workbook = self._current_workbook
+        if workbook is None or workbook.file_id != file_id:
+            self._error_presenter(self, "请先在文件列表中选中该文件，再恢复版本")
+            return
+        head = workbook.head_version
+        if head is None or version_id == head.version_id:
+            return
+        if not self._resolve_unsaved_changes("恢复到此版本"):
+            return
+        if self._processing_result is not None:
+            self._cancel_processing_workflow(reload_base=False)
+        if self._preview_task_id is not None:
+            self._task_queue.cancel(self._preview_task_id)
+            self._preview_task_id = None
+        task_id = uuid4().hex
+        self._restore_task_id = task_id
+        self._set_processing_navigation_enabled(False)
+        self._editor.set_busy("正在创建恢复版本…")
+        self._task_queue.submit(
+            TaskRequest(
+                task_id=task_id,
+                name="恢复到此版本",
+                file_id=file_id,
+                engine=None,
+                operation=RESTORE_VERSION_OPERATION,
+                payload={
+                    "library_root": str(self._library_root),
+                    "source_version_id": version_id,
+                    "parent_version_id": head.version_id,
+                    "version_id": uuid4().hex,
+                },
+            )
+        )
+
+    def _apply_restore_event(self, event: TaskEvent) -> None:
+        if event.task_id != self._restore_task_id:
+            return
+        if event.state is TaskState.SUCCEEDED and isinstance(event.result, ImportedWorkbook):
+            self._restore_task_id = None
+            self._current_workbook = event.result
+            head = event.result.head_version
+            self._previewed_version_id = head.version_id if head is not None else None
+            self._file_library.replace_workbook(event.result)
+            self._refresh_version_canvas()
+            self._refresh_storage_stats()
+            self._set_processing_navigation_enabled(True)
+            self._load_preview(
+                event.result.working_path,
+                event.result.display_name,
+                temporary=False,
+            )
+        elif event.state in {TaskState.FAILED, TaskState.CANCELLED}:
+            self._restore_task_id = None
+            self._set_processing_navigation_enabled(True)
+            self._error_presenter(self, event.message or "恢复版本未完成")
+            self._restore_current_head_preview()
+
+    def _request_edit_version_meta(self, file_id: str, version_id: str) -> None:
+        """编辑版本名称、备注与里程碑（§14）：只改元数据，内容不可变。"""
+        try:
+            version = MetadataStore(self._library_root).get_version(file_id, version_id)
+        except ValueError as error:
+            self._error_presenter(self, str(error))
+            return
+        if version.deleted_at is not None:
+            self._error_presenter(self, "已删除版本不能编辑信息，请先恢复该版本")
+            return
+        outcome = self._version_meta_presenter(self, version.name, version.note, version.milestone)
+        if outcome is None:
+            return
+        name, note, milestone = outcome
+        try:
+            MetadataStore(self._library_root).update_version_meta(
+                file_id,
+                version_id,
+                name=name,
+                note=note,
+                milestone=milestone,
+            )
+        except ValueError as error:
+            self._error_presenter(self, str(error))
+            return
+        if self._current_workbook is not None and self._current_workbook.file_id == file_id:
+            self._refresh_version_canvas(focus_file_id=file_id, focus_version_id=version_id)
+
+    def _request_toggle_milestone(self, file_id: str, version_id: str) -> None:
+        try:
+            version = MetadataStore(self._library_root).get_version(file_id, version_id)
+        except ValueError as error:
+            self._error_presenter(self, str(error))
+            return
+        if version.deleted_at is not None:
+            self._error_presenter(self, "已删除版本不能标记里程碑，请先恢复该版本")
+            return
+        MetadataStore(self._library_root).update_version_meta(
+            file_id,
+            version_id,
+            name=version.name,
+            note=version.note,
+            milestone=not version.milestone,
+        )
+        if self._current_workbook is not None and self._current_workbook.file_id == file_id:
+            self._refresh_version_canvas(focus_file_id=file_id, focus_version_id=version_id)
+
     def _request_delete_version(self, file_id: str, version_id: str) -> None:
         workbook = self._current_workbook
         if workbook is not None and workbook.file_id != file_id:
@@ -1929,6 +2114,31 @@ class HyacinthMainWindow(QMainWindow):
         )
         return task_id
 
+    def _save_workspace_state(self) -> None:
+        """退出前保存工作区状态（需求第 32 节）。
+
+        保存窗口几何/最大化、主分隔比例、当前文件与当前工作表；
+        不保存预览节点（重开固定回到 HEAD 可编辑，DEC-20260816-040）、
+        搜索栏与设置抽屉状态。
+        """
+        try:
+            settings = MetadataStore(self._library_root)
+        except OSError:
+            return
+        geometry_bytes = bytes(self.saveGeometry().toHex().data())
+        settings.set_setting("workspace.window_geometry", geometry_bytes.decode())
+        settings.set_setting("workspace.window_maximized", "1" if self.isMaximized() else "0")
+        settings.set_setting("workspace.splitter_sizes", json.dumps(self._main_splitter.sizes()))
+        workbook = self._current_workbook
+        if self._preview_is_temporary or workbook is None:
+            # 临时预览不落为下次会话状态：回到文件维度。
+            settings.set_setting("workspace.current_file_id", "")
+            settings.set_setting("workspace.current_sheet", "")
+            return
+        settings.set_setting("workspace.current_file_id", workbook.file_id)
+        sheet_name = self._workbook_preview.current_sheet_name
+        settings.set_setting("workspace.current_sheet", sheet_name or "")
+
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._workbook_preview.pending_edits():
             choice = self._unsaved_changes_presenter(
@@ -1952,6 +2162,7 @@ class HyacinthMainWindow(QMainWindow):
                 event.ignore()
                 return
             self._workbook_preview.clear_edits()
+        self._save_workspace_state()
         if self._task_bridge.shutdown(timeout=1.0):
             self._discard_processing_result()
             self._workbook_preview.close()
@@ -2063,6 +2274,7 @@ def create_main_window(
     unsaved_changes_presenter: UnsavedChangesPresenter | None = None,
     save_as_picker: SaveAsPicker | None = None,
     export_presenter: ExportPresenter | None = None,
+    version_meta_presenter: VersionMetaPresenter | None = None,
 ) -> HyacinthMainWindow:
     handlers = conversion_task_handlers()
     handlers.update(import_task_handlers())
@@ -2075,6 +2287,7 @@ def create_main_window(
     handlers.update(find_replace_preview_handlers())
     handlers.update(apply_version_handlers())
     handlers.update(checkout_version_handlers())
+    handlers.update(restore_version_handlers())
     handlers.update(delete_version_handlers())
     handlers.update(export_version_handlers())
     handlers.update(version_storage_stats_handlers())
@@ -2090,6 +2303,7 @@ def create_main_window(
         unsaved_changes_presenter or ask_unsaved_changes,
         save_as_picker or select_export_path,
         export_presenter or show_export_success,
+        version_meta_presenter,
     )
 
 
@@ -2177,6 +2391,15 @@ def choose_replacement_version(
     if not accepted:
         return None
     return candidates[labels.index(selected)].version_id
+
+
+def ask_version_meta(
+    parent: QWidget, name: str, note: str, milestone: bool
+) -> tuple[str, str, bool] | None:
+    dialog = VersionMetaDialog(name, note, milestone, parent)
+    if dialog.exec() and dialog.result() == QDialog.DialogCode.Accepted:
+        return dialog.meta()
+    return None
 
 
 def ask_unsaved_changes(parent: QWidget, action: str, allow_in_place: bool = False) -> str:

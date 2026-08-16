@@ -21,6 +21,7 @@ from PySide6.QtGui import (
     QMouseEvent,
     QPainter,
     QPen,
+    QShortcut,
     QWheelEvent,
 )
 from PySide6.QtWidgets import (
@@ -43,6 +44,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMenu,
+    QPlainTextEdit,
     QPushButton,
     QSizePolicy,
     QStackedWidget,
@@ -243,15 +245,34 @@ QPushButton[class="ribbon-button"] {
 QPushButton[class="ribbon-button"]:hover { background: #eef4fb; border-color: #9ec4ea; }
 QPushButton[class="ribbon-button"]:pressed { background: #dcebfa; }
 QPushButton[class="ribbon-button"]:disabled { color: #9aa2ad; background: #f5f6f8; }
-QLabel#formula-name, QLabel#formula-value, QLabel#font-family-control {
+QLabel#formula-name {
     color: #4d5663;
     background: #ffffff;
     border: 1px solid #cfd5de;
     border-radius: 4px;
     padding: 4px 8px;
 }
+QLineEdit#formula-value {
+    color: #2f3640;
+    background: #ffffff;
+    border: 1px solid #cfd5de;
+    border-radius: 4px;
+    padding: 3px 8px;
+    selection-background-color: #cfe4f7;
+}
+QLineEdit#formula-value:focus { border-color: #0f6cbd; }
+QLineEdit#formula-value:disabled { color: #6b7482; background: #f6f8fb; }
 QLabel#formula-fx { color: #0f6cbd; font-family: Georgia; font-style: italic; }
-QLabel[class="format-control"] { color: #4d5663; padding: 4px 7px; }
+QPushButton[class="format-control"] {
+    color: #4d5663;
+    background: #fbfcfe;
+    border: 1px solid #c6ced9;
+    border-radius: 4px;
+    padding: 0;
+    font-size: 11px;
+}
+QPushButton#font-family-control { text-align: left; padding-left: 8px; }
+QPushButton[class="format-control"]:disabled { color: #9aa2ad; background: #f5f6f8; }
 QFrame#workbook-preview { background: #ffffff; }
 QFrame#preview-empty-card {
     min-width: 330px;
@@ -828,6 +849,9 @@ class VersionTreePanel(QFrame):
     version_position_changed = Signal(str, str, float, float)
     version_delete_requested = Signal(str, str)
     version_restore_requested = Signal(str, str)
+    version_restore_to_version_requested = Signal(str, str)
+    version_meta_edit_requested = Signal(str, str)
+    version_milestone_toggle_requested = Signal(str, str)
     version_export_requested = Signal(str, str, bool)
     version_purge_requested = Signal(str, str)
     layout_reset_requested = Signal()
@@ -1277,8 +1301,14 @@ class VersionTreePanel(QFrame):
         layout.setContentsMargins(12, 9, 12, 9)
         layout.setSpacing(3)
 
-        title = QLabel(f"已删除 · {version.name}" if is_deleted else version.name, card)
+        title = QLabel(
+            (f"已删除 · {version.name}" if is_deleted else version.name)
+            + ("  ★" if version.milestone else ""),
+            card,
+        )
         title.setObjectName("root-version-name")
+        if version.milestone:
+            title.setToolTip("里程碑版本")
         file_name = QLabel(display_name, card)
         file_name.setObjectName("root-version-file")
         file_name.setToolTip(display_name)
@@ -1309,6 +1339,8 @@ class VersionTreePanel(QFrame):
                 f"已于 {version.deleted_at.astimezone().strftime('%Y-%m-%d %H:%M')} 删除；"
                 "右键可恢复"
             )
+        elif version.note:
+            card.setToolTip(version.note)
         return card
 
     def _select_version(self, file_id: str, version_id: str) -> None:
@@ -1381,6 +1413,19 @@ class VersionTreePanel(QFrame):
                 continue_action.triggered.connect(
                     lambda: self._request_continue(file_id, version_id)
                 )
+                restore_action = menu.addAction("恢复到此版本")
+                restore_action.triggered.connect(
+                    lambda: self.version_restore_to_version_requested.emit(file_id, version_id)
+                )
+            menu.addSeparator()
+            meta_action = menu.addAction("编辑名称与备注…")
+            meta_action.triggered.connect(
+                lambda: self.version_meta_edit_requested.emit(file_id, version_id)
+            )
+            milestone_action = menu.addAction("取消里程碑" if record.milestone else "标记为里程碑")
+            milestone_action.triggered.connect(
+                lambda: self.version_milestone_toggle_requested.emit(file_id, version_id)
+            )
             menu.addSeparator()
             delete_action = menu.addAction("删除版本")
             delete_action.triggered.connect(lambda: self._request_delete(file_id, version_id))
@@ -2186,6 +2231,7 @@ class WorkbookEditorFrame(QFrame):
     deduplicate_params_confirmed = Signal(dict)
     trim_params_confirmed = Signal(dict)
     params_dismissed = Signal()
+    formula_edit_submitted = Signal(str)
 
     def __init__(self, preview: QWidget, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -2247,19 +2293,31 @@ class WorkbookEditorFrame(QFrame):
         formula_layout = QHBoxLayout(formula)
         formula_layout.setContentsMargins(6, 4, 6, 4)
         formula_layout.setSpacing(6)
-        name = QLabel("A1", formula)
-        name.setObjectName("formula-name")
-        name.setFixedWidth(70)
+        self._formula_name = QLabel("A1", formula)
+        self._formula_name.setObjectName("formula-name")
+        self._formula_name.setFixedWidth(70)
         fx = QLabel("fx", formula)
         fx.setObjectName("formula-fx")
         fx.setFixedWidth(24)
         fx.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        value = QLabel("", formula)
-        value.setObjectName("formula-value")
-        value.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        formula_layout.addWidget(name)
+        # 公式栏内容框（需求第 9 节）：显示原始公式/内容，可编辑模式下
+        # Enter 提交写入当前单元格，Esc 放弃修改。
+        self._formula_input = QLineEdit(formula)
+        self._formula_input.setObjectName("formula-value")
+        self._formula_input.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
+        self._formula_input.setEnabled(False)
+        self._formula_input.setPlaceholderText("选择单元格查看内容；编辑模式下输入后按 Enter 写入")
+        self._formula_content = ""
+        self._formula_editable = False
+        self._formula_input.returnPressed.connect(self._submit_formula)
+        formula_escape = QShortcut(QKeySequence(Qt.Key.Key_Escape), self._formula_input)
+        formula_escape.setContext(Qt.ShortcutContext.WidgetShortcut)
+        formula_escape.activated.connect(self._revert_formula)
+        formula_layout.addWidget(self._formula_name)
         formula_layout.addWidget(fx)
-        formula_layout.addWidget(value, 1)
+        formula_layout.addWidget(self._formula_input, 1)
 
         format_bar = QFrame(self)
         format_bar.setObjectName("format-bar")
@@ -2267,14 +2325,29 @@ class WorkbookEditorFrame(QFrame):
         format_layout = QHBoxLayout(format_bar)
         format_layout.setContentsMargins(7, 4, 7, 4)
         format_layout.setSpacing(3)
-        family = QLabel("Segoe UI", format_bar)
+        # 格式控件为后续版本（P2 编辑器深化）占位：按项目惯例以禁用按钮
+        # 呈现并说明开放计划，不伪装成可用功能。
+        family = QPushButton("Segoe UI", format_bar)
         family.setObjectName("font-family-control")
+        family.setProperty("class", "format-control")
         family.setFixedWidth(82)
+        family.setEnabled(False)
+        family.setToolTip("字体设置将在后续版本开放")
         format_layout.addWidget(family)
-        for text in ("11", "B", "I", "≡", "$", "%", ".00"):
-            control = QLabel(text, format_bar)
+        for text, hint in (
+            ("11", "字号设置将在后续版本开放"),
+            ("B", "加粗将在后续版本开放"),
+            ("I", "斜体将在后续版本开放"),
+            ("≡", "对齐方式将在后续版本开放"),
+            ("$", "货币格式将在后续版本开放"),
+            ("%", "百分比格式将在后续版本开放"),
+            (".00", "小数位数将在后续版本开放"),
+        ):
+            control = QPushButton(text, format_bar)
             control.setProperty("class", "format-control")
-            control.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            control.setFixedSize(30, 24)
+            control.setEnabled(False)
+            control.setToolTip(hint)
             format_layout.addWidget(control)
         format_layout.addStretch()
 
@@ -2296,6 +2369,28 @@ class WorkbookEditorFrame(QFrame):
         self._params_bar.deduplicate_confirmed.connect(self.deduplicate_params_confirmed)
         self._params_bar.trim_confirmed.connect(self.trim_params_confirmed)
         self._params_bar.dismissed.connect(self.params_dismissed)
+
+    def set_formula_cell(self, name: str, content: str) -> None:
+        """公式栏跟随当前单元格：名称 + 原始内容（公式优先）。"""
+        self._formula_name.setText(name or "—")
+        self._formula_content = content
+        if not self._formula_input.hasFocus():
+            self._formula_input.setText(content)
+        self._formula_input.setEnabled(bool(name) and self._formula_editable)
+
+    def set_formula_editable(self, editable: bool) -> None:
+        self._formula_editable = editable
+        self._formula_input.setEnabled(bool(self._formula_name.text()) and editable)
+
+    def _submit_formula(self) -> None:
+        text = self._formula_input.text()
+        if text != self._formula_content:
+            self.formula_edit_submitted.emit(text)
+        self._formula_input.clearFocus()
+
+    def _revert_formula(self) -> None:
+        self._formula_input.setText(self._formula_content)
+        self._formula_input.clearFocus()
 
     def show_deduplicate_params(self, columns: list[int]) -> None:
         self._params_bar.show_deduplicate(columns)
@@ -2510,3 +2605,59 @@ class RecycleBinDialog(QDialog):
         entry = self.selected_entry()
         self._restore.setEnabled(entry is not None)
         self._purge.setEnabled(entry is not None and entry.kind == "file")
+
+
+class VersionMetaDialog(QDialog):
+    """版本名称、备注与里程碑编辑对话框（需求第 14/41 节）。
+
+    只改元数据，Excel 内容与父子关系不可变。
+    """
+
+    def __init__(
+        self,
+        version_name: str,
+        note: str,
+        milestone: bool,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("version-meta-dialog")
+        self.setWindowTitle("编辑版本信息")
+        self.setModal(True)
+        self.setMinimumWidth(380)
+
+        form = QGridLayout(self)
+        form.setContentsMargins(16, 16, 16, 12)
+        form.setHorizontalSpacing(8)
+        form.setVerticalSpacing(8)
+        name_label = QLabel("版本名称", self)
+        name_label.setProperty("class", "form-label")
+        self._name_edit = QLineEdit(version_name, self)
+        self._name_edit.setProperty("class", "field-control")
+        self._name_edit.setAccessibleName("版本名称")
+        note_label = QLabel("备注", self)
+        note_label.setProperty("class", "form-label")
+        self._note_edit = QPlainTextEdit(note, self)
+        self._note_edit.setPlaceholderText("记录这个版本的用途或注意事项（可选）")
+        self._note_edit.setFixedHeight(72)
+        self._milestone_check = QCheckBox("标记为里程碑版本", self)
+        self._milestone_check.setChecked(milestone)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            self,
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addWidget(name_label, 0, 0)
+        form.addWidget(self._name_edit, 0, 1)
+        form.addWidget(note_label, 1, 0)
+        form.addWidget(self._note_edit, 1, 1)
+        form.addWidget(self._milestone_check, 2, 0, 1, 2)
+        form.addWidget(buttons, 3, 0, 1, 2)
+
+    def meta(self) -> tuple[str, str, bool]:
+        return (
+            self._name_edit.text().strip(),
+            self._note_edit.toPlainText().strip(),
+            self._milestone_check.isChecked(),
+        )

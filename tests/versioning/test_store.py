@@ -415,3 +415,54 @@ def test_reconcile_does_not_reactivate_soft_deleted_manifest_version(tmp_path: P
     assert store.reconcile_manifests() == 0
     assert store.get_workbook(record.file_id).head_version == root
     assert store.get_version(record.file_id, child.version_id).deleted_at is not None
+
+
+def test_update_version_meta_edits_name_note_and_milestone(tmp_path: Path) -> None:
+    record = _record(tmp_path)
+    store = MetadataStore(tmp_path)
+    store.record_import(record)
+
+    store.update_version_meta(
+        record.file_id,
+        "version-1",
+        name="  发货基线  ",
+        note="周五发布前确认",
+        milestone=True,
+    )
+
+    version = store.get_version(record.file_id, "version-1")
+    assert version.name == "发货基线"
+    assert version.note == "周五发布前确认"
+    assert version.milestone is True
+    # 内容与父子关系不受元数据编辑影响
+    assert version.content_hash == record.head_version.content_hash
+    assert version.snapshot_path == record.head_version.snapshot_path
+    assert version.parent_version_id is None
+    assert store.get_workbook(record.file_id).head_version.version_id == "version-1"
+
+
+def test_update_version_meta_rejects_blank_name_and_unknown_version(
+    tmp_path: Path,
+) -> None:
+    record = _record(tmp_path)
+    store = MetadataStore(tmp_path)
+    store.record_import(record)
+
+    with pytest.raises(ValueError, match="名称不能为空"):
+        store.update_version_meta(record.file_id, "version-1", name="   ", note="", milestone=False)
+    with pytest.raises(ValueError, match="找不到版本记录"):
+        store.update_version_meta(record.file_id, "missing", name="x", note="", milestone=False)
+    # 失败的更新不落库
+    assert store.get_version(record.file_id, "version-1").name == "导入原始文件"
+
+
+def test_app_settings_roundtrip_and_upsert(tmp_path: Path) -> None:
+    store = MetadataStore(tmp_path)
+
+    assert store.get_setting("workspace.current_sheet") is None
+    store.set_setting("workspace.current_sheet", "二月")
+    assert store.get_setting("workspace.current_sheet") == "二月"
+    store.set_setting("workspace.current_sheet", "三月")
+    assert store.get_setting("workspace.current_sheet") == "三月"
+    store.set_setting("workspace.window_maximized", "1")
+    assert store.get_setting("workspace.window_maximized") == "1"

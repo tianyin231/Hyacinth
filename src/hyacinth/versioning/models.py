@@ -18,6 +18,8 @@ class VersionRecord:
     content_hash: str
     parameters_json: str = "{}"
     deleted_at: datetime | None = None
+    note: str = ""
+    milestone: bool = False
 
 
 @dataclass(frozen=True, slots=True)

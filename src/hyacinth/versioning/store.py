@@ -40,7 +40,9 @@ CREATE TABLE IF NOT EXISTS versions (
     snapshot_path TEXT NOT NULL,
     content_hash TEXT NOT NULL,
     parameters_json TEXT NOT NULL DEFAULT '{}',
-    deleted_at TEXT
+    deleted_at TEXT,
+    note TEXT NOT NULL DEFAULT '',
+    milestone INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS versions_file_id ON versions(file_id);
 CREATE TABLE IF NOT EXISTS version_layouts (
@@ -48,6 +50,10 @@ CREATE TABLE IF NOT EXISTS version_layouts (
     x REAL NOT NULL,
     y REAL NOT NULL,
     fixed INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 """
 
@@ -86,8 +92,9 @@ class MetadataStore:
                 """
                 INSERT OR IGNORE INTO versions (
                     version_id, file_id, parent_version_id, name, created_at,
-                    operation, engine, snapshot_path, content_hash, parameters_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    operation, engine, snapshot_path, content_hash, parameters_json,
+                    note, milestone
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     version.version_id,
@@ -100,6 +107,8 @@ class MetadataStore:
                     self._relative(version.snapshot_path),
                     version.content_hash,
                     version.parameters_json,
+                    version.note,
+                    int(version.milestone),
                 ),
             )
 
@@ -115,8 +124,9 @@ class MetadataStore:
                 """
                 INSERT INTO versions (
                     version_id, file_id, parent_version_id, name, created_at,
-                    operation, engine, snapshot_path, content_hash, parameters_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    operation, engine, snapshot_path, content_hash, parameters_json,
+                    note, milestone
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     version.version_id,
@@ -129,6 +139,8 @@ class MetadataStore:
                     self._relative(version.snapshot_path),
                     version.content_hash,
                     version.parameters_json,
+                    version.note,
+                    int(version.milestone),
                 ),
             )
             updated = connection.execute(
@@ -151,7 +163,7 @@ class MetadataStore:
                     v.version_id, v.parent_version_id, v.name, v.created_at,
                     v.operation, v.engine, v.snapshot_path, v.content_hash
                     , v.parameters_json, v.deleted_at,
-                    f.imported_at, f.deleted_at
+                    f.imported_at, f.deleted_at, v.note, v.milestone
                 FROM files AS f
                 JOIN versions AS v ON v.version_id = f.head_version_id
                 WHERE f.deleted_at IS NULL
@@ -169,7 +181,7 @@ class MetadataStore:
                     v.version_id, v.parent_version_id, v.name, v.created_at,
                     v.operation, v.engine, v.snapshot_path, v.content_hash
                     , v.parameters_json, v.deleted_at,
-                    f.imported_at, f.deleted_at
+                    f.imported_at, f.deleted_at, v.note, v.milestone
                 FROM files AS f
                 JOIN versions AS v ON v.version_id = f.head_version_id
                 WHERE f.deleted_at IS NOT NULL
@@ -241,7 +253,7 @@ class MetadataStore:
                 """
                 SELECT version_id, file_id, parent_version_id, name, created_at,
                        operation, engine, snapshot_path, content_hash, parameters_json,
-                       deleted_at
+                       deleted_at, note, milestone
                 FROM versions
                 WHERE file_id = ?
                 ORDER BY created_at, version_id
@@ -256,7 +268,7 @@ class MetadataStore:
                 """
                 SELECT version_id, file_id, parent_version_id, name, created_at,
                        operation, engine, snapshot_path, content_hash, parameters_json,
-                       deleted_at
+                       deleted_at, note, milestone
                 FROM versions
                 WHERE file_id = ? AND version_id = ?
                 """,
@@ -299,6 +311,52 @@ class MetadataStore:
             if updated.rowcount != 1:
                 raise ValueError("版本内容已变化，就地修改未生效，请重试")
 
+    def update_version_meta(
+        self,
+        file_id: str,
+        version_id: str,
+        *,
+        name: str,
+        note: str,
+        milestone: bool,
+    ) -> None:
+        """修改版本名称、备注与里程碑标记（需求第 14 节）。
+
+        只改元数据：Excel 内容与父子关系保持不可变；名称不能为空。
+        """
+        trimmed = name.strip()
+        if not trimmed:
+            raise ValueError("版本名称不能为空")
+        with self._connection() as connection:
+            updated = connection.execute(
+                """
+                UPDATE versions
+                SET name = ?, note = ?, milestone = ?
+                WHERE file_id = ? AND version_id = ?
+                """,
+                (trimmed, note, int(milestone), file_id, version_id),
+            )
+            if updated.rowcount != 1:
+                raise ValueError(f"找不到版本记录：{version_id}")
+
+    def get_setting(self, key: str) -> str | None:
+        """读取工作区状态键值（需求第 32 节）；不存在返回 None。"""
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT value FROM app_settings WHERE key = ?", (key,)
+            ).fetchone()
+        return str(row[0]) if row is not None else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO app_settings (key, value) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (key, value),
+            )
+
     def switch_head(
         self,
         file_id: str,
@@ -310,7 +368,7 @@ class MetadataStore:
                 """
                 SELECT version_id, file_id, parent_version_id, name, created_at,
                        operation, engine, snapshot_path, content_hash, parameters_json,
-                       deleted_at
+                       deleted_at, note, milestone
                 FROM versions
                 WHERE file_id = ? AND version_id = ? AND deleted_at IS NULL
                 """,
@@ -485,7 +543,7 @@ class MetadataStore:
             """
             SELECT version_id, file_id, parent_version_id, name, created_at,
                    operation, engine, snapshot_path, content_hash, parameters_json,
-                   deleted_at
+                   deleted_at, note, milestone
             FROM versions WHERE file_id = ? ORDER BY created_at, version_id
             """,
             (file_id,),
@@ -629,6 +687,8 @@ class MetadataStore:
             content_hash=str(row[11]),
             parameters_json=str(row[12]),
             deleted_at=_parse_optional_datetime(row[13]),
+            note=str(row[16] or ""),
+            milestone=bool(row[17]),
         )
         return ImportedWorkbook(
             file_id=str(row[0]),
@@ -654,6 +714,8 @@ class MetadataStore:
             content_hash=str(row[8]),
             parameters_json=str(row[9]),
             deleted_at=_parse_optional_datetime(row[10]),
+            note=str(row[11] or ""),
+            milestone=bool(row[12]),
         )
 
 
@@ -753,6 +815,10 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE versions ADD COLUMN parameters_json TEXT NOT NULL DEFAULT '{}'"
         )
+    if "note" not in columns:
+        connection.execute("ALTER TABLE versions ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+    if "milestone" not in columns:
+        connection.execute("ALTER TABLE versions ADD COLUMN milestone INTEGER NOT NULL DEFAULT 0")
     if "deleted_at" not in columns:
         connection.execute("ALTER TABLE versions ADD COLUMN deleted_at TEXT")
     file_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(files)")}

@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from hyacinth.grid.model import WorkbookTableModel
+from hyacinth.grid.model import WorkbookTableModel, excel_column_name
 from hyacinth.preview.data_source import EditableGridDataSource, SqliteGridDataSource
 from hyacinth.preview.edit_session import CellEdit, EditSession
 from hyacinth.preview.index_task import WorkbookPreview
@@ -85,6 +85,9 @@ class WorkbookPreviewWidget(QFrame):
     header_multi_sort_requested = Signal(int)
     header_filter_requested = Signal(int)
     processing_menu_requested = Signal(str, list)
+    # 公式栏联动（需求第 9 节）：名称（如 B3）与原始内容（公式优先）。
+    current_cell_changed = Signal(str, str)
+    edit_mode_changed = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -92,6 +95,7 @@ class WorkbookPreviewWidget(QFrame):
         self.setMinimumWidth(320)
         self._preview: WorkbookPreview | None = None
         self._source: SqliteGridDataSource | None = None
+        self._edit_source: EditableGridDataSource | None = None
         self._editable = False
         self._edit_session = EditSession(self)
         self._edit_session.state_changed.connect(self.edit_state_changed)
@@ -261,6 +265,15 @@ class WorkbookPreviewWidget(QFrame):
             return preview.sheets[index].title
         return preview.sheets[0].title
 
+    def set_current_sheet_by_name(self, name: str) -> bool:
+        """按名称切换当前工作表（工作区状态恢复用）；不存在时返回 False。"""
+        for index in range(self._tabs.count()):
+            if self._tabs.tabText(index) == name:
+                self._tabs.setCurrentIndex(index)
+                self._show_sheet(index)
+                return True
+        return False
+
     def set_loading(self, display_name: str) -> None:
         self._close_source()
         self._preview = None
@@ -316,6 +329,7 @@ class WorkbookPreviewWidget(QFrame):
             self._state_detail.setText("请稍候")
             self._import_button.setVisible(False)
         self._stack.setCurrentIndex(0)
+        self.current_cell_changed.emit("", "")
 
     def _show_sheet(self, index: int) -> None:
         preview = self._preview
@@ -324,8 +338,10 @@ class WorkbookPreviewWidget(QFrame):
         self._close_source()
         sheet = preview.sheets[index]
         self._source = SqliteGridDataSource(preview.index_path, sheet)
+        self._edit_source = None
         if self._editable:
             source = EditableGridDataSource(self._source, self._edit_session, sheet.title)
+            self._edit_source = source
             model = WorkbookTableModel(
                 source,
                 self._table,
@@ -335,6 +351,37 @@ class WorkbookPreviewWidget(QFrame):
         else:
             model = WorkbookTableModel(self._source, self._table, editable=False)
         self._table.setModel(model)
+        selection_model = self._table.selectionModel()
+        if selection_model is not None:
+            selection_model.currentChanged.connect(lambda *_: self._emit_current_cell())
+        self._emit_current_cell()
+
+    def _emit_current_cell(self) -> None:
+        """向公式栏报告当前单元格名称与原始内容（公式优先，第 9 节）。"""
+        model = self._table.model()
+        source = self._source
+        if model is None or source is None or model.rowCount() == 0 or model.columnCount() == 0:
+            self.current_cell_changed.emit("", "")
+            return
+        index = self._table.currentIndex()
+        if not index.isValid():
+            # 打开文件后尚未选择单元格时，与 Excel 一致默认定位 A1。
+            self._table.setCurrentIndex(model.index(0, 0))
+            return
+        reader = self._edit_source if self._edit_source is not None else source
+        content = reader.edit_value_at(index.row(), index.column())
+        self.current_cell_changed.emit(
+            f"{excel_column_name(index.column())}{index.row() + 1}",
+            "" if content is None else str(content),
+        )
+
+    def submit_cell_text(self, text: str) -> None:
+        """公式栏提交：把输入文本写入当前单元格，与表格内编辑同一链路。"""
+        model = self._table.model()
+        index = self._table.currentIndex()
+        if not self._editable or model is None or not index.isValid():
+            return
+        model.setData(index, text, Qt.ItemDataRole.EditRole)
 
     def pending_edits(self) -> tuple[CellEdit, ...]:
         return self._edit_session.edits()
@@ -391,6 +438,7 @@ class WorkbookPreviewWidget(QFrame):
         )
         self._table.setAccessibleDescription(description)
         self._table.setToolTip(description)
+        self.edit_mode_changed.emit(editable)
 
     def _refresh_edited_cell(self, sheet_name: str, row: int, column: int) -> None:
         if self._tabs.tabText(self._tabs.currentIndex()) != sheet_name:
@@ -409,12 +457,17 @@ class WorkbookPreviewWidget(QFrame):
                 index,
                 [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole],
             )
+        current = self._table.currentIndex()
+        if current.isValid() and current.row() == visible_row and current.column() == column:
+            # 公式栏跟随当前单元格的内容变化（编辑/撤销/逐项替换后）。
+            self._emit_current_cell()
 
     def _close_source(self) -> None:
         previous_model = self._table.model()
         self._table.setModel(None)
         previous_source = self._source
         self._source = None
+        self._edit_source = None
         if previous_model is None or previous_source is None:
             if previous_source is not None:
                 previous_source.close()
