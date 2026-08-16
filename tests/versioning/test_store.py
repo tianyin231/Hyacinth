@@ -435,10 +435,14 @@ def test_update_version_meta_edits_name_note_and_milestone(tmp_path: Path) -> No
     assert version.note == "周五发布前确认"
     assert version.milestone is True
     # 内容与父子关系不受元数据编辑影响
-    assert version.content_hash == record.head_version.content_hash
-    assert version.snapshot_path == record.head_version.snapshot_path
+    head_version = record.head_version
+    assert head_version is not None
+    assert version.content_hash == head_version.content_hash
+    assert version.snapshot_path == head_version.snapshot_path
     assert version.parent_version_id is None
-    assert store.get_workbook(record.file_id).head_version.version_id == "version-1"
+    workbook = store.get_workbook(record.file_id)
+    assert workbook.head_version is not None
+    assert workbook.head_version.version_id == "version-1"
 
 
 def test_update_version_meta_rejects_blank_name_and_unknown_version(

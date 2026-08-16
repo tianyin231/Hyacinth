@@ -1,3 +1,6 @@
+from hyacinth.ui.compare_dialog import VersionCompareDialog
+from hyacinth.ui.function_panel import FunctionSelectionPanel, highlight_match
+from hyacinth.ui.settings_drawer import SettingsDrawer
 from hyacinth.ui.shell import (
     APP_STYLESHEET,
     ApplicationHeader,
@@ -30,14 +33,18 @@ __all__ = [
     "FileVersionTree",
     "FilterDialog",
     "FindReplaceDialog",
+    "FunctionSelectionPanel",
     "ProcessingDetailsDialog",
     "RecycleBinDialog",
     "RecycleEntry",
+    "SettingsDrawer",
     "SortDialog",
     "TrimDetailsModel",
+    "VersionCompareDialog",
     "VersionMetaDialog",
     "VersionStorageStatus",
     "VersionTreePanel",
     "WorkbookEditorFrame",
     "format_byte_size",
+    "highlight_match",
 ]

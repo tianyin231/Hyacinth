@@ -7,15 +7,26 @@ from typing import Protocol
 from uuid import uuid4
 
 from openpyxl.utils import get_column_letter
-from PySide6.QtCore import QAbstractTableModel, QPoint, QSize, QStandardPaths, Qt, QUrl
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QEvent,
+    QObject,
+    QPoint,
+    QSize,
+    QStandardPaths,
+    Qt,
+    QUrl,
+)
 from PySide6.QtGui import (
     QCloseEvent,
     QDesktopServices,
     QGuiApplication,
     QKeySequence,
+    QMouseEvent,
     QShortcut,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QFileDialog,
     QInputDialog,
@@ -92,29 +103,36 @@ from hyacinth.ui import (
     FilterDialog,
     FindDetailsModel,
     FindReplaceDialog,
+    FunctionSelectionPanel,
     ProcessingDetailsDialog,
     RecycleBinDialog,
     RecycleEntry,
+    SettingsDrawer,
     SortDialog,
     TrimDetailsModel,
+    VersionCompareDialog,
     VersionMetaDialog,
     VersionStorageStatus,
     VersionTreePanel,
     WorkbookEditorFrame,
 )
+from hyacinth.ui.compare_dialog import VIEW_MODE_SINGLE
 from hyacinth.versioning import (
     CHECKOUT_VERSION_OPERATION,
+    COMPARE_VERSIONS_OPERATION,
     DELETE_VERSION_OPERATION,
     EXPORT_VERSION_OPERATION,
     PURGE_FILE_OPERATION,
     PURGE_VERSION_OPERATION,
     RESTORE_VERSION_OPERATION,
     VERSION_STORAGE_STATS_OPERATION,
+    CompareResult,
     ExportedVersion,
     MetadataStore,
     VersionRecord,
     VersionStorageStats,
     checkout_version_handlers,
+    compare_version_handlers,
     delete_version_handlers,
     export_version_handlers,
     purge_file_handlers,
@@ -169,7 +187,7 @@ class HyacinthMainWindow(QMainWindow):
         confirmation_presenter: ConfirmationPresenter,
         version_choice_presenter: VersionChoicePresenter,
         unsaved_changes_presenter: UnsavedChangesPresenter,
-        save_as_picker: SaveAsPicker,
+        save_as_picker: SaveAsPicker | None,
         export_presenter: ExportPresenter,
         version_meta_presenter: VersionMetaPresenter | None = None,
     ) -> None:
@@ -191,7 +209,7 @@ class HyacinthMainWindow(QMainWindow):
         self._confirmation_presenter = confirmation_presenter
         self._version_choice_presenter = version_choice_presenter
         self._unsaved_changes_presenter = unsaved_changes_presenter
-        self._save_as_picker = save_as_picker
+        self._save_as_picker = save_as_picker or self._default_save_as_picker
         self._export_presenter = export_presenter
         self._version_meta_presenter = version_meta_presenter or ask_version_meta
         self._task_queue = task_queue
@@ -237,6 +255,9 @@ class HyacinthMainWindow(QMainWindow):
         self._storage_stats_task_id: str | None = None
         self._purge_task_id: str | None = None
         self._purge_version_task_id: str | None = None
+        self._compare_task_id: str | None = None
+        self._compare_dialog: VersionCompareDialog | None = None
+        self._compare_base: tuple[str, str] | None = None
         self._recycle_dialog: RecycleBinDialog | None = None
         self._focus_restore_main_sizes: list[int] | None = None
         self._focus_restore_left_sizes: list[int] | None = None
@@ -250,6 +271,8 @@ class HyacinthMainWindow(QMainWindow):
         self._command_bar.redo_requested.connect(self._workbook_preview_redo)
         self._command_bar.export_requested.connect(self._export_current_version)
         self._command_bar.recycle_requested.connect(self._open_recycle_bin)
+        self._command_bar.compare_requested.connect(self._open_compare_dialog)
+        self._command_bar.settings_requested.connect(self._toggle_settings_drawer)
         self._filter_dialog: FilterDialog | None = None
         self._find_dialog: FindReplaceDialog | None = None
         self._sort_dialog: SortDialog | None = None
@@ -274,6 +297,8 @@ class HyacinthMainWindow(QMainWindow):
         )
         self._version_tree.version_export_requested.connect(self._request_export_version)
         self._version_tree.version_purge_requested.connect(self._request_purge_version)
+        self._version_tree.version_compare_base_requested.connect(self._set_compare_base)
+        self._version_tree.version_compare_with_base_requested.connect(self._compare_with_base)
         self._version_tree.layout_reset_requested.connect(self._request_reset_layouts)
         self._workbook_preview = WorkbookPreviewWidget(workspace_root)
         self._workbook_preview.import_requested.connect(self._choose_import_file)
@@ -302,9 +327,21 @@ class HyacinthMainWindow(QMainWindow):
         self._editor.trim_params_confirmed.connect(self._confirm_trim_params)
         self._editor.params_dismissed.connect(self._editor.hide_params_bar)
 
+        # 左上“功能选择”面板（需求第 16/27 节）：搜索并直达功能区条功能。
+        self._function_panel = FunctionSelectionPanel(workspace_root)
+        self._function_panel.function_triggered.connect(self._editor.trigger_function)
+        # 左列：功能选择在上、文件列表在下，可拖动分界。
+        self._left_splitter = QSplitter(Qt.Orientation.Vertical, workspace_root)
+        self._left_splitter.setObjectName("left-column-splitter")
+        self._left_splitter.addWidget(self._function_panel)
+        self._left_splitter.addWidget(self._file_library)
+        self._left_splitter.setStretchFactor(0, 0)
+        self._left_splitter.setStretchFactor(1, 1)
+        self._left_splitter.setSizes([300, 340])
+
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal, workspace_root)
         self._main_splitter.setObjectName("main-workspace-splitter")
-        self._main_splitter.addWidget(self._file_library)
+        self._main_splitter.addWidget(self._left_splitter)
         self._main_splitter.addWidget(self._version_tree)
         self._main_splitter.addWidget(self._editor)
         self._main_splitter.setStretchFactor(0, 0)
@@ -336,6 +373,7 @@ class HyacinthMainWindow(QMainWindow):
         self._task_bridge.event_received.connect(self._apply_storage_stats_event)
         self._task_bridge.event_received.connect(self._apply_purge_event)
         self._task_bridge.event_received.connect(self._apply_purge_version_event)
+        self._task_bridge.event_received.connect(self._apply_compare_event)
         self._task_status.cancel_requested.connect(self._task_bridge.cancel)
 
         status_bar = self.statusBar()
@@ -346,8 +384,18 @@ class HyacinthMainWindow(QMainWindow):
         self._storage_status = VersionStorageStatus()
         status_bar.addPermanentWidget(self._storage_status)
         self._task_bridge.start()
+        # 设置抽屉（需求第 25 节）：覆盖右侧，点击抽屉外关闭。
+        self._settings_drawer = SettingsDrawer(self)
+        self._settings_drawer.export_directory_selected.connect(self._apply_export_directory)
+        self._settings_drawer.export_directory_reset_requested.connect(self._reset_export_directory)
+        self._settings_drawer.set_export_directory(str(self._effective_export_directory()))
+        app_instance = QApplication.instance()
+        if app_instance is not None:
+            app_instance.installEventFilter(self)
+        # Ctrl+F 按焦点区域路由（需求第 27/42/48 节）：文件列表→文件搜索，
+        # 功能选择区→功能搜索，其余（表格）→查找替换。
         find_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
-        find_shortcut.activated.connect(self._open_find_replace_dialog)
+        find_shortcut.activated.connect(self._focus_area_search)
         replace_shortcut = QShortcut(QKeySequence("Ctrl+H"), self)
         replace_shortcut.activated.connect(self._open_find_replace_dialog)
         self._restore_workspace_state()
@@ -426,6 +474,14 @@ class HyacinthMainWindow(QMainWindow):
                 sizes = []
             if len(sizes) == 3 and all(value > 0 for value in sizes):
                 self._main_splitter.setSizes(sizes)
+        left_sizes_json = settings.get_setting("workspace.left_splitter_sizes")
+        if left_sizes_json:
+            try:
+                left_sizes = [int(value) for value in json.loads(left_sizes_json)]
+            except (TypeError, ValueError):
+                left_sizes = []
+            if len(left_sizes) == 2 and all(value > 0 for value in left_sizes):
+                self._left_splitter.setSizes(left_sizes)
         if settings.get_setting("workspace.window_maximized") == "1":
             self.showMaximized()
         last_file_id = settings.get_setting("workspace.current_file_id")
@@ -503,6 +559,7 @@ class HyacinthMainWindow(QMainWindow):
         self._previewed_version_id = (
             workbook.head_version.version_id if workbook.head_version is not None else None
         )
+        self._command_bar.set_compare_enabled(self._previewed_version_id is not None)
         self.setWindowTitle(f"风信子 — {workbook.display_name}")
         self._application_header.set_document_name(workbook.display_name)
         self._refresh_version_canvas(
@@ -1773,7 +1830,7 @@ class HyacinthMainWindow(QMainWindow):
                 return
             payload["destination_path"] = str(destination)
         else:
-            payload["destination_directory"] = str(default_export_directory())
+            payload["destination_directory"] = str(self._effective_export_directory())
         task_id = uuid4().hex
         self._export_task_id = task_id
         self._task_queue.submit(
@@ -1800,6 +1857,233 @@ class HyacinthMainWindow(QMainWindow):
                 event.message
                 or ("导出已取消" if event.state is TaskState.CANCELLED else "导出失败"),
             )
+
+    # ── 设置抽屉与导出默认目录（需求第 21/25 节）──────────────────
+
+    def _default_save_as_picker(self, parent: QWidget, filename: str) -> Path | None:
+        return select_export_path(parent, filename, self._effective_export_directory())
+
+    def _effective_export_directory(self) -> Path:
+        configured = self._get_setting("settings.export_directory")
+        if configured and Path(configured).is_dir():
+            return Path(configured)
+        return default_export_directory()
+
+    def _apply_export_directory(self, directory: str) -> None:
+        candidate = Path(directory)
+        if not candidate.is_dir():
+            self._error_presenter(self, "目录不存在，无法设为导出默认目录")
+            return
+        self._set_setting("settings.export_directory", str(candidate))
+        self._settings_drawer.set_export_directory(str(candidate))
+        self.statusBar().showMessage(f"导出默认目录已设为 {candidate}", 4000)
+
+    def _reset_export_directory(self) -> None:
+        self._set_setting("settings.export_directory", "")
+        directory = default_export_directory()
+        self._settings_drawer.set_export_directory(str(directory))
+        self.statusBar().showMessage(f"导出默认目录已恢复为 {directory}", 4000)
+
+    def _set_setting(self, key: str, value: str) -> None:
+        try:
+            MetadataStore(self._library_root).set_setting(key, value)
+        except OSError:
+            pass
+
+    def _get_setting(self, key: str) -> str | None:
+        try:
+            return MetadataStore(self._library_root).get_setting(key)
+        except OSError:
+            return None
+
+    def _toggle_settings_drawer(self) -> None:
+        if self._settings_drawer.isVisible():
+            self._settings_drawer.close_drawer()
+        else:
+            # 设置与版本对比抽屉互斥，不能同时打开（用户裁定）。
+            if self._compare_dialog is not None and self._compare_dialog.isVisible():
+                self._compare_dialog.close_now()
+            self._settings_drawer.open_drawer()
+
+    def _open_compare_drawer(self) -> None:
+        # 设置与版本对比抽屉互斥，不能同时打开（用户裁定）。
+        if self._settings_drawer.isVisible():
+            self._settings_drawer.close_now()
+        drawer = self._compare_dialog
+        if drawer is not None:
+            drawer.open_drawer()
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        # 设置/对比抽屉打开时，点击抽屉外任意位置关闭（需求第 25 节）。
+        if event.type() == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
+            if self._settings_drawer.isVisible():
+                if not self._settings_drawer.hit_test(event.globalPosition().toPoint()):
+                    self._settings_drawer.close_drawer()
+                    return True
+            if self._compare_dialog is not None and self._compare_dialog.isVisible():
+                if not self._compare_dialog.hit_test(event.globalPosition().toPoint()):
+                    self._compare_dialog.close_drawer()
+                    return True
+        return super().eventFilter(obj, event)
+
+    # ── 搜索路由（需求第 27/42/48 节）─────────────────────────────
+
+    def _focus_area_search(self) -> None:
+        focus = QApplication.focusWidget()
+        if focus is not None and _widget_within(focus, self._file_library):
+            self._file_library.open_search()
+        elif focus is not None and _widget_within(focus, self._function_panel):
+            self._function_panel.focus_search()
+        else:
+            self._open_find_replace_dialog()
+
+    # ── 版本对比（需求第 13 节）───────────────────────────────────
+
+    def _open_compare_dialog(self) -> None:
+        workbook = self._current_workbook
+        if workbook is None:
+            self._error_presenter(self, "请先选择一个文件")
+            return
+        self._open_compare_dialog_for(workbook, None, None)
+
+    def _open_compare_dialog_for(
+        self,
+        workbook: ImportedWorkbook,
+        base_version_id: str | None,
+        target_version_id: str | None,
+    ) -> None:
+        try:
+            versions = MetadataStore(self._library_root).list_versions(workbook.file_id)
+        except (OSError, ValueError) as error:
+            self._error_presenter(self, str(error))
+            return
+        active = [version for version in versions if version.deleted_at is None]
+        if len(active) < 2:
+            self._error_presenter(self, "版本对比至少需要两个版本")
+            return
+        head = workbook.head_version
+        ids = {version.version_id for version in active}
+        if target_version_id is None:
+            if head is not None and head.version_id in ids:
+                target_version_id = head.version_id
+            else:
+                target_version_id = active[0].version_id
+        if base_version_id is None or base_version_id not in ids:
+            parent_id = next(
+                (
+                    version.parent_version_id
+                    for version in active
+                    if version.version_id == target_version_id
+                ),
+                None,
+            )
+            base_version_id = (
+                parent_id
+                if parent_id in ids
+                else next(
+                    version.version_id
+                    for version in active
+                    if version.version_id != target_version_id
+                )
+            )
+        if self._compare_dialog is not None:
+            self._compare_dialog.close_drawer()
+            self._compare_dialog.deleteLater()
+            self._compare_dialog = None
+        view_mode = self._get_setting("compare.view_mode") or VIEW_MODE_SINGLE
+        dialog = VersionCompareDialog(
+            self,
+            workbook.display_name,
+            active,
+            base_version_id,
+            target_version_id,
+            view_mode,
+        )
+        dialog.compare_requested.connect(
+            lambda base_id, target_id: self._request_compare(workbook.file_id, base_id, target_id)
+        )
+        dialog.view_mode_changed.connect(self._persist_compare_view_mode)
+        dialog.closed.connect(self._on_compare_closed)
+        self._compare_dialog = dialog
+        self._open_compare_drawer()
+
+    def _persist_compare_view_mode(self, mode: str) -> None:
+        self._set_setting("compare.view_mode", mode)
+
+    def _on_compare_closed(self) -> None:
+        # 抽屉关闭即视为放弃本次对比：释放对话框引用与任务 ID，避免残留状态。
+        self._compare_dialog = None
+        self._compare_task_id = None
+
+    def _set_compare_base(self, file_id: str, version_id: str) -> None:
+        try:
+            version = MetadataStore(self._library_root).get_version(file_id, version_id)
+        except (OSError, ValueError):
+            return
+        self._compare_base = (file_id, version_id)
+        self._version_tree.set_compare_base(file_id, version_id, version.name)
+        self.statusBar().showMessage(f"对比基准：{version.name}（再右键另一节点发起对比）", 5000)
+
+    def _compare_with_base(self, file_id: str, version_id: str) -> None:
+        base = self._compare_base
+        if base is None:
+            return
+        try:
+            workbook = MetadataStore(self._library_root).get_workbook(file_id)
+        except (OSError, ValueError) as error:
+            self._error_presenter(self, str(error))
+            return
+        self._open_compare_dialog_for(workbook, base[1], version_id)
+
+    def _request_compare(self, file_id: str, base_version_id: str, target_version_id: str) -> None:
+        if self._compare_task_id is not None or base_version_id == target_version_id:
+            return
+        try:
+            store = MetadataStore(self._library_root)
+            base = store.get_version(file_id, base_version_id)
+            target = store.get_version(file_id, target_version_id)
+        except (OSError, ValueError) as error:
+            self._error_presenter(self, str(error))
+            return
+        if base.deleted_at is not None or target.deleted_at is not None:
+            self._error_presenter(self, "已删除版本不能对比，请先恢复")
+            return
+        if self._compare_dialog is not None:
+            self._compare_dialog.set_busy()
+        task_id = uuid4().hex
+        self._compare_task_id = task_id
+        self._task_queue.submit(
+            TaskRequest(
+                task_id=task_id,
+                name=f"对比 {base.name} → {target.name}",
+                file_id=file_id,
+                engine=None,
+                operation=COMPARE_VERSIONS_OPERATION,
+                payload={
+                    "file_id": file_id,
+                    "base_version_id": base_version_id,
+                    "target_version_id": target_version_id,
+                    "base_path": str(base.snapshot_path),
+                    "target_path": str(target.snapshot_path),
+                },
+            )
+        )
+
+    def _apply_compare_event(self, event: TaskEvent) -> None:
+        if event.task_id != self._compare_task_id:
+            return
+        dialog = self._compare_dialog
+        if dialog is None:
+            return
+        if event.state is TaskState.SUCCEEDED and isinstance(event.result, CompareResult):
+            self._compare_task_id = None
+            dialog.set_result(event.result)
+        elif event.state in {TaskState.FAILED, TaskState.CANCELLED}:
+            self._compare_task_id = None
+            if event.state is TaskState.CANCELLED:
+                dialog.set_error("对比已取消")
+            else:
+                dialog.set_error(event.message or "对比失败")
 
     def _request_delete_file(self, workbook: ImportedWorkbook) -> None:
         if self._purge_task_id is not None:
@@ -1840,6 +2124,7 @@ class HyacinthMainWindow(QMainWindow):
         self.setWindowTitle("风信子")
         self._application_header.set_document_name(None)
         self._command_bar.set_version_available(False)
+        self._command_bar.set_compare_enabled(False)
         self._editor.clear_banner()
         self._refresh_version_canvas()
         self._workbook_preview.clear_preview()
@@ -2090,6 +2375,7 @@ class HyacinthMainWindow(QMainWindow):
         self._file_library.setEnabled(enabled)
         self._version_tree.setEnabled(enabled)
         self._editor.set_actions_enabled(enabled)
+        self._function_panel.set_actions_enabled(enabled)
 
     def submit_conversion(
         self,
@@ -2129,6 +2415,9 @@ class HyacinthMainWindow(QMainWindow):
         settings.set_setting("workspace.window_geometry", geometry_bytes.decode())
         settings.set_setting("workspace.window_maximized", "1" if self.isMaximized() else "0")
         settings.set_setting("workspace.splitter_sizes", json.dumps(self._main_splitter.sizes()))
+        settings.set_setting(
+            "workspace.left_splitter_sizes", json.dumps(self._left_splitter.sizes())
+        )
         workbook = self._current_workbook
         if self._preview_is_temporary or workbook is None:
             # 临时预览不落为下次会话状态：回到文件维度。
@@ -2293,6 +2582,7 @@ def create_main_window(
     handlers.update(version_storage_stats_handlers())
     handlers.update(purge_file_handlers())
     handlers.update(purge_version_handlers())
+    handlers.update(compare_version_handlers())
     return HyacinthMainWindow(
         task_queue or TaskQueue(handlers),
         library_root or default_library_root(),
@@ -2312,6 +2602,16 @@ def default_library_root() -> Path:
     return Path(documents) / "Hyacinth"
 
 
+def _widget_within(widget: QWidget, ancestor: QWidget) -> bool:
+    """widget 是否位于 ancestor 的可视化层级内（含自身）。"""
+    node: QWidget | None = widget
+    while node is not None:
+        if node is ancestor:
+            return True
+        node = node.parentWidget()
+    return False
+
+
 def default_export_directory() -> Path:
     downloads = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DownloadLocation)
     return Path(downloads) if downloads else Path.home() / "Downloads"
@@ -2327,8 +2627,12 @@ def select_workbook_file(parent: QWidget) -> Path | None:
     return Path(file_name) if file_name else None
 
 
-def select_export_path(parent: QWidget, filename: str) -> Path | None:
-    initial = default_export_directory() / filename
+def select_export_path(
+    parent: QWidget,
+    filename: str,
+    directory: Path | None = None,
+) -> Path | None:
+    initial = (directory or default_export_directory()) / filename
     file_name, _selected_filter = QFileDialog.getSaveFileName(
         parent,
         "另存版本为",

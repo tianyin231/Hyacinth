@@ -143,6 +143,15 @@ QComboBox[class="field-control"]:disabled, QLineEdit[class="field-control"]:disa
 QComboBox[class="field-control"]:focus, QLineEdit[class="field-control"]:focus {
     border: 2px solid #0f6cbd;
 }
+QComboBox[class="field-control"]::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 20px;
+    border-left: 1px solid #dfe3e8;
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+    background: #fbfcfe;
+}
 QListWidget#deduplicate-key-columns, QListWidget#blank-rows-key-columns {
     color: #343a45;
     background: #ffffff;
@@ -365,6 +374,126 @@ QLabel#storage-format-pill {
     font-weight: 650;
 }
 QLabel#storage-size-text { color: #5c6370; font-size: 12px; }
+
+/* ── 左上“功能选择”面板与搜索（第 16/27 节）──────────────────── */
+QFrame#function-selection { background: #fbfcfe; border-right: 1px solid #e2e6ec; }
+QLineEdit#function-search-input, QLineEdit#library-search-input {
+    color: #2f3640;
+    background: #ffffff;
+    border: 1px solid #cfd5de;
+    border-radius: 4px;
+    padding: 3px 8px;
+    margin: 6px 8px 2px 8px;
+}
+QLineEdit#function-search-input:focus, QLineEdit#library-search-input:focus {
+    border: 1px solid #0f6cbd;
+}
+QListWidget#function-list {
+    color: #343a45;
+    background: transparent;
+    border: 0;
+    padding: 5px 6px;
+    outline: 0;
+}
+QListWidget#function-list::item { border-radius: 5px; }
+QListWidget#function-list::item:selected {
+    background: #e5f2fb;
+    border-left: 2px solid #0f6cbd;
+}
+QLabel[class="function-entry"] { padding: 5px 9px; }
+QLabel[class="function-entry disabled"] { color: #9aa2ad; }
+QLabel#function-empty-state {
+    color: #8b93a0;
+    background: #f7f9fc;
+    padding: 24px 12px;
+}
+QPushButton#library-search-toggle, QPushButton#library-search-close {
+    color: #4d5663;
+    background: #fbfcfe;
+    border: 1px solid #c6ced9;
+    border-radius: 4px;
+    font-size: 12px;
+}
+QPushButton#library-search-toggle:hover, QPushButton#library-search-close:hover {
+    background: #eef3f9;
+}
+QLabel[class="library-file-entry"] { padding: 11px 9px; }
+
+/* ── 设置抽屉（第 25 节）──────────────────────────────────────── */
+QFrame#settings-drawer {
+    background: #f8fafc;
+    border-left: 1px solid #c9d2dd;
+}
+QFrame#settings-drawer-header {
+    background: #eef2f7;
+    border-bottom: 1px solid #d8dde5;
+}
+QLabel#settings-drawer-title { color: #2f3640; font-size: 14px; font-weight: 650; }
+QGroupBox#settings-group {
+    color: #343a45;
+    border: 1px solid #dde3ea;
+    border-radius: 6px;
+    margin-top: 12px;
+    padding-top: 6px;
+}
+QGroupBox#settings-group::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 4px;
+    color: #0b5a9d;
+    font-weight: 650;
+}
+
+/* ── 版本对比抽屉（第 13 节，与设置抽屉同一视觉语言）───────────── */
+QFrame#compare-drawer {
+    background: #f8fafc;
+    border-left: 1px solid #c9d2dd;
+}
+QFrame#compare-drawer-header {
+    background: #eef2f7;
+    border-bottom: 1px solid #d8dde5;
+}
+QLabel#compare-drawer-title { color: #2f3640; font-size: 14px; font-weight: 650; }
+QPushButton#compare-close-button, QPushButton#settings-close-button {
+    color: #4d5663;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    font-size: 14px;
+}
+QPushButton#compare-close-button:hover, QPushButton#settings-close-button:hover {
+    background: #e4e9f0;
+    border-color: #c6ced9;
+}
+QLabel#compare-status-label { color: #5f6977; font-size: 12px; }
+QLabel#compare-side-label { color: #4d5663; font-size: 11px; font-weight: 600; }
+QLabel[class="compare-field-label"] { color: #5e6876; font-size: 12px; }
+QFrame#compare-controls { background: #f3f6fa; border-bottom: 1px solid #e0e4ea; }
+QFrame#compare-controls QComboBox[class="field-control"] { min-height: 28px; }
+QPushButton#compare-run-button {
+    min-height: 28px;
+    padding: 0 14px;
+    color: #ffffff;
+    background: #0f6cbd;
+    border: 1px solid #0f6cbd;
+    border-radius: 6px;
+    font-weight: 600;
+}
+QPushButton#compare-run-button:hover { background: #115ea3; }
+QPushButton#compare-run-button:pressed { background: #0c3b5e; }
+QPushButton#compare-run-button:focus { border: 2px solid #ffffff; }
+QFrame#compare-drawer QTableView, QFrame#compare-drawer QTableWidget {
+    color: #20242b;
+    background: #ffffff;
+    gridline-color: #e3e7ec;
+    border: 1px solid #d8dde5;
+    border-radius: 4px;
+    selection-background-color: #dceefb;
+    selection-color: #20242b;
+}
+QFrame#compare-drawer QTableView:focus, QFrame#compare-drawer QTableWidget:focus {
+    border: 2px solid #0f6cbd;
+}
 """
 
 VERSION_CANVAS_RECT = QRectF(-5000.0, -5000.0, 10000.0, 10000.0)
@@ -448,6 +577,8 @@ class CommandBar(QFrame):
     redo_requested = Signal()
     export_requested = Signal()
     recycle_requested = Signal()
+    compare_requested = Signal()
+    settings_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -480,18 +611,20 @@ class CommandBar(QFrame):
         self._redo_button.setShortcut(QKeySequence.StandardKey.Redo)
         self._redo_button.setToolTip("重做当前编辑会话中的修改 (Ctrl+Y)")
         self._redo_button.clicked.connect(self.redo_requested)
-        compare_button = _tool_button(
+        self._compare_button = _tool_button(
             "对比版本", "toolbar-compare-button", self, enabled=False, icon="compare"
         )
         self._recycle_button = _tool_button("回收站", "toolbar-recycle-button", self, icon="trash")
-        settings_button = _tool_button(
-            "设置", "toolbar-settings-button", self, enabled=False, icon="settings"
+        self._settings_button = _tool_button(
+            "设置", "toolbar-settings-button", self, icon="settings"
         )
-        compare_button.setToolTip("版本对比将在后续节点开放")
+        self._compare_button.setToolTip("对比同一文件的两个版本差异")
+        self._compare_button.clicked.connect(self.compare_requested)
         self._recycle_button.setToolTip("查看回收站中的文件，恢复或永久删除")
         self._recycle_button.setAccessibleName("打开文件回收站")
         self._recycle_button.clicked.connect(self.recycle_requested)
-        settings_button.setToolTip("设置将在后续节点开放")
+        self._settings_button.setToolTip("打开设置")
+        self._settings_button.clicked.connect(self.settings_requested)
 
         divider = QFrame(self)
         divider.setObjectName("toolbar-divider")
@@ -508,11 +641,11 @@ class CommandBar(QFrame):
         layout.addWidget(divider)
         layout.addWidget(self._undo_button)
         layout.addWidget(self._redo_button)
-        layout.addWidget(compare_button)
+        layout.addWidget(self._compare_button)
         layout.addWidget(self._recycle_button)
         layout.addStretch()
         layout.addWidget(mode)
-        layout.addWidget(settings_button)
+        layout.addWidget(self._settings_button)
 
     def set_edit_state(self, dirty: bool, can_undo: bool, can_redo: bool) -> None:
         self._save_button.setEnabled(dirty)
@@ -521,6 +654,10 @@ class CommandBar(QFrame):
 
     def set_version_available(self, available: bool) -> None:
         self._export_button.setEnabled(available)
+
+    def set_compare_enabled(self, available: bool) -> None:
+        """对比入口：同一文件选中即可用（不需要已加载预览）。"""
+        self._compare_button.setEnabled(available)
 
 
 class DuplicateMappingModel(QAbstractTableModel):
@@ -854,12 +991,17 @@ class VersionTreePanel(QFrame):
     version_milestone_toggle_requested = Signal(str, str)
     version_export_requested = Signal(str, str, bool)
     version_purge_requested = Signal(str, str)
+    version_compare_base_requested = Signal(str, str)
+    version_compare_with_base_requested = Signal(str, str)
     layout_reset_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("version-tree-panel")
         self.setMinimumWidth(280)
+        # 对比基准（需求第 13 节）：右键设基准，再右键另一节点发起对比。
+        self._compare_base_key: tuple[str, str] | None = None
+        self._compare_base_name: str | None = None
 
         search = QLineEdit(self)
         search.setObjectName("version-search")
@@ -1384,6 +1526,11 @@ class VersionTreePanel(QFrame):
             return
         self.version_export_requested.emit(file_id, version_id, save_as)
 
+    def set_compare_base(self, file_id: str, version_id: str, name: str) -> None:
+        """记录对比基准，供右键菜单“与基准对比…”使用。"""
+        self._compare_base_key = (file_id, version_id)
+        self._compare_base_name = name
+
     def _restore_recently_deleted(self) -> None:
         if self._recently_deleted_key is not None:
             self.version_restore_requested.emit(*self._recently_deleted_key)
@@ -1416,6 +1563,20 @@ class VersionTreePanel(QFrame):
                 restore_action = menu.addAction("恢复到此版本")
                 restore_action.triggered.connect(
                     lambda: self.version_restore_to_version_requested.emit(file_id, version_id)
+                )
+            compare_base = menu.addAction("设为对比基准")
+            compare_base.triggered.connect(
+                lambda: self.version_compare_base_requested.emit(file_id, version_id)
+            )
+            base_key = self._compare_base_key
+            if (
+                base_key is not None
+                and base_key != (file_id, version_id)
+                and base_key[0] == file_id
+            ):
+                with_base = menu.addAction(f"与基准“{self._compare_base_name}”对比…")
+                with_base.triggered.connect(
+                    lambda: self.version_compare_with_base_requested.emit(file_id, version_id)
                 )
             menu.addSeparator()
             meta_action = menu.addAction("编辑名称与备注…")
@@ -2423,6 +2584,22 @@ class WorkbookEditorFrame(QFrame):
             self._find,
         ):
             button.setEnabled(enabled)
+
+    def trigger_function(self, action_id: str) -> None:
+        """左上“功能选择”面板入口：与功能区条按钮完全同链路触发。"""
+        buttons = {
+            "sort-asc": self._sort_asc,
+            "sort-desc": self._sort_desc,
+            "multi-sort": self._multi_sort,
+            "filter": self._filter,
+            "deduplicate": self._deduplicate,
+            "blank-rows": self._blank_rows,
+            "trim": self._trim,
+            "find-replace": self._find,
+        }
+        button = buttons.get(action_id)
+        if button is not None and button.isEnabled():
+            button.click()
 
     def set_pending_edit_count(self, count: int) -> None:
         """未保存编辑脏标记：0 隐藏，否则显示“N 处未保存编辑”。"""

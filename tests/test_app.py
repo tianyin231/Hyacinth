@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
+from typing import Any
 
 import pytest
 from openpyxl import Workbook
@@ -52,9 +53,10 @@ from hyacinth.processing import (
     run_sort_preview_task,
 )
 from hyacinth.tasks import TaskEvent, TaskRequest, TaskState, TaskStatusWidget
-from hyacinth.ui import VersionTreePanel, format_byte_size
+from hyacinth.ui import FindReplaceDialog, VersionCompareDialog, VersionTreePanel, format_byte_size
 from hyacinth.versioning import (
     CHECKOUT_VERSION_OPERATION,
+    COMPARE_VERSIONS_OPERATION,
     DELETE_VERSION_OPERATION,
     EXPORT_VERSION_OPERATION,
     RESTORE_VERSION_OPERATION,
@@ -62,6 +64,7 @@ from hyacinth.versioning import (
     MetadataStore,
     VersionRecord,
     run_checkout_version_task,
+    run_compare_versions_task,
     run_delete_version_task,
     run_export_version_task,
     run_restore_version_task,
@@ -288,9 +291,14 @@ def test_main_window_matches_approved_workspace_shell(qtbot: QtBot, tmp_path: Pa
     assert _child(window, QFrame, "formula-bar").isEnabled()
     assert _child(window, QFrame, "format-bar").isEnabled()
     assert main_splitter.count() == 3
-    # 处理功能入口随功能区条位于右侧编辑区内，左侧只保留文件列表
+    # 处理功能入口随功能区条位于右侧编辑区内；左列 = “功能选择”面板在上、
+    # 文件列表在下的垂直分隔（需求第 16/27 节）。
     assert _child(window, QFrame, "editor-ribbon").parent() is editor_frame
-    assert file_library.parent() is main_splitter
+    left_splitter = _child(window, QSplitter, "left-column-splitter")
+    assert file_library.parent() is left_splitter
+    assert left_splitter.parent() is main_splitter
+    assert main_splitter.widget(0) is left_splitter
+    assert _child(window, QFrame, "function-selection").parent() is left_splitter
     assert import_button_parent is not None
     assert import_button_parent.objectName() == "top-toolbar"
     assert import_button.minimumHeight() >= 30
@@ -2254,7 +2262,8 @@ def test_restore_to_version_creates_recovery_child_node(
     child_sheet = child_workbook.active
     assert child_sheet is not None
     child_sheet.title = "销售"
-    for row in [["名称", "数量"], ["apple", 2], ["banana", 1]]:
+    child_rows: list[list[Any]] = [["名称", "数量"], ["apple", 2], ["banana", 1]]
+    for row in child_rows:
         child_sheet.append(row)
     child_workbook.save(child_snapshot)
     child_workbook.close()
@@ -2418,3 +2427,370 @@ def test_workspace_state_persists_and_restores(qtbot: QtBot, tmp_path: Path) -> 
     assert reopened._main_splitter.sizes() == saved_sizes
     # 重开回到 HEAD：公式栏输入框应可用（可编辑）。
     qtbot.waitUntil(lambda: _child(reopened, QLineEdit, "formula-value").isEnabled(), timeout=500)
+
+
+def test_function_panel_left_top_triggers_find_replace(qtbot: QtBot, tmp_path: Path) -> None:
+    library_root = tmp_path / "library"
+    _seed_versioned_workbook(library_root)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+
+    # 左上“功能选择”区存在，常态可点（与功能区条一致）。
+    panel = window._function_panel
+    assert panel._enabled
+    _serve_preview(qtbot, window, task_queue)
+
+    # 搜索“查找替换”→ 仅一项且高亮 → 点击触发打开对话框（与功能区条同链路）。
+    panel._search_input.setText("查找替换")
+    panel._apply_filter()
+    listing = panel.findChild(QListWidget, "function-list")
+    assert listing is not None
+    assert listing.count() == 1
+    item = listing.item(0)
+    assert item is not None
+    listing.itemClicked.emit(item)
+    qtbot.waitUntil(lambda: window.findChild(FindReplaceDialog) is not None, timeout=500)
+
+
+def test_settings_drawer_export_directory_persists_and_applies(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window, default_export_directory
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    _serve_preview(qtbot, window, task_queue)
+
+    export_dir = tmp_path / "exports"
+    export_dir.mkdir()
+    window._apply_export_directory(str(export_dir))
+    assert MetadataStore(library_root).get_setting("settings.export_directory") == str(export_dir)
+    assert window._settings_drawer._export_input.text() == str(export_dir)
+    assert window._effective_export_directory() == export_dir
+
+    # 无“另存为”的导出请求使用该目录。
+    root = record.head_version
+    assert root is not None
+    request_count = len(task_queue.submitted)
+    window._request_export_version(record.file_id, root.version_id, False)
+    export_request = task_queue.submitted[-1]
+    assert len(task_queue.submitted) == request_count + 1
+    assert export_request.payload["destination_directory"] == str(export_dir)
+
+    # 恢复默认目录。
+    window._reset_export_directory()
+    assert MetadataStore(library_root).get_setting("settings.export_directory") == ""
+    assert window._settings_drawer._export_input.text() == str(default_export_directory())
+
+
+def test_compare_versions_dialog_end_to_end(qtbot: QtBot, tmp_path: Path) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    root = record.head_version
+    assert root is not None
+    # 子版本内容与根版本不同：apple 行数量 2 → 5。
+    child_book = Workbook()
+    sheet = child_book.active
+    assert sheet is not None
+    sheet.title = "销售"
+    rows: list[list[Any]] = [["名称", "数量"], ["apple", 5], ["banana", 1]]
+    for row in rows:
+        sheet.append(row)
+    child_snapshot = library_root / "files/file-1/versions/version-2/snapshot.xlsx"
+    child_snapshot.parent.mkdir(parents=True)
+    child_book.save(child_snapshot)
+    child_book.close()
+    child = VersionRecord(
+        "version-2",
+        record.file_id,
+        root.version_id,
+        "手动编辑",
+        datetime(2026, 8, 15, 9, 0, tzinfo=UTC),
+        "manual",
+        EngineName.PYTHON,
+        child_snapshot,
+        sha256(child_snapshot.read_bytes()).hexdigest(),
+    )
+    store = MetadataStore(library_root)
+    store.record_child_version(child, root.version_id)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    _serve_preview(qtbot, window, task_queue)
+    qtbot.waitUntil(lambda: _child(window, QPushButton, "toolbar-compare-button").isEnabled())
+
+    window._open_compare_dialog()
+    dialog = window.findChild(VersionCompareDialog)
+    assert dialog is not None
+    # 默认：基准 = HEAD 的父版本，目标 = HEAD。
+    assert dialog.base_version_id() == root.version_id
+    assert dialog.target_version_id() == child.version_id
+
+    dialog.compare_requested.emit(root.version_id, child.version_id)
+    compare_request = task_queue.submitted[-1]
+    assert compare_request.operation == COMPARE_VERSIONS_OPERATION
+    assert compare_request.payload["base_path"] == str(root.snapshot_path)
+    assert compare_request.payload["target_path"] == str(child.snapshot_path)
+
+    result = run_compare_versions_task(compare_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            task_id=compare_request.task_id,
+            state=TaskState.SUCCEEDED,
+            name=compare_request.name,
+            file_id=record.file_id,
+            engine=None,
+            result=result,
+        )
+    )
+    qtbot.waitUntil(lambda: dialog._status_label.text() == "共 1 处差异", timeout=2000)
+    assert dialog._sheet_list.rowCount() == 1
+
+    # 切换查看方式并持久化；重开对话框恢复该方式（需求第 13 节）。
+    dialog._side_button.setChecked(True)
+    qtbot.waitUntil(
+        lambda: MetadataStore(library_root).get_setting("compare.view_mode") == "side-by-side"
+    )
+    dialog.close()
+    window._open_compare_dialog()
+    reopened = window.findChild(VersionCompareDialog)
+    assert reopened is not None
+    assert reopened.view_mode() == "side-by-side"
+
+
+def test_compare_dialog_ignores_queued_event(qtbot: QtBot, tmp_path: Path) -> None:
+    """真实 TaskQueue.submit 会先生成 QUEUED 事件；_apply_compare_event 不得把它误判为失败。
+
+    回归：此前 _apply_compare_event 对非终态事件直接走 else 分支，导致点“开始对比”
+    一提交就被 QUEUED 事件显示“对比失败”并清空任务 ID（用户实机“版本比对失败”）。
+    本测试模拟真实事件序列：QUEUED → RUNNING → SUCCEEDED。
+    """
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    root = record.head_version
+    assert root is not None
+    child_book = Workbook()
+    sheet = child_book.active
+    assert sheet is not None
+    sheet.title = "销售"
+    rows: list[list[Any]] = [["名称", "数量"], ["apple", 5], ["banana", 1]]
+    for row in rows:
+        sheet.append(row)
+    child_snapshot = library_root / "files/file-1/versions/version-2/snapshot.xlsx"
+    child_snapshot.parent.mkdir(parents=True)
+    child_book.save(child_snapshot)
+    child_book.close()
+    child = VersionRecord(
+        "version-2",
+        record.file_id,
+        root.version_id,
+        "手动编辑",
+        datetime(2026, 8, 15, 9, 0, tzinfo=UTC),
+        "manual",
+        EngineName.PYTHON,
+        child_snapshot,
+        sha256(child_snapshot.read_bytes()).hexdigest(),
+    )
+    store = MetadataStore(library_root)
+    store.record_child_version(child, root.version_id)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    _serve_preview(qtbot, window, task_queue)
+
+    window._open_compare_dialog()
+    dialog = window.findChild(VersionCompareDialog)
+    assert dialog is not None
+
+    dialog.compare_requested.emit(root.version_id, child.version_id)
+    compare_request = task_queue.submitted[-1]
+    assert compare_request.operation == COMPARE_VERSIONS_OPERATION
+
+    # 真实 TaskQueue.submit 会先派发 QUEUED（随后 RUNNING/SCCEEDED）。
+    # 修复前：QUEUED 就会把状态置成“对比失败”并清空 _compare_task_id。
+    for state in (TaskState.QUEUED, TaskState.RUNNING):
+        task_queue.push_event(
+            TaskEvent(
+                task_id=compare_request.task_id,
+                state=state,
+                name=compare_request.name,
+                file_id=record.file_id,
+                engine=None,
+            )
+        )
+    # 等这两条非终态事件被窗口消费（TaskQueueBridge QTimer 轮询）。
+    qtbot.wait(150)
+    assert dialog._status_label.text() != "对比失败"
+    assert window._compare_task_id is not None
+
+    result = run_compare_versions_task(compare_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            task_id=compare_request.task_id,
+            state=TaskState.SUCCEEDED,
+            name=compare_request.name,
+            file_id=record.file_id,
+            engine=None,
+            result=result,
+        )
+    )
+    qtbot.waitUntil(lambda: dialog._status_label.text() == "共 1 处差异", timeout=2000)
+    assert window._compare_task_id is None
+    assert dialog._sheet_list.rowCount() == 1
+
+
+def test_settings_and_compare_drawers_are_exclusive(qtbot: QtBot, tmp_path: Path) -> None:
+    """设置抽屉与版本对比抽屉互斥：打开一个时自动关闭另一个（用户裁定）。"""
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    root = record.head_version
+    assert root is not None
+    child_book = Workbook()
+    sheet = child_book.active
+    assert sheet is not None
+    sheet.title = "销售"
+    child_rows: list[list[Any]] = [["名称", "数量"], ["apple", 5], ["banana", 1]]
+    for row in child_rows:
+        sheet.append(row)
+    child_snapshot = library_root / "files/file-1/versions/version-2/snapshot.xlsx"
+    child_snapshot.parent.mkdir(parents=True)
+    child_book.save(child_snapshot)
+    child_book.close()
+    child = VersionRecord(
+        "version-2",
+        record.file_id,
+        root.version_id,
+        "手动编辑",
+        datetime(2026, 8, 15, 9, 0, tzinfo=UTC),
+        "manual",
+        EngineName.PYTHON,
+        child_snapshot,
+        sha256(child_snapshot.read_bytes()).hexdigest(),
+    )
+    store = MetadataStore(library_root)
+    store.record_child_version(child, root.version_id)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    _serve_preview(qtbot, window, task_queue)
+
+    # 先打开设置抽屉，再打开对比：设置应被关闭，对比应打开。
+    window._toggle_settings_drawer()
+    assert window._settings_drawer.isVisible()
+    window._open_compare_dialog()
+    qtbot.waitUntil(lambda: window.findChild(VersionCompareDialog) is not None, timeout=500)
+    assert window._settings_drawer.isVisible() is False
+    assert window._compare_dialog is not None
+    assert window._compare_dialog.isVisible()
+
+    # 再打开设置：对比应被关闭（并清理引用），设置应打开。
+    window._toggle_settings_drawer()
+    assert window._compare_dialog is None
+    assert window._settings_drawer.isVisible()
+
+    # 清理对比抽屉关闭态，避免残留。
+    window._settings_drawer.close_drawer()
+
+
+def test_compare_side_by_side_highlights_diffs_and_shows_detail(
+    qtbot: QtBot, tmp_path: Path
+) -> None:
+    """左右并排视图对差异单元格用绿/红/黄高亮，点击差异格显示修改前后。"""
+    from hyacinth.ui.compare_dialog import _SnapshotGridModel
+
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    root = record.head_version
+    assert root is not None
+    child_book = Workbook()
+    sheet = child_book.active
+    assert sheet is not None
+    sheet.title = "销售"
+    child_rows2: list[list[Any]] = [["名称", "数量"], ["apple", 5], ["banana", 1]]
+    for row in child_rows2:
+        sheet.append(row)
+    child_snapshot = library_root / "files/file-1/versions/version-2/snapshot.xlsx"
+    child_snapshot.parent.mkdir(parents=True)
+    child_book.save(child_snapshot)
+    child_book.close()
+    child = VersionRecord(
+        "version-2",
+        record.file_id,
+        root.version_id,
+        "手动编辑",
+        datetime(2026, 8, 15, 9, 0, tzinfo=UTC),
+        "manual",
+        EngineName.PYTHON,
+        child_snapshot,
+        sha256(child_snapshot.read_bytes()).hexdigest(),
+    )
+    store = MetadataStore(library_root)
+    store.record_child_version(child, root.version_id)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    _serve_preview(qtbot, window, task_queue)
+
+    window._open_compare_dialog()
+    dialog = window.findChild(VersionCompareDialog)
+    assert dialog is not None
+
+    dialog.compare_requested.emit(root.version_id, child.version_id)
+    compare_request = task_queue.submitted[-1]
+    assert compare_request.operation == COMPARE_VERSIONS_OPERATION
+    result = run_compare_versions_task(compare_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            task_id=compare_request.task_id,
+            state=TaskState.SUCCEEDED,
+            name=compare_request.name,
+            file_id=record.file_id,
+            engine=None,
+            result=result,
+        )
+    )
+    qtbot.waitUntil(lambda: dialog._status_label.text() == "共 1 处差异", timeout=2000)
+
+    # 切到左右并排。
+    dialog._side_button.setChecked(True)
+    assert dialog._stack.currentIndex() == 1
+
+    base_model = dialog._base_view.model()
+    target_model = dialog._target_view.model()
+    assert isinstance(base_model, _SnapshotGridModel)
+    assert isinstance(target_model, _SnapshotGridModel)
+
+    # 数量列 B2 在目标侧变成 5（修改），两模型都应高亮该差异格。
+    from PySide6.QtCore import Qt as _Qt
+
+    target_diff_index = target_model.index(1, 1)  # B2（行 2、列 2 → 0-based 1,1）
+    background = target_model.data(target_diff_index, role=_Qt.ItemDataRole.BackgroundRole)
+    assert background is not None, "并排目标网格应对修改单元格返回差异背景色"
+
+    # 点击目标侧差异格，底部详情显示修改前后（经 clicked 信号，sender 为视图）。
+    dialog._target_view.clicked.emit(target_diff_index)
+    assert dialog._detail_ref.text() == "B2"
+    assert dialog._detail_kind.text() == "修改"
+    assert "2" in dialog._detail_base.text()
+    assert "5" in dialog._detail_target.text()

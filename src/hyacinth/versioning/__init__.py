@@ -4,6 +4,14 @@ from hyacinth.versioning.checkout_task import (
     checkout_version_task,
     run_checkout_version_task,
 )
+from hyacinth.versioning.compare_task import (
+    COMPARE_VERSIONS_OPERATION,
+    CellDiff,
+    CompareResult,
+    SheetDiff,
+    compare_version_handlers,
+    run_compare_versions_task,
+)
 from hyacinth.versioning.delete_task import (
     DELETE_VERSION_OPERATION,
     delete_version_handlers,
@@ -57,6 +65,9 @@ from hyacinth.versioning.store import (
 
 __all__ = [
     "CHECKOUT_VERSION_OPERATION",
+    "COMPARE_VERSIONS_OPERATION",
+    "CellDiff",
+    "CompareResult",
     "DELETE_VERSION_OPERATION",
     "EXPORT_VERSION_OPERATION",
     "PURGE_FILE_OPERATION",
@@ -68,12 +79,14 @@ __all__ = [
     "MetadataStore",
     "PurgedFile",
     "PurgedVersion",
+    "SheetDiff",
     "VersionDeletionPlan",
     "VersionLayout",
     "VersionRecord",
     "VersionStorageStats",
     "checkout_version_handlers",
     "checkout_version_task",
+    "compare_version_handlers",
     "delete_version_handlers",
     "delete_version_task",
     "export_version_handlers",
@@ -84,6 +97,7 @@ __all__ = [
     "purge_file_task",
     "read_recovery_manifest",
     "run_checkout_version_task",
+    "run_compare_versions_task",
     "run_delete_version_task",
     "run_export_version_task",
     "run_purge_file_task",
