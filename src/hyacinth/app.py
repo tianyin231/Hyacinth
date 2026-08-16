@@ -804,7 +804,7 @@ class HyacinthMainWindow(QMainWindow):
             self._application_header.set_document_name(target.display_name)
             self._function_panel.clear_workbook()
             self._editor.set_temporary_result(False)
-            self._refresh_version_canvas()
+            self._refresh_version_canvas(focus_file_id=file_id, focus_version_id=version_id)
             workbook = target
         elif version_id != self._previewed_version_id and not self._resolve_unsaved_changes(
             "切换版本"

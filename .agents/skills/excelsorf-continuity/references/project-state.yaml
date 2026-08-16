@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-16T16:40:52+08:00"
+updated_at: "2026-08-16T16:48:30+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -274,6 +274,8 @@ last_completed:
   - "用户复验反馈三项：模式切换重置画布、专注下快速切换卡死、从此继续后画布乱；修复为模式切换只显隐泳道不重建场景，视口零位移，退役场景保留上限 3 个"
   - "修复固定中间节点导致自动排布 KeyError：以最近固定祖先为边界独立排布自动子树，该问题曾使真实文件库启动即崩溃"
   - "新增画布布局记忆：重建画布时已有节点沿用上次位置，新节点按树形算法插入并避让，泳道宽高按实际占用计算；从此继续/新增分支不再推动未固定节点，只有手动重整布局才整体重排（DEC-20260816-032）"
+  - "用户复验布局记忆生效；改进泳道变动观感：宽高预留增长空间（新增分支不再推挤后续泳道）、背景改半透明柔和色调"
+  - "修复点击其他文件节点时视口不跟随：跨文件节点点击现在将视口聚焦到被点击节点；文件列表点击聚焦 HEAD 行为不变"
 
 next_actions:
   - "用户实机复验六项修复：泳道强调随文件切换、泳道点击切换、已删节点拖动与永久删除、重整布局确认、树形排布"
@@ -467,7 +469,7 @@ changed_files:
 verification:
   status: "passed-awaiting-real-machine-validation"
   commands:
-    - "uv run pytest：230 passed（布局记忆回归新增 1 项：加入新分支后既有节点位置逐一保持、新节点避让不重叠，手动清空记忆后回到树形默认）"
+    - "uv run pytest：230 passed（全局画布测试补充：点击 file-1 节点后视口聚焦该节点，列表点击 file-2 后聚焦其 HEAD）"
     - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check：全部通过"
     - "uv run python scripts/capture_ui_states.py --output output/playwright：8 张截图全部生成"
     - "本轮需求记录变更仅文档更新，无代码影响；完成度评估基于对 app.py、ui/shell.py、versioning/store.py、library/widget.py、preview/edit_session.py、tasks/status_widget.py 的逐文件阅读与 git log 核对"

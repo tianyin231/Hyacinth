@@ -1834,14 +1834,6 @@ def test_global_canvas_renders_all_files_and_switches_on_node_click(
     assert window.windowTitle() == "风信子 — 销售.xlsx"
     assert _child(window, QLabel, "document-title").text() == "销售.xlsx"
     assert MetadataStore(library_root).get_workbook("file-2").display_name == "库存.xlsx"
-
-    file_list = _child(window, QListWidget, "library-file-list")
-    for row in range(file_list.count()):
-        if file_list.item(row).data(Qt.ItemDataRole.UserRole) == "file-1":
-            file_list.setCurrentRow(row)
-            break
-
-    assert window.windowTitle() == "风信子 — 销售.xlsx"
     proxies = {
         str(proxy.widget().property("file-id")): proxy
         for proxy in view.scene().items()
@@ -1852,6 +1844,28 @@ def test_global_canvas_renders_all_files_and_switches_on_node_click(
     view_center = view.mapToScene(view.viewport().rect().center())
     assert abs(view_center.x() - head_center.x()) < 260.0
     assert abs(view_center.y() - head_center.y()) < 260.0
+
+    file_list = _child(window, QListWidget, "library-file-list")
+    for row in range(file_list.count()):
+        if file_list.item(row).data(Qt.ItemDataRole.UserRole) == "file-2":
+            file_list.setCurrentRow(row)
+            break
+
+    assert window.windowTitle() == "风信子 — 库存.xlsx"
+    second_center = (
+        next(
+            proxy
+            for proxy in view.scene().items()
+            if isinstance(proxy, QGraphicsProxyWidget)
+            and proxy.widget() is not None
+            and str(proxy.widget().property("file-id")) == "file-2"
+        )
+        .sceneBoundingRect()
+        .center()
+    )
+    view_after = view.mapToScene(view.viewport().rect().center())
+    assert abs(view_after.x() - second_center.x()) < 260.0
+    assert abs(view_after.y() - second_center.y()) < 260.0
 
 
 def test_reset_layouts_restores_default_positions(qtbot: QtBot, tmp_path: Path) -> None:

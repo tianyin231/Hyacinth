@@ -1719,8 +1719,10 @@ class VersionTreePanel(QFrame):
             lane_rows = 1
             for _, local_y in lane_positions.values():
                 lane_rows = max(lane_rows, int(local_y // NODE_DY) + 1)
-            lane_width = 28.0 + max_x + VERSION_NODE_WIDTH + 52.0
-            lane_height = LANE_HEADER_HEIGHT + lane_rows * NODE_DY + 10.0
+            # 宽高各预留一段增长空间：新增分支/深度时泳道尺寸保持不变，
+            # 避免把后续泳道整体推挤下移。
+            lane_width = 28.0 + max_x + VERSION_NODE_WIDTH + 52.0 + NODE_DX / 2
+            lane_height = LANE_HEADER_HEIGHT + (lane_rows + 1) * NODE_DY + 10.0
             is_current = tree.file_id == current_file_id
             lane_items = self._render_lane_header(
                 scene, tree, lane_top, lane_width, lane_height, is_current
@@ -1859,7 +1861,7 @@ class VersionTreePanel(QFrame):
 
     @staticmethod
     def _lane_background_brush(is_current: bool) -> QBrush:
-        color = QColor(234, 243, 251, 255) if is_current else QColor(243, 245, 248, 255)
+        color = QColor(234, 243, 251, 150) if is_current else QColor(243, 245, 248, 140)
         return QBrush(color)
 
     def _layout_lane(self, tree: FileVersionTree) -> tuple[dict[str, tuple[float, float]], int]:
