@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFrame,
+    QGraphicsItem,
     QGraphicsLineItem,
     QGraphicsProxyWidget,
     QGraphicsScene,
@@ -1593,6 +1594,9 @@ class VersionTreePanel(QFrame):
         self._cards: dict[tuple[str, str], _VersionNodeCard] = {}
         self._proxies: dict[tuple[str, str], QGraphicsProxyWidget] = {}
         self._edge_relations: list[tuple[str, str, str, QGraphicsLineItem]] = []
+        # addRect/addSimpleText 返回的项必须保存 Python 引用，
+        # 否则重建场景后未引用项会被 PySide6 垃圾回收连带销毁。
+        self._lane_decorations: list[QGraphicsItem] = []
         self._records: dict[tuple[str, str], VersionRecord] = {}
         self._tree_heads: dict[str, str | None] = {}
         self._current_file_id: str | None = None
@@ -1678,6 +1682,7 @@ class VersionTreePanel(QFrame):
         self._cards = {}
         self._proxies = {}
         self._edge_relations = []
+        self._lane_decorations = []
         lane_top = 42.0
         focus_proxy: QGraphicsProxyWidget | None = None
         first_proxy: QGraphicsProxyWidget | None = None
@@ -1773,12 +1778,14 @@ class VersionTreePanel(QFrame):
         )
         background.setData(0, f"lane:{tree.file_id}")
         background.setZValue(-3)
+        self._lane_decorations.append(background)
         label = scene.addSimpleText(
             tree.display_name,
             QFont("Segoe UI", 10, QFont.Weight.Bold if is_current else QFont.Weight.Normal),
         )
         label.setData(0, f"lane:{tree.file_id}")
         label.setBrush(QBrush(QColor("#0f6cbd" if is_current else "#68717e")))
+        self._lane_decorations.append(label)
         label.setPos(28.0, lane_top + 9.0)
         label.setZValue(-2)
 

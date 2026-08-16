@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-16T13:44:18+08:00"
+updated_at: "2026-08-16T14:16:22+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -37,7 +37,7 @@ delivery:
 current_task:
   id: "GLOBAL-CANVAS-REAL-MACHINE-FIXES-001"
   status: "implementation-completed-awaiting-real-machine-validation"
-  goal: "按 DEC-20260816-030 修复全局画布六项实机反馈：泳道稳定可点击、已删节点可拖动与永久删除、重整布局、树形排布"
+  goal: "按 DEC-20260816-030 修复全局画布实机反馈（六项+泳道背景消失回归）"
   owner: "codex-sol"
 
 last_completed:
@@ -268,6 +268,7 @@ last_completed:
   - "已删除占位节点可自由拖动；右键新增'永久删除该版本'（限无子版本，二次确认，后台任务清除快照与记录）"
   - "版本树标题栏新增'重整布局'按钮：二次确认列出受影响文件后清除全部手动布局恢复默认排布"
   - "默认排布改为树形算法：叶子按序占行、父节点居中于子树区间"
+  - "修复泳道背景空点消失：addRect/addSimpleText 返回项未保存 Python 引用，场景重建后被 PySide6 垃圾回收连带销毁；现与连线一样持有引用，并增加强制 gc.collect 回归"
 
 next_actions:
   - "用户实机复验六项修复：泳道强调随文件切换、泳道点击切换、已删节点拖动与永久删除、重整布局确认、树形排布"
@@ -461,7 +462,7 @@ changed_files:
 verification:
   status: "passed-awaiting-real-machine-validation"
   commands:
-    - "uv run pytest：226 passed in 32.85s（本轮新增 9 项：树形排布、已删节点拖动、泳道点击与重整按钮信号、泳道顺序稳定、重整布局端到端、版本永久删除端到端与任务单测、泳道点击切换文件）"
+    - "uv run pytest：227 passed（泳道背景 GC 回归新增 1 项：重建画布并强制 gc.collect 后两个泳道背景矩形仍存在）"
     - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check：全部通过"
     - "uv run python scripts/capture_ui_states.py --output output/playwright：8 张截图全部生成"
     - "本轮需求记录变更仅文档更新，无代码影响；完成度评估基于对 app.py、ui/shell.py、versioning/store.py、library/widget.py、preview/edit_session.py、tasks/status_widget.py 的逐文件阅读与 git log 核对"
@@ -597,6 +598,7 @@ verification:
     - "OpenCode DeepSeek session ses_ffb779869ffetPKJvDGwsXSdcX 导出并核验 provider/model/finish/files changed"
     - "OpenCode DeepSeek session ses_ffb6eb165ffeExum72T3S31KLf 导出并核验 provider/model/finish 与实际写入范围"
   evidence:
+    - "受控复现脚本确认：点击泳道背景切换文件后当前文件的 312x176 背景矩形从场景消失、只剩 58x17 文件名项；保存引用后两个泳道背景均存活"
     - "version-node-dragged.png：泳道文件名标签（蓝色加粗）、浅色泳道背景、节点横向演化与连线清晰，无重叠截断"
     - "既有 14 项面板测试与全部主窗口流程测试在新画布接口下全部通过"
     - "专注模式回归：视图 centerOn(-1200,-900) 后进入/退出专注，视口中心场景坐标偏差均小于 5 像素"

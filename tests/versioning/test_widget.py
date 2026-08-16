@@ -878,3 +878,41 @@ def test_lane_positions_stay_stable_when_current_file_changes(
 
     assert position_of("root-b") == before_b
     assert position_of("root-a")[1] < before_b[1]
+
+
+def test_lane_backgrounds_survive_gc_after_canvas_rebuild(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    import gc
+
+    from PySide6.QtWidgets import QGraphicsRectItem
+
+    from hyacinth.ui import FileVersionTree, VersionTreePanel
+
+    root = _record("root", None, "导入原始文件", 8, tmp_path / "r.xlsx")
+    panel = VersionTreePanel()
+    qtbot.addWidget(panel)
+    trees = (
+        FileVersionTree("file-1", "A.xlsx", (root,), "root", {}),
+        FileVersionTree("file-2", "B.xlsx", (), None, {}),
+    )
+    panel.set_workbooks(trees, current_file_id="file-1")
+
+    def lane_rect_count() -> int:
+        view = panel.findChild(QGraphicsView, "version-tree-view")
+        assert view is not None
+        return sum(
+            1
+            for item in view.scene().items()
+            if isinstance(item, QGraphicsRectItem) and str(item.data(0)).startswith("lane:")
+        )
+
+    assert lane_rect_count() == 2
+    gc.collect()
+    assert lane_rect_count() == 2
+
+    panel.set_workbooks(trees, current_file_id="file-2")
+    gc.collect()
+
+    assert lane_rect_count() == 2
