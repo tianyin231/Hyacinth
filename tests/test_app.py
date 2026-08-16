@@ -274,11 +274,13 @@ def test_main_window_matches_approved_workspace_shell(qtbot: QtBot, tmp_path: Pa
     qtbot.addWidget(window)
 
     main_splitter = _child(window, QSplitter, "main-workspace-splitter")
-    left_splitter = _child(window, QSplitter, "left-workspace-splitter")
     import_button = _child(window, QPushButton, "toolbar-import-button")
     empty_import_button = _child(window, QPushButton, "preview-import-button")
     import_button_parent = import_button.parent()
     function_stack = _child(window, QStackedWidget, "function-body-stack")
+    function_panel = _child(window, QFrame, "function-panel")
+    editor_frame = _child(window, QFrame, "editor-frame")
+    file_library = _child(window, QFrame, "file-library")
 
     assert _child(window, QLabel, "app-brand").text() == "风信子"
     assert _child(window, QLabel, "document-title").text() == "未选择文件"
@@ -288,7 +290,9 @@ def test_main_window_matches_approved_workspace_shell(qtbot: QtBot, tmp_path: Pa
     assert _child(window, QFrame, "formula-bar").isEnabled()
     assert _child(window, QFrame, "format-bar").isEnabled()
     assert main_splitter.count() == 3
-    assert left_splitter.count() == 2
+    # 功能面板随参数表单一起位于右侧编辑区内，左侧只保留文件列表
+    assert function_panel.parent() is editor_frame
+    assert file_library.parent() is main_splitter
     assert import_button_parent is not None
     assert import_button_parent.objectName() == "top-toolbar"
     assert import_button.minimumHeight() >= 30
@@ -309,21 +313,21 @@ def test_version_tree_focus_mode_hides_other_regions_and_restores_layout(
     qtbot.addWidget(window)
     window.show()
     main_splitter = _child(window, QSplitter, "main-workspace-splitter")
-    left_splitter = _child(window, QSplitter, "left-workspace-splitter")
+    file_library = _child(window, QFrame, "file-library")
+
     version_tree = _child(window, QFrame, "version-tree-panel")
     editor = _child(window, QFrame, "editor-frame")
     header = _child(window, QFrame, "application-header")
     command_bar = _child(window, QFrame, "top-toolbar")
     focus_button = _child(window, QPushButton, "version-focus-button")
     main_sizes = main_splitter.sizes()
-    left_sizes = left_splitter.sizes()
 
     qtbot.mouseClick(focus_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
 
     assert version_tree.isVisibleTo(window)
     assert header.isHidden()
     assert command_bar.isHidden()
-    assert left_splitter.isHidden()
+    assert file_library.isHidden()
     assert editor.isHidden()
     assert window.statusBar().isHidden()
     assert focus_button.text() == "退出专注"
@@ -333,11 +337,10 @@ def test_version_tree_focus_mode_hides_other_regions_and_restores_layout(
 
     assert not header.isHidden()
     assert not command_bar.isHidden()
-    assert not left_splitter.isHidden()
+    assert not file_library.isHidden()
     assert not editor.isHidden()
     assert not window.statusBar().isHidden()
     assert main_splitter.sizes() == main_sizes
-    assert left_splitter.sizes() == left_sizes
     assert focus_button.text() == "专注"
 
 

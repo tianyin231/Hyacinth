@@ -2433,11 +2433,17 @@ class WorkbookEditorFrame(QFrame):
     sort_requested = Signal(int, str)
     processing_requested = Signal(str, list)
 
-    def __init__(self, preview: QWidget, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        preview: QWidget,
+        function_panel: QWidget | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("editor-frame")
         self.setMinimumWidth(480)
         self._preview = preview
+        self._function_panel = function_panel
 
         processing = QFrame(self)
         processing.setObjectName("processing-bar")
@@ -2510,6 +2516,11 @@ class WorkbookEditorFrame(QFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(processing)
+        if self._function_panel is not None:
+            self._function_panel.setMaximumHeight(340)
+            self._function_panel.setMinimumWidth(0)
+            self._function_panel.setMinimumSize(0, 0)
+            layout.addWidget(self._function_panel)
         layout.addWidget(formula)
         layout.addWidget(format_bar)
         layout.addWidget(self._temporary_banner)

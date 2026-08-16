@@ -252,21 +252,17 @@ class HyacinthMainWindow(QMainWindow):
         self._workbook_preview.header_sort_requested.connect(self._quick_sort_from_table)
         self._workbook_preview.header_filter_requested.connect(self._filter_from_table_column)
         self._workbook_preview.processing_menu_requested.connect(self._open_processing_entry)
-        self._editor = WorkbookEditorFrame(self._workbook_preview, workspace_root)
+        self._editor = WorkbookEditorFrame(
+            self._workbook_preview,
+            self._function_panel,
+            workspace_root,
+        )
         self._editor.sort_requested.connect(self._sort_from_editor_bar)
         self._editor.processing_requested.connect(self._open_processing_entry)
 
-        self._left_splitter = QSplitter(Qt.Orientation.Vertical, workspace_root)
-        self._left_splitter.setObjectName("left-workspace-splitter")
-        self._left_splitter.addWidget(self._function_panel)
-        self._left_splitter.addWidget(self._file_library)
-        self._left_splitter.setStretchFactor(0, 4)
-        self._left_splitter.setStretchFactor(1, 2)
-        self._left_splitter.setSizes([420, 180])
-
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal, workspace_root)
         self._main_splitter.setObjectName("main-workspace-splitter")
-        self._main_splitter.addWidget(self._left_splitter)
+        self._main_splitter.addWidget(self._file_library)
         self._main_splitter.addWidget(self._version_tree)
         self._main_splitter.addWidget(self._editor)
         self._main_splitter.setStretchFactor(0, 0)
@@ -318,7 +314,7 @@ class HyacinthMainWindow(QMainWindow):
         hidden_widgets: tuple[QWidget, ...] = (
             self._application_header,
             self._command_bar,
-            self._left_splitter,
+            self._file_library,
             self._editor,
             self.statusBar(),
         )
@@ -327,7 +323,6 @@ class HyacinthMainWindow(QMainWindow):
         anchor = self._version_tree.focus_anchor()
         if enabled:
             self._focus_restore_main_sizes = self._main_splitter.sizes()
-            self._focus_restore_left_sizes = self._left_splitter.sizes()
             self._focus_restore_hidden = tuple(widget.isHidden() for widget in hidden_widgets)
             for widget in hidden_widgets:
                 widget.hide()
@@ -341,8 +336,6 @@ class HyacinthMainWindow(QMainWindow):
             widget.setVisible(not was_hidden)
         if self._focus_restore_main_sizes is not None:
             self._main_splitter.setSizes(self._focus_restore_main_sizes)
-        if self._focus_restore_left_sizes is not None:
-            self._left_splitter.setSizes(self._focus_restore_left_sizes)
         self._version_tree.restore_focus_anchor(anchor)
         self._focus_restore_main_sizes = None
         self._focus_restore_left_sizes = None
