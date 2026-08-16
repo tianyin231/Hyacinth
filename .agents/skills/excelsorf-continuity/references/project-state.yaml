@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-16T12:51:26+08:00"
+updated_at: "2026-08-16T12:58:33+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -35,9 +35,9 @@ delivery:
   next_milestone: "用户实机复验版本图谱全向平移、节点边界和专注模式"
 
 current_task:
-  id: "FILE-LEVEL-RECYCLE-BIN-001"
-  status: "implementation-completed-awaiting-real-machine-validation"
-  goal: "文件级回收站：文件列表右键/Delete 软删除整个文件记录，工具栏回收站对话框支持恢复与永久删除"
+  id: "FOCUS-ANCHOR-FIX-AND-GLOBAL-CANVAS-PROPOSAL-001"
+  status: "fix-completed-canvas-proposal-awaiting-confirmation"
+  goal: "修复专注模式画布位置跳变；提出全局版本画布方案（DEC-20260816-029）等待用户确认后实施"
   owner: "codex-sol"
 
 last_completed:
@@ -257,8 +257,13 @@ last_completed:
   - "永久删除采用后台 purge-file 任务：目录先改名暂存、再删数据库记录、失败回滚改名，最后清理磁盘，只有回收站中的文件可清除"
   - "导入与应用任务返回的记录补齐 imported_at，catalog 只读发现跳过已软删除文件目录和 .purge-* 暂存目录，避免删除后重启复活"
   - "用户反馈右键删除版本节点后未在回收站出现；按需求第 12 节补齐：回收站同时列出已删除文件与版本节点条目，版本条目可一键恢复并刷新当前版本树，永久删除仍仅限文件条目"
+  - "回收站版本条目支持已提交本地 main：340bb0e"
+  - "修复专注模式画布位置跳变：进入/退出前后记录并恢复视图场景中心锚点，视口尺寸变化不再移动画布内容"
+  - "全局版本画布需求按 DEC-20260816-029 写入需求讨论记录第 47 节（方案待确认）：全部文件版本树同画布分区显示、点击跨文件节点切换、文件列表点击定位 HEAD"
 
 next_actions:
+  - "等待用户确认全局版本画布方案（需求第 47 节），确认后按分区布局、跨文件切换、文件列表定位 HEAD 实施"
+  - "用户实机运行 uv run hyacinth，复验专注模式进入/退出画布位置保持"
   - "用户实机运行 uv run hyacinth，复验文件删除、回收站恢复与永久删除流程"
   - "下一候选切片：版本图谱自动整理（第 38 节）或继续处理功能（查找与替换等）"
   - "用户实机运行 uv run hyacinth，复验版本图谱上下左右平移、边界限制和专注/恢复布局"
@@ -447,7 +452,7 @@ changed_files:
 verification:
   status: "passed-awaiting-real-machine-validation"
   commands:
-    - "uv run pytest：215 passed in 30.75s（回收站版本条目恢复新增 1 项界面测试）"
+    - "uv run pytest：216 passed in 35.04s（专注模式画布位置保持新增 1 项回归）"
     - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check：全部通过"
     - "uv run python scripts/capture_ui_states.py --output output/playwright：8 张截图全部生成"
     - "本轮需求记录变更仅文档更新，无代码影响；完成度评估基于对 app.py、ui/shell.py、versioning/store.py、library/widget.py、preview/edit_session.py、tasks/status_widget.py 的逐文件阅读与 git log 核对"
@@ -583,6 +588,7 @@ verification:
     - "OpenCode DeepSeek session ses_ffb779869ffetPKJvDGwsXSdcX 导出并核验 provider/model/finish/files changed"
     - "OpenCode DeepSeek session ses_ffb6eb165ffeExum72T3S31KLf 导出并核验 provider/model/finish 与实际写入范围"
   evidence:
+    - "专注模式回归：视图 centerOn(-1200,-900) 后进入/退出专注，视口中心场景坐标偏差均小于 5 像素"
     - "recycle-bin.png：回收站同时显示“文件 · 销售报表.xlsx · 2 个版本”与“版本 · 销售报表.xlsx / 多列排序”条目，恢复按钮随选中启用、永久删除仅文件条目启用，无重叠或截断"
     - "版本条目恢复测试：软删除子版本进入回收站，恢复后版本树节点 deleted 属性为 False 且列表清空"
     - "存储层测试覆盖软删除进入回收站、恢复回到原位、陈旧 HEAD/重复删除拒绝、purge 物理删除目录与记录、未软删除拒绝清除和真实常驻 Worker"

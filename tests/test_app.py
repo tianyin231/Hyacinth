@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from openpyxl import Workbook
-from PySide6.QtCore import QObject, QPoint, QSize, Qt
+from PySide6.QtCore import QObject, QPoint, QPointF, QSize, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -338,6 +338,36 @@ def test_version_tree_focus_mode_hides_other_regions_and_restores_layout(
     assert main_splitter.sizes() == main_sizes
     assert left_splitter.sizes() == left_sizes
     assert focus_button.text() == "专注"
+
+
+def test_focus_mode_keeps_canvas_position(qtbot: QtBot, tmp_path: Path) -> None:
+    library_root = tmp_path / "library"
+    _seed_versioned_workbook(library_root)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    view = _child(window, QGraphicsView, "version-tree-view")
+    focus_button = _child(window, QPushButton, "version-focus-button")
+    target = QPointF(-1200.0, -900.0)
+    view.centerOn(target)
+    before = view.mapToScene(view.viewport().rect().center())
+    assert abs(before.x() - target.x()) < 3.0
+    assert abs(before.y() - target.y()) < 3.0
+
+    qtbot.mouseClick(focus_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    after_enter = view.mapToScene(view.viewport().rect().center())
+    assert abs(after_enter.x() - before.x()) < 5.0
+    assert abs(after_enter.y() - before.y()) < 5.0
+
+    qtbot.mouseClick(focus_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    after_exit = view.mapToScene(view.viewport().rect().center())
+    assert abs(after_exit.x() - before.x()) < 5.0
+    assert abs(after_exit.y() - before.y()) < 5.0
 
 
 def test_empty_preview_import_button_uses_normal_import_flow(

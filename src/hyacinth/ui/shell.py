@@ -1825,6 +1825,12 @@ class VersionTreePanel(QFrame):
     def _commit_version_position(self, version_id: str, x: float, y: float) -> None:
         self.version_position_changed.emit(version_id, x, y)
 
+    def focus_anchor(self) -> QPointF:
+        return self._view.mapToScene(self._view.viewport().rect().center())
+
+    def restore_focus_anchor(self, anchor: QPointF) -> None:
+        self._view.centerOn(anchor)
+
     def _toggle_focus_mode(self, enabled: bool) -> None:
         if enabled:
             self._focus_button.setText("退出专注")

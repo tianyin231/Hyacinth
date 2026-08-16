@@ -287,6 +287,9 @@ class HyacinthMainWindow(QMainWindow):
             self._editor,
             self.statusBar(),
         )
+        # 视口尺寸变化时 QGraphicsView 会按锚点重排滚动位置；
+        # 进入/退出专注前后恢复场景中心，保证画布内容不发生跳变。
+        anchor = self._version_tree.focus_anchor()
         if enabled:
             self._focus_restore_main_sizes = self._main_splitter.sizes()
             self._focus_restore_left_sizes = self._left_splitter.sizes()
@@ -294,6 +297,7 @@ class HyacinthMainWindow(QMainWindow):
             for widget in hidden_widgets:
                 widget.hide()
             self._main_splitter.setSizes([0, self._main_splitter.width(), 0])
+            self._version_tree.restore_focus_anchor(anchor)
             return
 
         if self._focus_restore_hidden is None:
@@ -304,6 +308,7 @@ class HyacinthMainWindow(QMainWindow):
             self._main_splitter.setSizes(self._focus_restore_main_sizes)
         if self._focus_restore_left_sizes is not None:
             self._left_splitter.setSizes(self._focus_restore_left_sizes)
+        self._version_tree.restore_focus_anchor(anchor)
         self._focus_restore_main_sizes = None
         self._focus_restore_left_sizes = None
         self._focus_restore_hidden = None
