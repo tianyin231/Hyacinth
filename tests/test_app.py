@@ -12,18 +12,14 @@ from openpyxl import Workbook
 from PySide6.QtCore import QObject, QPoint, QPointF, QSize, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
     QFrame,
     QGraphicsProxyWidget,
     QGraphicsView,
     QLabel,
-    QLineEdit,
     QListWidget,
     QMainWindow,
     QPushButton,
     QSplitter,
-    QStackedWidget,
     QTabBar,
     QTableView,
     QWidget,
@@ -277,29 +273,25 @@ def test_main_window_matches_approved_workspace_shell(qtbot: QtBot, tmp_path: Pa
     import_button = _child(window, QPushButton, "toolbar-import-button")
     empty_import_button = _child(window, QPushButton, "preview-import-button")
     import_button_parent = import_button.parent()
-    function_stack = _child(window, QStackedWidget, "function-body-stack")
-    function_panel = _child(window, QFrame, "function-panel")
     editor_frame = _child(window, QFrame, "editor-frame")
     file_library = _child(window, QFrame, "file-library")
 
     assert _child(window, QLabel, "app-brand").text() == "风信子"
     assert _child(window, QLabel, "document-title").text() == "未选择文件"
-    assert _child(window, QFrame, "function-panel").isEnabled()
     assert _child(window, QFrame, "file-library").isEnabled()
     assert _child(window, QFrame, "version-tree-panel").isEnabled()
+    assert _child(window, QFrame, "editor-ribbon").isEnabled()
     assert _child(window, QFrame, "formula-bar").isEnabled()
     assert _child(window, QFrame, "format-bar").isEnabled()
     assert main_splitter.count() == 3
-    # 功能面板随参数表单一起位于右侧编辑区内，左侧只保留文件列表
-    assert function_panel.parent() is editor_frame
+    # 处理功能入口随功能区条位于右侧编辑区内，左侧只保留文件列表
+    assert _child(window, QFrame, "editor-ribbon").parent() is editor_frame
     assert file_library.parent() is main_splitter
     assert import_button_parent is not None
     assert import_button_parent.objectName() == "top-toolbar"
     assert import_button.minimumHeight() >= 30
     assert not import_button.icon().isNull()
     assert not empty_import_button.isHidden()
-    assert function_stack.currentIndex() == 0
-    assert _child(window, QFrame, "function-footer").isHidden()
     assert not _child(window, QPushButton, "toolbar-save-version-button").isEnabled()
 
 
@@ -825,13 +817,12 @@ def test_sort_preview_apply_creates_child_and_refreshes_tree(
             result=base_preview,
         )
     )
-    preview_button = _child(window, QPushButton, "function-preview-button")
-    qtbot.waitUntil(preview_button.isEnabled, timeout=500)
-    primary = _child(window, QComboBox, "sort-primary-column")
-    primary.setCurrentIndex(1)
-    qtbot.mouseClick(preview_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    qtbot.waitUntil(lambda: window._workbook_preview.current_preview() is not None, timeout=2000)
+    window._quick_sort_from_table(1, "asc")
 
-    sort_request = task_queue.submitted[-1]
+    sort_request = next(
+        request for request in task_queue.submitted if request.operation == SORT_PREVIEW_OPERATION
+    )
     assert sort_request.operation == SORT_PREVIEW_OPERATION
     assert not _child(window, QFrame, "top-toolbar").isEnabled()
     assert not _child(window, QListWidget, "library-file-list").isEnabled()
@@ -862,8 +853,8 @@ def test_sort_preview_apply_creates_child_and_refreshes_tree(
             result=temporary_preview,
         )
     )
-    apply_button = _child(window, QPushButton, "function-apply-button")
-    banner = _child(window, QLabel, "temporary-result-banner")
+    apply_button = _child(window, QPushButton, "banner-apply-button")
+    banner = _child(window, QLabel, "banner-message")
     qtbot.waitUntil(apply_button.isEnabled, timeout=500)
     assert banner.isVisible()
     assert _child(window, QFrame, "top-toolbar").isEnabled()
@@ -908,7 +899,7 @@ def test_deduplicate_preview_apply_creates_child_and_shows_statistics(
         library_root,
         [
             ["名称", "类别"],
-            [" Apple ", "水果"],
+            ["apple", "水果"],
             ["apple", "水果"],
             ["banana", "水果"],
         ],
@@ -931,21 +922,15 @@ def test_deduplicate_preview_apply_creates_child_and_shows_statistics(
             result=base_preview,
         )
     )
-    preview_button = _child(window, QPushButton, "function-preview-button")
-    qtbot.waitUntil(preview_button.isEnabled, timeout=500)
-    operation = _child(window, QComboBox, "processing-operation")
-    operation.setCurrentIndex(operation.findData("deduplicate"))
-    columns = _child(window, QListWidget, "deduplicate-key-columns")
-    columns.item(0).setSelected(True)
-    _child(window, QCheckBox, "deduplicate-ignore-case").setChecked(True)
-    _child(window, QCheckBox, "deduplicate-trim-whitespace").setChecked(True)
-    qtbot.mouseClick(preview_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    qtbot.waitUntil(lambda: window._workbook_preview.current_preview() is not None, timeout=2000)
+    window._one_step_processing("deduplicate", [0])
 
-    deduplicate_request = task_queue.submitted[-1]
-    assert deduplicate_request.operation == DEDUPLICATE_PREVIEW_OPERATION
+    deduplicate_request = next(
+        request
+        for request in task_queue.submitted
+        if request.operation == DEDUPLICATE_PREVIEW_OPERATION
+    )
     assert deduplicate_request.payload["key_columns"] == [0]
-    assert deduplicate_request.payload["ignore_case"] is True
-    assert deduplicate_request.payload["trim_whitespace"] is True
     parent = record.head_version
     assert parent is not None
     assert deduplicate_request.payload["source_path"] == str(parent.snapshot_path)
@@ -973,9 +958,9 @@ def test_deduplicate_preview_apply_creates_child_and_shows_statistics(
             result=temporary_preview,
         )
     )
-    apply_button = _child(window, QPushButton, "function-apply-button")
-    state = _child(window, QLabel, "sort-state")
-    details = _child(window, QPushButton, "deduplicate-details-button")
+    apply_button = _child(window, QPushButton, "banner-apply-button")
+    state = _child(window, QLabel, "banner-message")
+    details = _child(window, QPushButton, "banner-details-button")
     qtbot.waitUntil(apply_button.isEnabled, timeout=500)
     assert "1 个重复组" in state.text()
     assert "删除 1 行" in state.text()
@@ -1039,15 +1024,14 @@ def test_delete_blank_rows_preview_apply_creates_child_and_shows_original_rows(
             result=base_preview,
         )
     )
-    preview_button = _child(window, QPushButton, "function-preview-button")
-    qtbot.waitUntil(preview_button.isEnabled, timeout=500)
-    operation = _child(window, QComboBox, "processing-operation")
-    operation.setCurrentIndex(operation.findData("delete_blank_rows"))
-    columns = _child(window, QListWidget, "blank-rows-key-columns")
-    columns.item(0).setSelected(True)
-    qtbot.mouseClick(preview_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    qtbot.waitUntil(lambda: window._workbook_preview.current_preview() is not None, timeout=2000)
+    window._one_step_processing("delete_blank_rows", [0])
 
-    delete_request = task_queue.submitted[-1]
+    delete_request = next(
+        request
+        for request in task_queue.submitted
+        if request.operation == DELETE_BLANK_ROWS_PREVIEW_OPERATION
+    )
     assert delete_request.operation == DELETE_BLANK_ROWS_PREVIEW_OPERATION
     assert delete_request.payload["key_columns"] == [0]
     assert delete_request.payload["allow_unsafe"] is False
@@ -1079,9 +1063,9 @@ def test_delete_blank_rows_preview_apply_creates_child_and_shows_original_rows(
             result=temporary_preview,
         )
     )
-    apply_button = _child(window, QPushButton, "function-apply-button")
-    state = _child(window, QLabel, "sort-state")
-    details = _child(window, QPushButton, "blank-rows-details-button")
+    apply_button = _child(window, QPushButton, "banner-apply-button")
+    state = _child(window, QLabel, "banner-message")
+    details = _child(window, QPushButton, "banner-details-button")
     qtbot.waitUntil(apply_button.isEnabled, timeout=500)
     assert "删除 1 行" in state.text()
     assert details.isEnabled()
@@ -1144,24 +1128,33 @@ def test_filter_preview_apply_creates_child_and_only_shows_matching_rows(
             result=base_preview,
         )
     )
-    preview_button = _child(window, QPushButton, "function-preview-button")
-    qtbot.waitUntil(preview_button.isEnabled, timeout=500)
-    operation = _child(window, QComboBox, "processing-operation")
-    operation.setCurrentIndex(operation.findData("filter"))
-    first_operator = _child(window, QComboBox, "filter-first-operator")
-    first_operator.setCurrentIndex(first_operator.findData("contains"))
-    _child(window, QLineEdit, "filter-first-value").setText("apple")
-    _child(window, QCheckBox, "filter-enable-second").setChecked(True)
-    second_column = _child(window, QComboBox, "filter-second-column")
-    second_column.setCurrentIndex(1)
-    second_type = _child(window, QComboBox, "filter-second-type")
-    second_type.setCurrentIndex(second_type.findData("number"))
-    second_operator = _child(window, QComboBox, "filter-second-operator")
-    second_operator.setCurrentIndex(second_operator.findData("greater_than"))
-    _child(window, QLineEdit, "filter-second-value").setText("3")
-    qtbot.mouseClick(preview_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    qtbot.waitUntil(lambda: window._workbook_preview.current_preview() is not None, timeout=2000)
+    window._submit_filter_params(
+        {
+            "sheet_name": "销售",
+            "conditions": [
+                {
+                    "column_index": 0,
+                    "operator": "contains",
+                    "value_type": "text",
+                    "value": "apple",
+                    "second_value": None,
+                },
+                {
+                    "column_index": 1,
+                    "operator": "greater_than",
+                    "value_type": "number",
+                    "value": "3",
+                    "second_value": None,
+                },
+            ],
+            "connector": "and",
+        }
+    )
 
-    filter_request = task_queue.submitted[-1]
+    filter_request = next(
+        request for request in task_queue.submitted if request.operation == FILTER_PREVIEW_OPERATION
+    )
     assert filter_request.operation == FILTER_PREVIEW_OPERATION
     assert filter_request.payload["connector"] == "and"
     assert filter_request.payload["conditions"] == [
@@ -1210,8 +1203,8 @@ def test_filter_preview_apply_creates_child_and_only_shows_matching_rows(
             result=temporary_preview,
         )
     )
-    apply_button = _child(window, QPushButton, "function-apply-button")
-    state = _child(window, QLabel, "sort-state")
+    apply_button = _child(window, QPushButton, "banner-apply-button")
+    state = _child(window, QLabel, "banner-message")
     table = _child(window, QTableView, "preview-table")
     qtbot.waitUntil(apply_button.isEnabled, timeout=500)
     assert "匹配 1 / 3 行" in state.text()
@@ -1305,8 +1298,7 @@ def test_historical_preview_checkout_and_processing_create_branch(
             result=initial_preview,
         )
     )
-    preview_button = _child(window, QPushButton, "function-preview-button")
-    qtbot.waitUntil(preview_button.isEnabled, timeout=500)
+    qtbot.waitUntil(lambda: window._workbook_preview.current_preview() is not None, timeout=2000)
     tree = _child(window, QGraphicsView, "version-tree-view")
     cards = {
         str(proxy.widget().property("version-id")): proxy.widget()
@@ -1334,7 +1326,7 @@ def test_historical_preview_checkout_and_processing_create_branch(
     table = _child(window, QTableView, "preview-table")
     qtbot.waitUntil(lambda: table.model() is not None, timeout=500)
     assert table.model().data(table.model().index(1, 0)) == "banana"
-    assert not _child(window, QFrame, "function-panel").isEnabled()
+    assert window._previewed_version_id == root.version_id
 
     continue_button = _child(window, QPushButton, "version-continue-button")
     qtbot.mouseClick(continue_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
@@ -1369,12 +1361,12 @@ def test_historical_preview_checkout_and_processing_create_branch(
             result=checked_out_preview,
         )
     )
-    qtbot.waitUntil(preview_button.isEnabled, timeout=500)
+    sort_button = _child(window, QPushButton, "bar-sort-asc-button")
+    qtbot.waitUntil(sort_button.isEnabled, timeout=500)
+    qtbot.waitUntil(lambda: window._workbook_preview.current_preview() is not None, timeout=500)
     assert store.get_workbook(record.file_id).head_version == root
 
-    primary = _child(window, QComboBox, "sort-primary-column")
-    primary.setCurrentIndex(0)
-    qtbot.mouseClick(preview_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    window._quick_sort_from_table(0, "asc")
     sort_request = task_queue.submitted[-1]
     assert sort_request.payload["parent_version_id"] == root.version_id
     sort_result = run_sort_preview_task(sort_request, PreviewTaskContext())
@@ -1401,7 +1393,7 @@ def test_historical_preview_checkout_and_processing_create_branch(
             result=temporary_preview,
         )
     )
-    apply_button = _child(window, QPushButton, "function-apply-button")
+    apply_button = _child(window, QPushButton, "banner-apply-button")
     qtbot.waitUntil(apply_button.isEnabled, timeout=500)
     qtbot.mouseClick(apply_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
     apply_request = task_queue.submitted[-1]

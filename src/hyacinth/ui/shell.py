@@ -23,6 +23,7 @@ from PySide6.QtGui import (
     QWheelEvent,
 )
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -42,7 +43,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMenu,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QStackedWidget,
     QTableView,
@@ -191,11 +191,17 @@ QLabel#root-version-head {
     padding: 2px 6px;
     font-size: 10px;
 }
-QLabel#temporary-result-banner {
+QFrame#temporary-result-banner {
     color: #7a4d00;
     background: #fff4ce;
     border-bottom: 1px solid #e5c365;
-    padding: 5px 10px;
+}
+QFrame#temporary-result-banner QLabel { color: #7a4d00; }
+QPushButton#banner-apply-button {
+    color: #ffffff;
+    background: #0f6cbd;
+    border: 1px solid #0f6cbd;
+    font-weight: 600;
 }
 QPushButton#function-apply-button {
     color: #ffffff;
@@ -210,11 +216,24 @@ QPushButton#function-apply-button:disabled {
 }
 QGraphicsView#version-tree-view { background: #fbfcfe; border: 0; }
 QFrame#editor-frame { background: #ffffff; }
-QFrame#formula-bar, QFrame#format-bar, QFrame#processing-bar {
-    background: #fafbfc;
+QFrame#formula-bar, QFrame#format-bar, QFrame#editor-ribbon {
+    background: #f6f8fb;
     border-bottom: 1px solid #dfe3e8;
 }
-QPushButton[class="tool-button"] { min-height: 26px; padding: 0 9px; }
+QFrame#ribbon-group { background: transparent; }
+QLabel#ribbon-group-label { color: #6b7482; font-size: 10px; }
+QFrame#ribbon-separator { background: #e2e6ec; }
+QPushButton[class="ribbon-button"] {
+    min-height: 26px;
+    padding: 0 10px;
+    color: #343a45;
+    background: #fbfcfe;
+    border: 1px solid #c6ced9;
+    border-radius: 4px;
+}
+QPushButton[class="ribbon-button"]:hover { background: #eef4fb; border-color: #9ec4ea; }
+QPushButton[class="ribbon-button"]:pressed { background: #dcebfa; }
+QPushButton[class="ribbon-button"]:disabled { color: #9aa2ad; background: #f5f6f8; }
 QLabel#formula-name, QLabel#formula-value, QLabel#font-family-control {
     color: #4d5663;
     background: #ffffff;
@@ -472,1016 +491,6 @@ class CommandBar(QFrame):
 
     def set_version_available(self, available: bool) -> None:
         self._export_button.setEnabled(available)
-
-
-class FunctionPanel(QFrame):
-    preview_requested = Signal(str, object)
-    deduplicate_preview_requested = Signal(str, object)
-    delete_blank_rows_preview_requested = Signal(str, object)
-    filter_preview_requested = Signal(str, object)
-    trim_preview_requested = Signal(str, object)
-    find_replace_requested = Signal(str, object)
-    cancel_requested = Signal()
-    apply_requested = Signal()
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("function-panel")
-        self.setMinimumSize(230, 240)
-
-        empty_body = QWidget(self)
-        empty_layout = QVBoxLayout(empty_body)
-        empty_layout.setContentsMargins(24, 24, 24, 24)
-        empty_layout.setSpacing(8)
-        empty_layout.addStretch()
-        empty_icon = QLabel(empty_body)
-        empty_icon.setObjectName("function-empty-icon")
-        empty_icon.setPixmap(fluent_icon("sort", color="#0f6cbd", size=22).pixmap(22, 22))
-        empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        empty_icon.setFixedSize(44, 44)
-        empty_title = QLabel("先导入一个 Excel 文件", empty_body)
-        empty_title.setObjectName("function-empty-title")
-        empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        empty_detail = QLabel("导入后即可配置排序或去重\n并在应用前预览完整结果", empty_body)
-        empty_detail.setObjectName("function-empty-detail")
-        empty_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        empty_detail.setWordWrap(True)
-        empty_layout.addWidget(empty_icon, 0, Qt.AlignmentFlag.AlignCenter)
-        empty_layout.addWidget(empty_title)
-        empty_layout.addWidget(empty_detail)
-        empty_layout.addStretch()
-
-        body = QWidget(self)
-        body.setMinimumHeight(430)
-        body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(11, 10, 11, 10)
-        body_layout.setSpacing(5)
-        self._headers_by_sheet: dict[str, tuple[str, ...]] = {}
-        self._operation = self._field(body_layout, "处理功能", "processing-operation")
-        self._operation.addItem("多列排序", "sort")
-        self._operation.addItem("删除重复行", "deduplicate")
-        self._operation.addItem("删除空白行", "delete_blank_rows")
-        self._operation.addItem("条件筛选", "filter")
-        self._operation.addItem("清除首尾空格", "trim")
-        self._operation.addItem("查找替换", "find_replace")
-        self._operation.currentIndexChanged.connect(self._switch_operation)
-        self._sheet = self._field(body_layout, "处理工作表", "sort-sheet")
-        self._sheet.currentTextChanged.connect(self._refresh_columns)
-
-        sort_page = QWidget(body)
-        sort_layout = QVBoxLayout(sort_page)
-        sort_layout.setContentsMargins(0, 0, 0, 0)
-        sort_layout.setSpacing(5)
-        self._primary = self._field(sort_layout, "第一优先级", "sort-primary-column")
-        self._primary_direction = self._direction_field(
-            sort_layout, "第一排序方向", "sort-primary-direction"
-        )
-        self._secondary = self._field(sort_layout, "第二优先级", "sort-secondary-column")
-        self._secondary_direction = self._direction_field(
-            sort_layout, "第二排序方向", "sort-secondary-direction"
-        )
-        self._range = QLabel("当前 used range · 首行作为表头", sort_page)
-        self._range.setObjectName("sort-range-note")
-        self._empty = QLabel("空值始终排在末尾", sort_page)
-        self._empty.setObjectName("sort-empty-note")
-        sort_layout.addWidget(self._range)
-        sort_layout.addWidget(self._empty)
-        sort_layout.addStretch()
-
-        deduplicate_page = QWidget(body)
-        deduplicate_layout = QVBoxLayout(deduplicate_page)
-        deduplicate_layout.setContentsMargins(0, 0, 0, 0)
-        deduplicate_layout.setSpacing(5)
-        key_label = QLabel("判断重复的关键列", deduplicate_page)
-        key_label.setProperty("class", "form-label")
-        self._deduplicate_columns = QListWidget(deduplicate_page)
-        self._deduplicate_columns.setObjectName("deduplicate-key-columns")
-        self._deduplicate_columns.setAccessibleName("判断重复的关键列")
-        self._deduplicate_columns.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
-        self._deduplicate_columns.setMaximumHeight(92)
-        self._deduplicate_keep = self._field(
-            deduplicate_layout,
-            "重复时保留",
-            "deduplicate-keep",
-        )
-        self._deduplicate_keep.addItem("第一次出现", "first")
-        self._deduplicate_keep.addItem("最后一次出现", "last")
-        self._deduplicate_ignore_case = QCheckBox("忽略英文字母大小写", deduplicate_page)
-        self._deduplicate_ignore_case.setObjectName("deduplicate-ignore-case")
-        self._deduplicate_trim = QCheckBox("忽略文本首尾空格", deduplicate_page)
-        self._deduplicate_trim.setObjectName("deduplicate-trim-whitespace")
-        deduplicate_note = QLabel("未选择关键列时按整行判断 · 空值参与比较", deduplicate_page)
-        deduplicate_note.setObjectName("deduplicate-note")
-        deduplicate_note.setWordWrap(True)
-        self._deduplicate_details = QPushButton("查看保留 / 删除对应关系", deduplicate_page)
-        self._deduplicate_details.setObjectName("deduplicate-details-button")
-        self._deduplicate_details.setProperty("class", "tool-button")
-        self._deduplicate_details.setEnabled(False)
-        self._deduplicate_details.clicked.connect(self._show_duplicate_details)
-        deduplicate_layout.insertWidget(0, key_label)
-        deduplicate_layout.insertWidget(1, self._deduplicate_columns)
-        deduplicate_layout.addWidget(self._deduplicate_ignore_case)
-        deduplicate_layout.addWidget(self._deduplicate_trim)
-        deduplicate_layout.addWidget(deduplicate_note)
-        deduplicate_layout.addWidget(self._deduplicate_details)
-        deduplicate_layout.addStretch()
-
-        blank_rows_page = QWidget(body)
-        blank_rows_layout = QVBoxLayout(blank_rows_page)
-        blank_rows_layout.setContentsMargins(0, 0, 0, 0)
-        blank_rows_layout.setSpacing(5)
-        blank_rows_label = QLabel("判断空白的关键列", blank_rows_page)
-        blank_rows_label.setProperty("class", "form-label")
-        self._blank_rows_columns = QListWidget(blank_rows_page)
-        self._blank_rows_columns.setObjectName("blank-rows-key-columns")
-        self._blank_rows_columns.setAccessibleName("判断空白的关键列")
-        self._blank_rows_columns.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
-        self._blank_rows_columns.setMaximumHeight(92)
-        self._blank_rows_allow_unsafe = QCheckBox(
-            "发现公式等结构时生成兼容预览",
-            blank_rows_page,
-        )
-        self._blank_rows_allow_unsafe.setObjectName("blank-rows-allow-unsafe")
-        blank_rows_note = QLabel(
-            "未选择关键列时按整行判断 · 空白文本视为空 · 首行表头不会删除",
-            blank_rows_page,
-        )
-        blank_rows_note.setObjectName("blank-rows-note")
-        blank_rows_note.setWordWrap(True)
-        self._blank_rows_details = QPushButton("查看将删除的原始行号", blank_rows_page)
-        self._blank_rows_details.setObjectName("blank-rows-details-button")
-        self._blank_rows_details.setProperty("class", "tool-button")
-        self._blank_rows_details.setEnabled(False)
-        self._blank_rows_details.clicked.connect(self._show_blank_rows_details)
-        blank_rows_layout.addWidget(blank_rows_label)
-        blank_rows_layout.addWidget(self._blank_rows_columns)
-        blank_rows_layout.addWidget(self._blank_rows_allow_unsafe)
-        blank_rows_layout.addWidget(blank_rows_note)
-        blank_rows_layout.addWidget(self._blank_rows_details)
-        blank_rows_layout.addStretch()
-
-        filter_page = QWidget(body)
-        filter_layout = QVBoxLayout(filter_page)
-        filter_layout.setContentsMargins(0, 0, 0, 0)
-        filter_layout.setSpacing(5)
-        first_label = QLabel("条件 1", filter_page)
-        first_label.setProperty("class", "form-label")
-        self._filter_first_column = self._filter_combo(
-            filter_page, "filter-first-column", "第一个筛选列"
-        )
-        self._filter_first_type = self._filter_type_combo(
-            filter_page, "filter-first-type", "第一个条件数据类型"
-        )
-        self._filter_first_operator = self._filter_combo(
-            filter_page, "filter-first-operator", "第一个筛选操作符"
-        )
-        self._filter_first_value = self._filter_value_field(
-            filter_page, "filter-first-value", "第一个比较值"
-        )
-        self._filter_first_second_value = self._filter_value_field(
-            filter_page, "filter-first-second-value", "第一个条件的第二个比较值"
-        )
-        first_grid = QGridLayout()
-        first_grid.setContentsMargins(0, 0, 0, 0)
-        first_grid.setHorizontalSpacing(5)
-        first_grid.setVerticalSpacing(5)
-        first_grid.setColumnStretch(0, 2)
-        first_grid.setColumnStretch(1, 2)
-        first_grid.setColumnStretch(2, 3)
-        first_grid.addWidget(self._filter_first_column, 0, 0, 1, 3)
-        first_grid.addWidget(self._filter_first_type, 1, 0)
-        first_grid.addWidget(self._filter_first_operator, 1, 1)
-        first_grid.addWidget(self._filter_first_value, 1, 2)
-        first_grid.addWidget(self._filter_first_second_value, 2, 0, 1, 3)
-
-        self._filter_enable_second = QCheckBox("添加第二个条件", filter_page)
-        self._filter_enable_second.setObjectName("filter-enable-second")
-        self._filter_connector = self._filter_combo(filter_page, "filter-connector", "条件连接方式")
-        self._filter_connector.addItem("并且", "and")
-        self._filter_connector.addItem("或者（仅同一列）", "or")
-        self._filter_second_column = self._filter_combo(
-            filter_page, "filter-second-column", "第二个筛选列"
-        )
-        self._filter_second_type = self._filter_type_combo(
-            filter_page, "filter-second-type", "第二个条件数据类型"
-        )
-        self._filter_second_operator = self._filter_combo(
-            filter_page, "filter-second-operator", "第二个筛选操作符"
-        )
-        self._filter_second_value = self._filter_value_field(
-            filter_page, "filter-second-value", "第二个比较值"
-        )
-        self._filter_second_second_value = self._filter_value_field(
-            filter_page, "filter-second-second-value", "第二个条件的第二个比较值"
-        )
-        second_grid = QGridLayout()
-        second_grid.setContentsMargins(0, 0, 0, 0)
-        second_grid.setHorizontalSpacing(5)
-        second_grid.setVerticalSpacing(5)
-        second_grid.setColumnStretch(0, 2)
-        second_grid.setColumnStretch(1, 2)
-        second_grid.setColumnStretch(2, 3)
-        second_grid.addWidget(self._filter_connector, 0, 0, 1, 3)
-        second_grid.addWidget(self._filter_second_column, 1, 0, 1, 3)
-        second_grid.addWidget(self._filter_second_type, 2, 0)
-        second_grid.addWidget(self._filter_second_operator, 2, 1)
-        second_grid.addWidget(self._filter_second_value, 2, 2)
-        second_grid.addWidget(self._filter_second_second_value, 3, 0, 1, 3)
-        filter_note = QLabel(
-            "跨列仅支持“并且” · 筛选只隐藏不匹配行，不删除数据",
-            filter_page,
-        )
-        filter_note.setObjectName("filter-note")
-        filter_note.setWordWrap(True)
-        filter_layout.addWidget(first_label)
-        filter_layout.addLayout(first_grid)
-        filter_layout.addWidget(self._filter_enable_second)
-        filter_layout.addLayout(second_grid)
-        filter_layout.addWidget(filter_note)
-        filter_layout.addStretch()
-        self._filter_first_type.currentIndexChanged.connect(
-            lambda _index: self._refresh_filter_operators(first=True)
-        )
-        self._filter_second_type.currentIndexChanged.connect(
-            lambda _index: self._refresh_filter_operators(first=False)
-        )
-        self._filter_first_operator.currentIndexChanged.connect(self._refresh_filter_value_fields)
-        self._filter_second_operator.currentIndexChanged.connect(self._refresh_filter_value_fields)
-        self._filter_enable_second.toggled.connect(self._update_filter_second_enabled)
-        self._refresh_filter_operators(first=True)
-        self._refresh_filter_operators(first=False)
-
-        trim_page = QWidget(body)
-        trim_layout = QVBoxLayout(trim_page)
-        trim_layout.setContentsMargins(0, 0, 0, 0)
-        trim_layout.setSpacing(5)
-        trim_label = QLabel("清理的关键列", trim_page)
-        trim_label.setProperty("class", "form-label")
-        self._trim_columns = QListWidget(trim_page)
-        self._trim_columns.setObjectName("trim-key-columns")
-        self._trim_columns.setAccessibleName("清理空格的关键列")
-        self._trim_columns.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
-        self._trim_columns.setMaximumHeight(92)
-        self._trim_collapse = QCheckBox("同时压缩中间连续空格", trim_page)
-        self._trim_collapse.setObjectName("trim-collapse-spaces")
-        trim_note = QLabel(
-            "只处理文本单元格 · 删除首尾空格/制表/换行/全角空格 · 未选列时清理全部列",
-            trim_page,
-        )
-        trim_note.setObjectName("trim-note")
-        trim_note.setWordWrap(True)
-        self._trim_details = QPushButton("查看将清理的单元格", trim_page)
-        self._trim_details.setObjectName("trim-details-button")
-        self._trim_details.setProperty("class", "tool-button")
-        self._trim_details.setEnabled(False)
-        self._trim_details.clicked.connect(self._show_trim_details)
-        trim_layout.addWidget(trim_label)
-        trim_layout.addWidget(self._trim_columns)
-        trim_layout.addWidget(self._trim_collapse)
-        trim_layout.addWidget(trim_note)
-        trim_layout.addWidget(self._trim_details)
-        trim_layout.addStretch()
-
-        find_page = QWidget(body)
-        find_layout = QVBoxLayout(find_page)
-        find_layout.setContentsMargins(0, 0, 0, 0)
-        find_layout.setSpacing(5)
-        self._find_text = self._find_field(find_layout, "查找内容", "find-text")
-        self._replace_text = self._find_field(find_layout, "替换为", "replace-text")
-        self._find_scope = self._field(find_layout, "范围", "find-scope")
-        self._find_scope.addItem("当前工作表", "sheet")
-        self._find_scope.addItem("全部工作表", "all")
-        self._find_mode = self._field(find_layout, "模式", "find-mode")
-        self._find_mode.addItem("值与文本", "values")
-        self._find_mode.addItem("公式（修改公式文本）", "formulas")
-        self._find_match_case = QCheckBox("区分大小写", find_page)
-        self._find_match_case.setObjectName("find-match-case")
-        self._find_whole_cell = QCheckBox("完全匹配整个单元格", find_page)
-        self._find_whole_cell.setObjectName("find-whole-cell")
-        self._find_trim = QCheckBox("匹配时忽略首尾空格", find_page)
-        self._find_trim.setObjectName("find-trim")
-        self._find_result = QLabel("", find_page)
-        self._find_result.setObjectName("find-result")
-        self._find_result.setWordWrap(True)
-        self._find_details = QPushButton("查看匹配明细", find_page)
-        self._find_details.setObjectName("find-details-button")
-        self._find_details.setProperty("class", "tool-button")
-        self._find_details.setEnabled(False)
-        self._find_details.clicked.connect(self._show_find_details)
-        find_actions = QHBoxLayout()
-        self._find_only_button = _tool_button("只查找", "find-only-button", find_page)
-        self._find_only_button.clicked.connect(self._emit_find_only)
-        self._replace_all_button = _tool_button("全部替换并预览", "replace-all-button", find_page)
-        self._replace_all_button.setProperty("class", "tool-button")
-        self._replace_all_button.clicked.connect(self._emit_replace_all)
-        find_actions.addWidget(self._find_only_button)
-        find_actions.addWidget(self._replace_all_button)
-        find_note = QLabel("公式模式会修改公式表达式，请确认风险", find_page)
-        find_note.setObjectName("find-note")
-        find_note.setWordWrap(True)
-        find_layout.addWidget(self._find_match_case)
-        find_layout.addWidget(self._find_whole_cell)
-        find_layout.addWidget(self._find_trim)
-        find_layout.addLayout(find_actions)
-        find_layout.addWidget(self._find_result)
-        find_layout.addWidget(self._find_details)
-        find_layout.addWidget(find_note)
-        find_layout.addStretch()
-        self._find_mode.currentIndexChanged.connect(self._update_find_mode_warning)
-
-        self._parameter_stack = QStackedWidget(body)
-        self._parameter_stack.setObjectName("processing-parameter-stack")
-        self._parameter_stack.addWidget(sort_page)
-        self._parameter_stack.addWidget(deduplicate_page)
-        self._parameter_stack.addWidget(blank_rows_page)
-        self._parameter_stack.addWidget(filter_page)
-        self._parameter_stack.addWidget(trim_page)
-        self._parameter_stack.addWidget(find_page)
-        body_layout.addWidget(self._parameter_stack, 1)
-
-        self._state = QLabel("选择文件后可配置处理功能", body)
-        self._state.setObjectName("sort-state")
-        self._state.setWordWrap(True)
-        self._state.setAccessibleName("处理状态")
-        body_layout.addWidget(self._state)
-        self._duplicate_mapping: tuple[tuple[int, tuple[int, ...]], ...] = ()
-        self._deleted_blank_row_numbers: tuple[int, ...] = ()
-        self._trimmed_cells: tuple[tuple[str, str, str, str], ...] = ()
-        self._find_changes: tuple[tuple[str, int, int, str, str], ...] = ()
-
-        self._footer = QFrame(self)
-        self._footer.setObjectName("function-footer")
-        self._footer.setFixedHeight(45)
-        footer_layout = QHBoxLayout(self._footer)
-        footer_layout.setContentsMargins(10, 0, 10, 0)
-        footer_layout.setSpacing(7)
-        self._cancel = _tool_button("取消", "function-cancel-button", self._footer, enabled=False)
-        self._cancel.setAccessibleName("取消临时预览")
-        self._reset = _tool_button("重置", "function-reset-button", self._footer, enabled=False)
-        self._cancel.clicked.connect(self.cancel_requested)
-        self._reset.clicked.connect(self._reset_fields)
-        footer_layout.addWidget(self._cancel)
-        footer_layout.addWidget(self._reset)
-        footer_layout.addStretch()
-        self._preview = _tool_button("预览", "function-preview-button", self._footer, enabled=False)
-        self._apply = _tool_button("应用", "function-apply-button", self._footer, enabled=False)
-        self._preview.setAccessibleName("预览处理结果")
-        self._apply.setAccessibleName("应用临时结果为新版本")
-        self._preview.clicked.connect(self._emit_preview)
-        self._apply.clicked.connect(self.apply_requested)
-        footer_layout.addWidget(self._preview)
-        footer_layout.addWidget(self._apply)
-
-        self._body_stack = QStackedWidget(self)
-        self._body_stack.setObjectName("function-body-stack")
-        body_scroll = QScrollArea(self._body_stack)
-        body_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        body_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        body_scroll.setWidgetResizable(True)
-        body_scroll.setWidget(body)
-        self._body_stack.addWidget(empty_body)
-        self._body_stack.addWidget(body_scroll)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addWidget(_panel_header("数据处理", badge="Python 安全模式"))
-        layout.addWidget(self._body_stack, 1)
-        layout.addWidget(self._footer)
-
-        self._controls = (
-            self._operation,
-            self._sheet,
-            self._primary,
-            self._primary_direction,
-            self._secondary,
-            self._secondary_direction,
-            self._deduplicate_columns,
-            self._deduplicate_keep,
-            self._deduplicate_ignore_case,
-            self._deduplicate_trim,
-            self._blank_rows_columns,
-            self._blank_rows_allow_unsafe,
-            self._filter_first_column,
-            self._filter_first_type,
-            self._filter_first_operator,
-            self._filter_first_value,
-            self._filter_first_second_value,
-            self._filter_enable_second,
-            self._filter_connector,
-            self._filter_second_column,
-            self._filter_second_type,
-            self._filter_second_operator,
-            self._filter_second_value,
-            self._filter_second_second_value,
-            self._trim_columns,
-            self._trim_collapse,
-            self._find_text,
-            self._replace_text,
-            self._find_scope,
-            self._find_mode,
-            self._find_match_case,
-            self._find_whole_cell,
-            self._find_trim,
-        )
-        self.clear_workbook()
-
-    def set_workbook(self, headers_by_sheet: dict[str, tuple[str, ...]]) -> None:
-        self._headers_by_sheet = headers_by_sheet
-        self._sheet.blockSignals(True)
-        self._sheet.clear()
-        self._sheet.addItems(tuple(headers_by_sheet))
-        self._sheet.blockSignals(False)
-        self._refresh_columns(self._sheet.currentText())
-        self._switch_operation()
-        enabled = bool(headers_by_sheet)
-        self._body_stack.setCurrentIndex(1 if enabled else 0)
-        self._footer.setVisible(enabled)
-        self._set_config_enabled(enabled)
-        self._state.setText(self._ready_message())
-        self._state.setProperty("error", False)
-        self._state.style().unpolish(self._state)
-        self._state.style().polish(self._state)
-
-    def clear_workbook(self) -> None:
-        self._headers_by_sheet.clear()
-        self._sheet.clear()
-        self._primary.clear()
-        self._secondary.clear()
-        self._deduplicate_columns.clear()
-        self._blank_rows_columns.clear()
-        self._trim_columns.clear()
-        self._filter_first_column.clear()
-        self._filter_second_column.clear()
-        self._duplicate_mapping = ()
-        self._deleted_blank_row_numbers = ()
-        self._deduplicate_details.setEnabled(False)
-        self._blank_rows_details.setEnabled(False)
-        self._set_config_enabled(False)
-        self._body_stack.setCurrentIndex(0)
-        self._footer.setVisible(False)
-        self._state.setText("选择文件后可配置处理功能")
-
-    def set_busy(self, message: str) -> None:
-        self._set_config_enabled(False)
-        self._preview.setEnabled(False)
-        self._apply.setEnabled(False)
-        self._cancel.setEnabled(True)
-        self._state.setText(message)
-        self._set_state_error(False)
-
-    def set_preview_ready(self, message: str = "临时结果已就绪，尚未生成版本") -> None:
-        self._set_config_enabled(False)
-        self._preview.setEnabled(False)
-        self._apply.setEnabled(True)
-        self._cancel.setEnabled(True)
-        self._state.setText(message)
-        self._set_state_error(False)
-
-    def set_deduplicate_preview_ready(
-        self,
-        duplicate_groups: int,
-        deleted_rows: int,
-        mapping: tuple[tuple[int, tuple[int, ...]], ...],
-        message: str | None = None,
-    ) -> None:
-        self._duplicate_mapping = mapping
-        summary = f"{duplicate_groups} 个重复组 · 将删除 {deleted_rows} 行"
-        self.set_preview_ready(
-            f"{message} · {summary}" if message else f"临时结果已就绪 · {summary}"
-        )
-        self._deduplicate_details.setEnabled(bool(mapping))
-
-    def set_delete_blank_rows_preview_ready(
-        self,
-        deleted_row_numbers: tuple[int, ...],
-        compatibility_warning: bool,
-        message: str | None = None,
-    ) -> None:
-        self._deleted_blank_row_numbers = deleted_row_numbers
-        summary = f"将删除 {len(deleted_row_numbers)} 行"
-        if compatibility_warning:
-            summary += " · 兼容预览可能影响公式等结构"
-        self.set_preview_ready(
-            f"{message} · {summary}" if message else f"临时结果已就绪 · {summary}"
-        )
-        self._blank_rows_details.setEnabled(bool(deleted_row_numbers))
-
-    def set_filter_preview_ready(
-        self,
-        matched_rows: int,
-        total_rows: int,
-        message: str | None = None,
-    ) -> None:
-        ratio = matched_rows / total_rows if total_rows else 0.0
-        summary = f"匹配 {matched_rows} / {total_rows} 行 · {ratio:.1%}"
-        self.set_preview_ready(
-            f"{message} · {summary}" if message else f"临时结果已就绪 · {summary}"
-        )
-
-    def set_error(self, message: str) -> None:
-        self._set_config_enabled(bool(self._headers_by_sheet))
-        self._cancel.setEnabled(False)
-        self._apply.setEnabled(False)
-        self._deduplicate_details.setEnabled(False)
-        self._blank_rows_details.setEnabled(False)
-        self._state.setText(message)
-        self._set_state_error(True)
-
-    def _set_state_error(self, error: bool) -> None:
-        self._state.setProperty("error", error)
-        self._state.style().unpolish(self._state)
-        self._state.style().polish(self._state)
-
-    def _field(self, layout: QVBoxLayout, label: str, name: str) -> QComboBox:
-        label_widget = QLabel(label, self)
-        label_widget.setProperty("class", "form-label")
-        field = QComboBox(self)
-        field.setObjectName(name)
-        field.setProperty("class", "field-control")
-        field.setAccessibleName(label)
-        layout.addWidget(label_widget)
-        layout.addWidget(field)
-        return field
-
-    def _direction_field(self, layout: QVBoxLayout, label: str, name: str) -> QComboBox:
-        field = self._field(layout, label, name)
-        field.addItem("升序", "asc")
-        field.addItem("降序", "desc")
-        return field
-
-    def _filter_combo(self, parent: QWidget, name: str, accessible_name: str) -> QComboBox:
-        field = QComboBox(parent)
-        field.setObjectName(name)
-        field.setProperty("class", "field-control")
-        field.setAccessibleName(accessible_name)
-        return field
-
-    def _filter_type_combo(
-        self,
-        parent: QWidget,
-        name: str,
-        accessible_name: str,
-    ) -> QComboBox:
-        field = self._filter_combo(parent, name, accessible_name)
-        field.addItem("文本", "text")
-        field.addItem("数字", "number")
-        field.addItem("日期", "date")
-        return field
-
-    def _filter_value_field(
-        self,
-        parent: QWidget,
-        name: str,
-        accessible_name: str,
-    ) -> QLineEdit:
-        field = QLineEdit(parent)
-        field.setObjectName(name)
-        field.setProperty("class", "field-control")
-        field.setAccessibleName(accessible_name)
-        field.setPlaceholderText("比较值")
-        return field
-
-    def _refresh_columns(self, sheet_name: str) -> None:
-        headers = self._headers_by_sheet.get(sheet_name, ())
-        self._primary.clear()
-        self._secondary.clear()
-        self._secondary.addItem("不使用", None)
-        self._deduplicate_columns.clear()
-        self._blank_rows_columns.clear()
-        self._filter_first_column.clear()
-        self._filter_second_column.clear()
-        for index, header in enumerate(headers):
-            label = header or f"第 {index + 1} 列"
-            self._primary.addItem(label, index)
-            self._secondary.addItem(label, index)
-            self._deduplicate_columns.addItem(label)
-            self._deduplicate_columns.item(index).setData(Qt.ItemDataRole.UserRole, index)
-            self._blank_rows_columns.addItem(label)
-            self._blank_rows_columns.item(index).setData(Qt.ItemDataRole.UserRole, index)
-            self._trim_columns.addItem(label)
-            self._trim_columns.item(index).setData(Qt.ItemDataRole.UserRole, index)
-            self._filter_first_column.addItem(label, index)
-            self._filter_second_column.addItem(label, index)
-        self._set_config_enabled(bool(self._headers_by_sheet))
-
-    def _reset_fields(self) -> None:
-        self._primary.setCurrentIndex(0)
-        self._primary_direction.setCurrentIndex(0)
-        self._secondary.setCurrentIndex(0)
-        self._secondary_direction.setCurrentIndex(0)
-        self._deduplicate_columns.clearSelection()
-        self._deduplicate_keep.setCurrentIndex(0)
-        self._deduplicate_ignore_case.setChecked(False)
-        self._deduplicate_trim.setChecked(False)
-        self._blank_rows_columns.clearSelection()
-        self._blank_rows_allow_unsafe.setChecked(False)
-        self._trim_columns.clearSelection()
-        self._trim_collapse.setChecked(False)
-        self._find_text.clear()
-        self._replace_text.clear()
-        self._find_scope.setCurrentIndex(0)
-        self._find_mode.setCurrentIndex(0)
-        self._find_match_case.setChecked(False)
-        self._find_whole_cell.setChecked(False)
-        self._find_trim.setChecked(False)
-        self._find_result.setText("")
-        self._filter_first_type.setCurrentIndex(0)
-        self._filter_first_value.clear()
-        self._filter_first_second_value.clear()
-        self._filter_enable_second.setChecked(False)
-        self._filter_connector.setCurrentIndex(0)
-        self._filter_second_column.setCurrentIndex(0)
-        self._filter_second_type.setCurrentIndex(0)
-        self._filter_second_value.clear()
-        self._filter_second_second_value.clear()
-        self._state.setText("已重置处理条件")
-
-    def _set_config_enabled(self, enabled: bool) -> None:
-        for control in getattr(self, "_controls", ()):
-            control.setEnabled(enabled)
-        self._reset.setEnabled(enabled)
-        self._preview.setEnabled(enabled and self._primary.count() > 0)
-        self._deduplicate_details.setEnabled(
-            enabled and bool(self._duplicate_mapping) and self._apply.isEnabled()
-        )
-        self._blank_rows_details.setEnabled(
-            enabled and bool(self._deleted_blank_row_numbers) and self._apply.isEnabled()
-        )
-        self._update_filter_second_enabled(enabled and self._filter_enable_second.isChecked())
-
-    def _emit_preview(self) -> None:
-        operation = self._operation.currentData()
-        if operation == "deduplicate":
-            self._emit_deduplicate_preview()
-            return
-        if operation == "delete_blank_rows":
-            self._emit_delete_blank_rows_preview()
-            return
-        if operation == "filter":
-            self._emit_filter_preview()
-            return
-        if operation == "trim":
-            self._emit_trim_preview()
-            return
-        if operation == "find_replace":
-            self._emit_replace_all()
-            return
-        primary = self._primary.currentData()
-        if not isinstance(primary, int):
-            self.set_error("请选择第一排序列")
-            return
-        sort_keys: list[dict[str, object]] = [
-            {"column_index": primary, "direction": self._primary_direction.currentData()}
-        ]
-        secondary = self._secondary.currentData()
-        if isinstance(secondary, int):
-            if secondary == primary:
-                self.set_error("第二排序列不能与第一排序列相同")
-                return
-            sort_keys.append(
-                {
-                    "column_index": secondary,
-                    "direction": self._secondary_direction.currentData(),
-                }
-            )
-        self.preview_requested.emit(self._sheet.currentText(), sort_keys)
-
-    def _emit_deduplicate_preview(self) -> None:
-        key_columns = [
-            item.data(Qt.ItemDataRole.UserRole)
-            for item in self._deduplicate_columns.selectedItems()
-        ]
-        self.deduplicate_preview_requested.emit(
-            self._sheet.currentText(),
-            {
-                "key_columns": key_columns,
-                "keep": self._deduplicate_keep.currentData(),
-                "ignore_case": self._deduplicate_ignore_case.isChecked(),
-                "trim_whitespace": self._deduplicate_trim.isChecked(),
-            },
-        )
-
-    def _emit_delete_blank_rows_preview(self) -> None:
-        key_columns = [
-            item.data(Qt.ItemDataRole.UserRole) for item in self._blank_rows_columns.selectedItems()
-        ]
-        self.delete_blank_rows_preview_requested.emit(
-            self._sheet.currentText(),
-            {
-                "key_columns": key_columns,
-                "allow_unsafe": self._blank_rows_allow_unsafe.isChecked(),
-            },
-        )
-
-    def _emit_filter_preview(self) -> None:
-        conditions = [self._filter_condition_payload(first=True)]
-        if self._filter_enable_second.isChecked():
-            conditions.append(self._filter_condition_payload(first=False))
-            if (
-                self._filter_connector.currentData() == "or"
-                and conditions[0]["column_index"] != conditions[1]["column_index"]
-            ):
-                self.set_error("不同列的筛选条件只能使用“并且”")
-                return
-        self.filter_preview_requested.emit(
-            self._sheet.currentText(),
-            {
-                "conditions": conditions,
-                "connector": self._filter_connector.currentData(),
-            },
-        )
-
-    def _filter_condition_payload(self, *, first: bool) -> dict[str, object]:
-        column = self._filter_first_column if first else self._filter_second_column
-        value_type = self._filter_first_type if first else self._filter_second_type
-        operator = self._filter_first_operator if first else self._filter_second_operator
-        value = self._filter_first_value if first else self._filter_second_value
-        second_value = (
-            self._filter_first_second_value if first else self._filter_second_second_value
-        )
-        return {
-            "column_index": column.currentData(),
-            "operator": operator.currentData(),
-            "value_type": value_type.currentData(),
-            "value": value.text() or None,
-            "second_value": second_value.text() or None,
-        }
-
-    def _switch_operation(self, _index: int = -1) -> None:
-        operation = self._operation.currentData()
-        page_index = {
-            "sort": 0,
-            "deduplicate": 1,
-            "delete_blank_rows": 2,
-            "filter": 3,
-            "trim": 4,
-            "find_replace": 5,
-        }.get(operation, 0)
-        self._parameter_stack.setCurrentIndex(page_index)
-        if self._headers_by_sheet:
-            self._state.setText(self._ready_message())
-        accessible_names = {
-            "sort": "预览排序结果",
-            "deduplicate": "预览删除重复行结果",
-            "delete_blank_rows": "预览删除空白行结果",
-            "filter": "预览条件筛选结果",
-            "trim": "预览清除空格结果",
-            "find_replace": "全部替换并预览",
-        }
-        self._preview.setAccessibleName(accessible_names.get(operation, "预览处理结果"))
-
-    def _ready_message(self) -> str:
-        if self._operation.currentData() == "deduplicate":
-            return "选择关键列后预览；未选择时按整行判断"
-        if self._operation.currentData() == "delete_blank_rows":
-            return "选择关键列后预览；未选择时删除整行均为空的行"
-        if self._operation.currentData() == "filter":
-            return "配置条件后预览匹配数量和实际可见行"
-        if self._operation.currentData() == "trim":
-            return "选择关键列后预览；未选择时清理全部文本列"
-        if self._operation.currentData() == "find_replace":
-            return "输入查找内容后可只查找，或全部替换并预览"
-        return "配置排序条件后预览完整数据行"
-
-    def _refresh_filter_operators(self, *, first: bool) -> None:
-        value_type = self._filter_first_type if first else self._filter_second_type
-        operator = self._filter_first_operator if first else self._filter_second_operator
-        operator.blockSignals(True)
-        operator.clear()
-        operator.addItem("等于", "equal")
-        operator.addItem("不等于", "not_equal")
-        if value_type.currentData() == "text":
-            operator.addItem("包含", "contains")
-            operator.addItem("不包含", "not_contains")
-        else:
-            operator.addItem("大于", "greater_than")
-            operator.addItem("小于", "less_than")
-            operator.addItem("介于", "between")
-        operator.addItem("为空", "blank")
-        operator.addItem("不为空", "not_blank")
-        operator.blockSignals(False)
-        self._refresh_filter_value_fields()
-
-    def _refresh_filter_value_fields(self, _index: int = -1) -> None:
-        for operator, value, second_value in (
-            (
-                self._filter_first_operator,
-                self._filter_first_value,
-                self._filter_first_second_value,
-            ),
-            (
-                self._filter_second_operator,
-                self._filter_second_value,
-                self._filter_second_second_value,
-            ),
-        ):
-            has_value = operator.currentData() not in {"blank", "not_blank"}
-            value.setVisible(has_value)
-            second_value.setVisible(operator.currentData() == "between")
-
-    def _update_filter_second_enabled(self, enabled: bool) -> None:
-        active = bool(enabled and self._filter_enable_second.isEnabled())
-        for control in (
-            self._filter_connector,
-            self._filter_second_column,
-            self._filter_second_type,
-            self._filter_second_operator,
-            self._filter_second_value,
-            self._filter_second_second_value,
-        ):
-            control.setEnabled(active)
-
-    def _show_duplicate_details(self) -> None:
-        dialog = QDialog(self)
-        dialog.setWindowTitle("重复行对应关系")
-        dialog.resize(560, 420)
-        table = QTableView(dialog)
-        table.setObjectName("deduplicate-mapping-table")
-        table.setModel(DuplicateMappingModel(self._duplicate_mapping, table))
-        table.horizontalHeader().setStretchLastSection(True)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dialog)
-        buttons.rejected.connect(dialog.reject)
-        buttons.accepted.connect(dialog.accept)
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(table)
-        layout.addWidget(buttons)
-        dialog.exec()
-
-    def _find_field(self, layout: QVBoxLayout, label: str, name: str) -> QLineEdit:
-        label_widget = QLabel(label, self)
-        label_widget.setProperty("class", "form-label")
-        field = QLineEdit(self)
-        field.setObjectName(name)
-        field.setProperty("class", "field-control")
-        field.setAccessibleName(label)
-        layout.addWidget(label_widget)
-        layout.addWidget(field)
-        return field
-
-    def _emit_trim_preview(self) -> None:
-        key_columns = [
-            item.data(Qt.ItemDataRole.UserRole) for item in self._trim_columns.selectedItems()
-        ]
-        self.trim_preview_requested.emit(
-            self._sheet.currentText(),
-            {
-                "key_columns": key_columns,
-                "collapse_spaces": self._trim_collapse.isChecked(),
-            },
-        )
-
-    def _emit_find_only(self) -> None:
-        payload = self._find_payload(replace_all=False)
-        if payload is not None:
-            self.find_replace_requested.emit(self._sheet.currentText(), payload)
-
-    def _emit_replace_all(self) -> None:
-        payload = self._find_payload(replace_all=True)
-        if payload is not None:
-            self.find_replace_requested.emit(self._sheet.currentText(), payload)
-
-    def _find_payload(self, *, replace_all: bool) -> dict[str, object] | None:
-        find_text = self._find_text.text()
-        if not find_text:
-            self.set_error("请输入查找内容")
-            return None
-        return {
-            "all_sheets": self._find_scope.currentData() == "all",
-            "mode": self._find_mode.currentData(),
-            "find_text": find_text,
-            "replace_text": self._replace_text.text(),
-            "match_case": self._find_match_case.isChecked(),
-            "whole_cell": self._find_whole_cell.isChecked(),
-            "trim_whitespace": self._find_trim.isChecked(),
-            "replace_all": replace_all,
-        }
-
-    def _update_find_mode_warning(self, _index: int = -1) -> None:
-        risky = self._find_mode.currentData() == "formulas"
-        self._find_result.setText("公式模式将修改公式表达式，请谨慎操作" if risky else "")
-
-    def set_trim_preview_ready(
-        self,
-        trimmed_cells: tuple[tuple[str, str, str, str], ...],
-        message: str | None = None,
-    ) -> None:
-        self._trimmed_cells = trimmed_cells
-        summary = f"将清理 {len(trimmed_cells)} 个单元格"
-        self.set_preview_ready(
-            f"{message} · {summary}" if message else f"临时结果已就绪 · {summary}"
-        )
-        self._trim_details.setEnabled(bool(trimmed_cells))
-
-    def set_find_result(
-        self,
-        message: str,
-        changes: tuple[tuple[str, int, int, str, str], ...],
-    ) -> None:
-        self._find_changes = changes
-        self._find_result.setText(message)
-        self._find_details.setEnabled(bool(changes))
-        if changes:
-            self._state.setText(message)
-            self._set_state_error(False)
-
-    def _show_trim_details(self) -> None:
-        dialog = QDialog(self)
-        dialog.setWindowTitle("将清理的单元格")
-        dialog.resize(560, 420)
-        table = QTableView(dialog)
-        table.setObjectName("trim-details-table")
-        table.setModel(TrimDetailsModel(self._trimmed_cells, table))
-        table.horizontalHeader().setStretchLastSection(True)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dialog)
-        buttons.rejected.connect(dialog.reject)
-        buttons.accepted.connect(dialog.accept)
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(table)
-        layout.addWidget(buttons)
-        dialog.exec()
-
-    def _show_find_details(self) -> None:
-        dialog = QDialog(self)
-        dialog.setWindowTitle("匹配明细")
-        dialog.resize(620, 420)
-        table = QTableView(dialog)
-        table.setObjectName("find-details-table")
-        table.setModel(FindDetailsModel(self._find_changes, table))
-        table.horizontalHeader().setStretchLastSection(True)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dialog)
-        buttons.rejected.connect(dialog.reject)
-        buttons.accepted.connect(dialog.accept)
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(table)
-        layout.addWidget(buttons)
-        dialog.exec()
-
-    def open_operation(self, operation: str, *, columns: list[int] | None = None) -> bool:
-        index = self._operation.findData(operation)
-        if index < 0:
-            return False
-        self._operation.setCurrentIndex(index)
-        self._switch_operation()
-        if columns and operation in {"deduplicate", "delete_blank_rows", "trim"}:
-            target = {
-                "deduplicate": self._deduplicate_columns,
-                "delete_blank_rows": self._blank_rows_columns,
-                "trim": self._trim_columns,
-            }[operation]
-            target.clearSelection()
-            for column in columns:
-                for row in range(target.count()):
-                    item = target.item(row)
-                    if item is not None and item.data(Qt.ItemDataRole.UserRole) == column:
-                        item.setSelected(True)
-        return True
-
-    def quick_sort(self, column: int, direction: str) -> bool:
-        index = self._operation.findData("sort")
-        if index < 0 or not self._headers_by_sheet:
-            return False
-        self._operation.setCurrentIndex(index)
-        self._switch_operation()
-        for row in range(self._primary.count()):
-            if self._primary.itemData(row) == column:
-                self._primary.setCurrentIndex(row)
-                break
-        direction_index = self._primary_direction.findData(direction)
-        if direction_index >= 0:
-            self._primary_direction.setCurrentIndex(direction_index)
-        self._secondary.setCurrentIndex(0)
-        if self._preview.isEnabled():
-            self._emit_preview()
-        return True
-
-    def open_filter_for_column(self, column: int) -> bool:
-        index = self._operation.findData("filter")
-        if index < 0 or not self._headers_by_sheet:
-            return False
-        self._operation.setCurrentIndex(index)
-        self._switch_operation()
-        for row in range(self._filter_first_column.count()):
-            if self._filter_first_column.itemData(row) == column:
-                self._filter_first_column.setCurrentIndex(row)
-                break
-        return True
-
-    def _show_blank_rows_details(self) -> None:
-        dialog = QDialog(self)
-        dialog.setWindowTitle("将删除的空白行")
-        dialog.resize(360, 420)
-        table = QTableView(dialog)
-        table.setObjectName("blank-rows-details-table")
-        table.setModel(DeletedRowsModel(self._deleted_blank_row_numbers, table))
-        table.horizontalHeader().setStretchLastSection(True)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dialog)
-        buttons.rejected.connect(dialog.reject)
-        buttons.accepted.connect(dialog.accept)
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(table)
-        layout.addWidget(buttons)
-        dialog.exec()
 
 
 class DuplicateMappingModel(QAbstractTableModel):
@@ -2429,46 +1438,348 @@ class VersionTreePanel(QFrame):
         )
 
 
-class WorkbookEditorFrame(QFrame):
-    sort_requested = Signal(int, str)
-    processing_requested = Signal(str, list)
+class _RibbonGroup(QFrame):
+    def __init__(self, title: str, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setObjectName("ribbon-group")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 3, 6, 1)
+        layout.setSpacing(1)
+        self.buttons = QHBoxLayout()
+        self.buttons.setSpacing(3)
+        layout.addLayout(self.buttons)
+        label = QLabel(title, self)
+        label.setObjectName("ribbon-group-label")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(label)
+
+    def add_button(self, text: str, name: str) -> QPushButton:
+        button = QPushButton(text, self)
+        button.setObjectName(name)
+        button.setProperty("class", "ribbon-button")
+        button.setMinimumHeight(28)
+        self.buttons.addWidget(button)
+        return button
+
+
+class TemporaryResultBanner(QFrame):
+    apply_requested = Signal()
+    cancel_requested = Signal()
+    details_requested = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("temporary-result-banner")
+        message = QLabel("临时结果 · 尚未生成版本", self)
+        message.setObjectName("banner-message")
+        self._message = message
+        self._details = QPushButton("查看明细", self)
+        self._details.setObjectName("banner-details-button")
+        self._details.setProperty("class", "ribbon-button")
+        self._apply = QPushButton("应用生成版本", self)
+        self._apply.setObjectName("banner-apply-button")
+        self._apply.setProperty("class", "ribbon-button")
+        self._cancel = QPushButton("取消", self)
+        self._cancel.setObjectName("banner-cancel-button")
+        self._cancel.setProperty("class", "ribbon-button")
+        self._details.clicked.connect(self.details_requested)
+        self._apply.clicked.connect(self.apply_requested)
+        self._cancel.clicked.connect(self.cancel_requested)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 3, 10, 3)
+        layout.setSpacing(6)
+        message.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        layout.addWidget(message, 1)
+        layout.addWidget(self._details)
+        layout.addWidget(self._apply)
+        layout.addWidget(self._cancel)
+        self.setVisible(False)
+
+    def show_message(
+        self, text: str, *, can_apply: bool = False, can_details: bool = False
+    ) -> None:
+        self._message.setText(text)
+        self._apply.setEnabled(can_apply)
+        self._details.setEnabled(can_details)
+        self._details.setVisible(can_details)
+        self.setVisible(True)
+
+    def hide_banner(self) -> None:
+        self.setVisible(False)
+
+
+class ProcessingDetailsDialog(QDialog):
+    """两阶段预览的明细查看窗口，按处理结果类型接收对应表格模型。"""
 
     def __init__(
         self,
-        preview: QWidget,
-        function_panel: QWidget | None = None,
+        title: str,
+        model: QAbstractTableModel,
         parent: QWidget | None = None,
     ) -> None:
+        super().__init__(parent)
+        self.setObjectName("processing-details-dialog")
+        self.setWindowTitle(title)
+        self.resize(520, 360)
+        self.setModal(False)
+
+        table = QTableView(self)
+        table.setObjectName("processing-details-table")
+        table.setModel(model)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setAlternatingRowColors(True)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.verticalHeader().setDefaultSectionSize(26)
+        table.horizontalHeader().setStretchLastSection(True)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, self)
+        buttons.rejected.connect(self.reject)
+        buttons.accepted.connect(self.accept)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 10)
+        layout.addWidget(table, 1)
+        layout.addWidget(buttons)
+
+
+class FilterDialog(QDialog):
+    params_submitted = Signal(object)
+
+    def __init__(
+        self,
+        sheet_name: str,
+        column_labels: tuple[str, ...],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("filter-dialog")
+        self.setWindowTitle(f"筛选 · {sheet_name}")
+        self.setModal(False)
+        self.resize(460, 220)
+        self._sheet_name = sheet_name
+
+        form = QVBoxLayout(self)
+        form.setContentsMargins(14, 14, 14, 12)
+        form.setSpacing(8)
+        condition_row = QHBoxLayout()
+        self._column = QComboBox(self)
+        self._column.setProperty("class", "field-control")
+        self._column.addItems(column_labels)
+        self._value_type = QComboBox(self)
+        self._value_type.setProperty("class", "field-control")
+        self._value_type.addItem("文本", "text")
+        self._value_type.addItem("数字", "number")
+        self._value_type.addItem("日期", "date")
+        self._operator = QComboBox(self)
+        self._operator.setProperty("class", "field-control")
+        self._value = QLineEdit(self)
+        self._value.setPlaceholderText("比较值")
+        for widget in (self._column, self._value_type, self._operator, self._value):
+            widget.setMinimumHeight(30)
+            condition_row.addWidget(widget, 3 if widget is self._value else 2)
+        note = QLabel("跨列多条件筛选将在后续开放；当前按单列条件筛选", self)
+        note.setProperty("class", "form-label")
+        self._value_type.currentIndexChanged.connect(lambda _i: self._refresh_operators())
+        self._refresh_operators()
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, self)
+        buttons.rejected.connect(self.reject)
+        buttons.accepted.connect(self.accept)
+        apply_button = QPushButton("预览筛选", self)
+        apply_button.setObjectName("filter-apply-button")
+        apply_button.setProperty("class", "ribbon-button")
+        apply_button.clicked.connect(self._submit)
+
+        form.addLayout(condition_row)
+        form.addWidget(note)
+        form.addStretch()
+        button_row = QHBoxLayout()
+        button_row.addWidget(apply_button)
+        button_row.addStretch()
+        button_row.addWidget(buttons)
+        form.addLayout(button_row)
+
+    def _refresh_operators(self) -> None:
+        self._operator.blockSignals(True)
+        self._operator.clear()
+        value_type = self._value_type.currentData()
+        items = [("等于", "equal"), ("不等于", "not_equal")]
+        if value_type == "text":
+            items += [("包含", "contains"), ("不包含", "not_contains")]
+        else:
+            items += [("大于", "greater_than"), ("小于", "less_than"), ("介于", "between")]
+        items += [("为空", "blank"), ("不为空", "not_blank")]
+        for label, data in items:
+            self._operator.addItem(label, data)
+        self._operator.blockSignals(False)
+        self._value.setVisible(self._operator.currentData() not in {"blank", "not_blank"})
+
+    def _submit(self) -> None:
+        self.params_submitted.emit(
+            {
+                "sheet_name": self._sheet_name,
+                "conditions": [
+                    {
+                        "column_index": self._column.currentIndex(),
+                        "operator": self._operator.currentData(),
+                        "value_type": self._value_type.currentData(),
+                        "value": self._value.text() or None,
+                        "second_value": None,
+                    }
+                ],
+                "connector": "and",
+            }
+        )
+
+
+class FindReplaceDialog(QDialog):
+    params_submitted = Signal(str, object)
+
+    def __init__(self, sheet_name: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("find-replace-dialog")
+        self.setWindowTitle("查找和替换")
+        self.setModal(False)
+        self.resize(430, 300)
+        self._sheet_name = sheet_name
+
+        form = QGridLayout(self)
+        form.setContentsMargins(16, 16, 16, 12)
+        form.setHorizontalSpacing(8)
+        form.setVerticalSpacing(8)
+        find_label = QLabel("查找内容", self)
+        find_label.setProperty("class", "form-label")
+        self._find_text = QLineEdit(self)
+        replace_label = QLabel("替换为", self)
+        replace_label.setProperty("class", "form-label")
+        self._replace_text = QLineEdit(self)
+        scope_label = QLabel("范围", self)
+        scope_label.setProperty("class", "form-label")
+        self._scope = QComboBox(self)
+        self._scope.setProperty("class", "field-control")
+        self._scope.addItem("当前工作表", "sheet")
+        self._scope.addItem("全部工作表", "all")
+        mode_label = QLabel("查找范围", self)
+        mode_label.setProperty("class", "form-label")
+        self._mode = QComboBox(self)
+        self._mode.setProperty("class", "field-control")
+        self._mode.addItem("值", "values")
+        self._mode.addItem("公式", "formulas")
+        self._match_case = QCheckBox("区分大小写", self)
+        self._whole_cell = QCheckBox("单元格匹配", self)
+        options = QHBoxLayout()
+        options.addWidget(self._match_case)
+        options.addWidget(self._whole_cell)
+        form.addWidget(find_label, 0, 0)
+        form.addWidget(self._find_text, 0, 1)
+        form.addWidget(replace_label, 1, 0)
+        form.addWidget(self._replace_text, 1, 1)
+        form.addWidget(scope_label, 2, 0)
+        form.addWidget(self._scope, 2, 1)
+        form.addWidget(mode_label, 3, 0)
+        form.addWidget(self._mode, 3, 1)
+        form.addLayout(options, 4, 0, 1, 2)
+
+        self._status = QLabel("", self)
+        self._status.setObjectName("find-dialog-status")
+        self._details_button = QPushButton("匹配明细", self)
+        self._details_button.setProperty("class", "ribbon-button")
+        self._details_button.setEnabled(False)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, self)
+        buttons.rejected.connect(self.reject)
+        find_button = QPushButton("查找全部", self)
+        find_button.setProperty("class", "ribbon-button")
+        find_button.clicked.connect(lambda: self._submit(replace_all=False))
+        replace_button = QPushButton("全部替换", self)
+        replace_button.setObjectName("find-replace-all-button")
+        replace_button.setProperty("class", "ribbon-button")
+        replace_button.clicked.connect(lambda: self._submit(replace_all=True))
+        row = QHBoxLayout()
+        row.addWidget(find_button)
+        row.addWidget(replace_button)
+        row.addStretch()
+        row.addWidget(buttons)
+        form.addWidget(self._status, 5, 0, 1, 2)
+        form.addLayout(row, 6, 0, 1, 2)
+
+    def set_status(self, message: str, has_details: bool) -> None:
+        self._status.setText(message)
+        self._details_button.setEnabled(has_details)
+
+    def _submit(self, *, replace_all: bool) -> None:
+        if not self._find_text.text():
+            self._status.setText("请输入查找内容")
+            return
+        self.params_submitted.emit(
+            self._sheet_name,
+            {
+                "all_sheets": self._scope.currentData() == "all",
+                "mode": self._mode.currentData(),
+                "find_text": self._find_text.text(),
+                "replace_text": self._replace_text.text(),
+                "match_case": self._match_case.isChecked(),
+                "whole_cell": self._whole_cell.isChecked(),
+                "trim_whitespace": False,
+                "replace_all": replace_all,
+            },
+        )
+
+
+class WorkbookEditorFrame(QFrame):
+    sort_requested = Signal(int, str)
+    one_step_requested = Signal(str, list)
+    filter_requested = Signal()
+    find_replace_requested = Signal()
+    apply_requested = Signal()
+    preview_cancel_requested = Signal()
+    details_requested = Signal()
+
+    def __init__(self, preview: QWidget, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("editor-frame")
         self.setMinimumWidth(480)
         self._preview = preview
-        self._function_panel = function_panel
 
-        processing = QFrame(self)
-        processing.setObjectName("processing-bar")
-        processing.setFixedHeight(38)
-        processing_layout = QHBoxLayout(processing)
-        processing_layout.setContentsMargins(8, 3, 8, 3)
-        processing_layout.setSpacing(4)
-        for text, object_name, action in (
-            ("升序", "bar-sort-asc-button", "sort-asc"),
-            ("降序", "bar-sort-desc-button", "sort-desc"),
-            ("筛选", "bar-filter-button", "filter"),
-            ("删除重复行", "bar-deduplicate-button", "deduplicate"),
-            ("删除空白行", "bar-blank-rows-button", "delete_blank_rows"),
-            ("清除空格", "bar-trim-button", "trim"),
-            ("查找替换", "bar-find-replace-button", "find_replace"),
-        ):
-            button = QPushButton(text, processing)
-            button.setObjectName(object_name)
-            button.setProperty("class", "tool-button")
-            button.setMinimumHeight(26)
-            button.clicked.connect(
-                lambda _checked=False, act=action: self._bar_action_triggered(act)
-            )
-            processing_layout.addWidget(button)
-        processing_layout.addStretch()
+        ribbon = QFrame(self)
+        ribbon.setObjectName("editor-ribbon")
+        ribbon.setFixedHeight(64)
+        ribbon_layout = QHBoxLayout(ribbon)
+        ribbon_layout.setContentsMargins(8, 4, 8, 2)
+        ribbon_layout.setSpacing(0)
+
+        sort_group = _RibbonGroup("排序和筛选", ribbon)
+        self._sort_asc = sort_group.add_button("升序 A→Z", "bar-sort-asc-button")
+        self._sort_desc = sort_group.add_button("降序 Z→A", "bar-sort-desc-button")
+        self._filter = sort_group.add_button("筛选", "bar-filter-button")
+        self._sort_asc.clicked.connect(lambda: self._emit_sort("asc"))
+        self._sort_desc.clicked.connect(lambda: self._emit_sort("desc"))
+        self._filter.clicked.connect(self.filter_requested)
+
+        data_group = _RibbonGroup("数据工具", ribbon)
+        self._deduplicate = data_group.add_button("删除重复行", "bar-deduplicate-button")
+        self._blank_rows = data_group.add_button("删除空白行", "bar-blank-rows-button")
+        self._trim = data_group.add_button("清除空格", "bar-trim-button")
+        self._deduplicate.clicked.connect(
+            lambda: self.one_step_requested.emit("deduplicate", self._selected_columns())
+        )
+        self._blank_rows.clicked.connect(
+            lambda: self.one_step_requested.emit("delete_blank_rows", self._selected_columns())
+        )
+        self._trim.clicked.connect(
+            lambda: self.one_step_requested.emit("trim", self._selected_columns())
+        )
+
+        find_group = _RibbonGroup("查找", ribbon)
+        self._find = find_group.add_button("查找替换", "bar-find-replace-button")
+        self._find.clicked.connect(self.find_replace_requested)
+
+        for group in (sort_group, data_group, find_group):
+            ribbon_layout.addWidget(group)
+            separator = QFrame(ribbon)
+            separator.setObjectName("ribbon-separator")
+            separator.setFixedSize(1, 48)
+            ribbon_layout.addWidget(separator)
+        ribbon_layout.addStretch()
 
         formula = QFrame(self)
         formula.setObjectName("formula-bar")
@@ -2507,41 +1818,53 @@ class WorkbookEditorFrame(QFrame):
             format_layout.addWidget(control)
         format_layout.addStretch()
 
-        self._temporary_banner = QLabel("临时结果 · 尚未生成版本", self)
-        self._temporary_banner.setObjectName("temporary-result-banner")
-        self._temporary_banner.setAccessibleName("临时结果状态")
-        self._temporary_banner.setVisible(False)
+        self._banner = TemporaryResultBanner(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(processing)
-        if self._function_panel is not None:
-            self._function_panel.setMaximumHeight(340)
-            self._function_panel.setMinimumWidth(0)
-            self._function_panel.setMinimumSize(0, 0)
-            layout.addWidget(self._function_panel)
+        layout.addWidget(ribbon)
         layout.addWidget(formula)
         layout.addWidget(format_bar)
-        layout.addWidget(self._temporary_banner)
+        layout.addWidget(self._banner)
         layout.addWidget(preview, 1)
+        self._banner.apply_requested.connect(self.apply_requested)
+        self._banner.cancel_requested.connect(self.preview_cancel_requested)
+        self._banner.details_requested.connect(self.details_requested)
 
-    def _bar_action_triggered(self, action: str) -> None:
+    def _emit_sort(self, direction: str) -> None:
         columns = self._selected_columns()
-        if action in {"sort-asc", "sort-desc"}:
-            if not columns:
-                return
-            direction = "asc" if action == "sort-asc" else "desc"
-            self.sort_requested.emit(columns[0], direction)
-            return
-        self.processing_requested.emit(action, columns)
+        self.sort_requested.emit(columns[0] if columns else 0, direction)
 
     def _selected_columns(self) -> list[int]:
         getter = getattr(self._preview, "selected_columns", None)
         return getter() if getter is not None else []
 
-    def set_temporary_result(self, visible: bool) -> None:
-        self._temporary_banner.setVisible(visible)
+    def set_actions_enabled(self, enabled: bool) -> None:
+        # 处理预览期间当前预览会被清空，功能区条必须随之禁用，
+        # 避免入口在无当前工作表状态下误弹错误提示。
+        for button in (
+            self._sort_asc,
+            self._sort_desc,
+            self._filter,
+            self._deduplicate,
+            self._blank_rows,
+            self._trim,
+            self._find,
+        ):
+            button.setEnabled(enabled)
+
+    def set_busy(self, message: str) -> None:
+        self._banner.show_message(message, can_apply=False, can_details=False)
+
+    def set_preview_ready(self, message: str, *, can_details: bool) -> None:
+        self._banner.show_message(message, can_apply=True, can_details=can_details)
+
+    def set_error(self, message: str) -> None:
+        self._banner.show_message(message, can_apply=False, can_details=False)
+
+    def clear_banner(self) -> None:
+        self._banner.hide_banner()
 
 
 def format_byte_size(size_bytes: int) -> str:

@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-16T18:15:37+08:00"
+updated_at: "2026-08-16T19:20:29+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -31,13 +31,13 @@ product:
 delivery:
   approach: "风险原型 + 垂直切片 + 阶段验收"
   estimated_effort: "完整第一版约 260-380 人日；AI 主导计划按 8-12 个月评估"
-  current_phase: "版本图谱大画布与专注模式已完成，等待实机验收"
-  next_milestone: "用户实机复验版本图谱全向平移、节点边界和专注模式"
+  current_phase: "DEC-037 测试对齐完成、预览明细与临时结果编辑接通；全量测试与质量门绿色"
+  next_milestone: "用户实机复验右侧编辑区工作流（功能区条、查看明细、临时结果编辑）"
 
 current_task:
   id: "PANEL-TO-RIGHT-001"
-  status: "implementation-completed-awaiting-real-machine-validation"
-  goal: "按 DEC-20260816-037 将功能面板整体搬到右侧编辑区，左侧只留文件列表"
+  status: "implementation-and-tests-completed"
+  goal: "按 DEC-20260816-037 将功能面板整体搬到右侧编辑区并保持测试与质量门绿色（含本轮测试对齐与预览能力补齐）"
   owner: "codex-sol"
 
 last_completed:
@@ -284,8 +284,21 @@ last_completed:
   - "处理功能主入口按用户意图调整为表格上方功能区条（升序/降序/筛选/去重/空白行/清空格/查找替换，按选中列生效），列头与右键菜单保留为辅助入口"
   - "用户澄清本意后（DEC-20260816-037）将功能面板整体移入右侧编辑区（功能区条之下、公式栏之上，限高可滚动），左侧分割器移除只保留文件列表，专注模式改为隐藏文件列表"
   - "节点布局改为画布绝对坐标钉定（DEC-20260816-034）：固定与记忆位置永不再动，新节点树形定位并对全画布已定位节点避让；把 A 文件节点拖到 B 文件旁后任何重建都不再移动它，也不再自动调整 B 文件节点"
+  - "2026-08-16 完成需求与代码逐条对照审查：核对软件前端框架设计.md 全部条目、需求讨论记录第 1-48 节与追加需求.txt；确认核心工作流（导入、双引擎转换、两阶段处理、手动编辑保存、全局画布版本树、软删除回收站、导出另存为、后台任务队列、右下角状态栏）已实现；同时发现 DEC-037 工作区改动未完成测试对齐（见 blockers TEST-DEC037-ALIGN-001）及预览‘查看明细’按钮未接通（details_requested 信号无连接，明细模型类无 UI 装配）"
+  - "2026-08-16 修复 DEC-037 测试对齐：重写 tests/test_processing_entries.py（右键入口/功能区条/横幅按钮/查找对话框状态），修 test_app.py 旧面板断言（editor-ribbon 结构 + _previewed_version_id + _quick_sort_from_table 排序分支），全量恢复绿色"
+  - "2026-08-16 接通两阶段预览‘查看明细’：新增 ProcessingDetailsDialog，装配 DuplicateMappingModel/DeletedRowsModel/TrimDetailsModel/FindDetailsModel，_editor.details_requested 连接 _show_processing_details"
+  - "2026-08-16 临时结果支持继续单元格编辑（需求第 17 节）：临时预览 editable=True；应用任务 _run_apply_preview_task 支持可选 edits（编辑写入 staging 后再定最终哈希与无变化校验，working 副本改由 staging 复制）；取消/切换/重新处理统一在 _discard_processing_result 清编辑会话；‘保存为新版本’在临时预览期间禁用；未保存保护与退出的‘保存’分支在临时预览下转向应用生成版本（含 _close_after_apply）"
+  - "2026-08-16 功能区条纳入 busy 禁用（set_actions_enabled）：处理预览进行中当前预览被清空，入口禁用避免误弹‘请先选择文件’错误框；新增测试覆盖"
+  - "2026-08-16 清理 DEC-037 残留：app.py 四处重复 clear_banner、_apply_edit_state 死变量"
 
 next_actions:
+  - "用户实机复验右侧编辑区工作流：功能区条入口、预览‘查看明细’、临时结果上编辑并应用生成版本"
+  - "提交本轮全部改动（DEC-037 + 测试对齐 + 明细 + 临时结果编辑），每完成一个可独立验收节点提交本地 Git"
+  - "第二批入口化：删除/调整列、自动列宽表头样式（需求第 19.6/19.7 节）"
+  - "下次画布改动时给所有根节点加独立于 HEAD 的'根版本'标记（需求第 47 节待实施项）"
+  - "评估处理功能参数固化问题：去重 keep=last/忽略大小写、清空格压缩中间空格、查找替换忽略首尾空格等选项在 UI 上不可调（第 19.2/19.4/19.5 节），需在右侧编辑区补参数确认界面"
+  - "与客户复核两处歧义：状态栏对 xls 文件显示原始后缀还是工作格式（第 46 节字面冲突）；导出默认目录（原始需求'桌面' vs 实现'下载'文件夹，第 21 节未明确）"
+  - "单列排序缺少'将按该列排序完整数据行'提示（第 19.1 节）；排序遇合并单元格实现为直接拒绝而非'预览前警告'（第 19.1 节字面）"
   - "用户实机复验表格入口：列头点击菜单排序/筛选、右键处理菜单预填、Ctrl+F/H 查找替换、清除空格与替换的两阶段提交"
   - "第二批入口化：删除/调整列、自动列宽表头样式（需求第 19.6/19.7 节）"
   - "下次画布改动时给所有根节点加独立于 HEAD 的'根版本'标记（需求第 47 节待实施项）"
@@ -306,6 +319,12 @@ next_actions:
   - "后续普通更改默认不推送远端，用户明确要求时再推送"
 
 blockers:
+  - id: "TEST-DEC037-ALIGN-001"
+    status: "resolved-and-tested"
+    summary: "已重写 tests/test_processing_entries.py 并修正 test_app.py 旧面板断言；全量 237 项测试与完整质量门（Ruff check/format、Mypy strict、uv lock、uv build、git diff --check）通过"
+  - id: "PREVIEW-DETAILS-DEAD-BUTTON-001"
+    status: "resolved-and-tested"
+    summary: "预览‘查看明细’已接通：ProcessingDetailsDialog 按处理结果类型装配四个明细模型；端到端测试验证 trim 明细内容与行数"
   - id: "VERSION-FOCUS-VISIBILITY-SCOPE-001"
     status: "resolved-and-tested"
     summary: "按用户确认范围完成：隐藏应用页眉、命令栏、左侧区域、Excel 编辑区和底部状态栏，只保留 Windows 标题栏及版本树自身标题栏与画布；退出时恢复原显隐状态和分隔尺寸"
@@ -512,8 +531,11 @@ changed_files:
   - "tests/versioning/test_store.py"
 
 verification:
-  status: "passed-awaiting-real-machine-validation"
+  status: "all-green-awaiting-real-machine-validation"
   commands:
+    - "uv run pytest -q：237 passed（含新增：预览查看明细端到端、临时结果编辑并应用生成版本、功能区条 busy 禁用）"
+    - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check：全部通过"
+    - "2026-08-16 需求对照审查：逐文件阅读 app.py、ui/shell.py、preview/widget.py、library/widget.py、grid/model.py、edit_session.py、versioning/store.py、excel/python_engine.py、processing/sort_preview.py、apply_version.py、export_task.py，并 grep 核实搜索/重命名/属性/主题/壁纸/托盘/草稿/备份/快捷键等缺口"
     - "uv run pytest：244 passed（新增功能区条端到端：选中列点升序提交排序预览、查找替换按钮切换面板；网格安全测试：3x2 数据渲染 35x6 余量网格且 selectAll 只选 3x2）"
     - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check：全部通过"
     - "uv run python scripts/capture_ui_states.py --output output/playwright：8 张截图全部生成"

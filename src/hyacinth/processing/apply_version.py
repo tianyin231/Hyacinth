@@ -219,25 +219,7 @@ def run_save_manual_edits_task(
     try:
         context.report_progress(0.1, "正在应用单元格修改")
         temporary_directory.mkdir(parents=True, exist_ok=True)
-        workbook = load_workbook(parent.snapshot_path, data_only=False)
-        try:
-            for index, edit in enumerate(edits):
-                context.check_cancelled()
-                sheet_name, row, column, value = edit
-                if sheet_name not in workbook.sheetnames:
-                    raise ValueError(f"找不到工作表：{sheet_name}")
-                cell = workbook[sheet_name].cell(row=row + 1, column=column + 1)
-                cell.value = _excel_edit_value(value)  # type: ignore[assignment]
-                context.report_progress(
-                    0.1 + 0.35 * ((index + 1) / len(edits)),
-                    f"正在修改 {sheet_name}!{row + 1}",
-                )
-            workbook.calculation.fullCalcOnLoad = True
-            workbook.calculation.forceFullCalc = True
-            workbook.calculation.calcMode = "auto"
-            workbook.save(temporary_path)
-        finally:
-            workbook.close()
+        _apply_edits_to_workbook_file(parent.snapshot_path, temporary_path, edits, context)
         preview_hash = _file_hash(temporary_path, context)
         derived_request = TaskRequest(
             task_id=request.task_id,
@@ -263,6 +245,35 @@ def run_save_manual_edits_task(
         )
     finally:
         shutil.rmtree(temporary_directory, ignore_errors=True)
+
+
+def _apply_edits_to_workbook_file(
+    source: Path,
+    destination: Path,
+    edits: list[tuple[str, int, int, object]],
+    context: ApplyVersionTaskContext,
+) -> None:
+    """把 0 基行列的值编辑写入工作簿副本并保存到 destination。"""
+    workbook = load_workbook(source, data_only=False)
+    try:
+        for index, edit in enumerate(edits):
+            context.check_cancelled()
+            sheet_name, row, column, value = edit
+            if sheet_name not in workbook.sheetnames:
+                raise ValueError(f"找不到工作表：{sheet_name}")
+            cell = workbook[sheet_name].cell(row=row + 1, column=column + 1)
+            cell.value = _excel_edit_value(value)  # type: ignore[assignment]
+            context.report_progress(
+                0.1 + 0.35 * ((index + 1) / len(edits)),
+                f"正在修改 {sheet_name}!{row + 1}",
+            )
+        workbook.calculation.fullCalcOnLoad = True
+        workbook.calculation.forceFullCalc = True
+        workbook.calculation.calcMode = "auto"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        workbook.save(destination)
+    finally:
+        workbook.close()
 
 
 def _run_apply_preview_task(
@@ -291,10 +302,12 @@ def _run_apply_preview_task(
     actual_hash = _file_hash(preview_path, context)
     if actual_hash != preview_hash:
         raise ValueError("临时预览已变化，请重新生成预览")
-    if actual_hash == parent.content_hash:
-        raise ValueError("处理结果没有变化，无需生成新版本")
     preview_workbook = load_workbook(preview_path, read_only=True)
     preview_workbook.close()
+    # 临时结果上的手动编辑随应用一并写入，编辑后内容才是最终结果与内容哈希。
+    manual_edits = _optional_manual_edits(request.payload.get("edits"))
+    if manual_edits:
+        parameters = {**parameters, "edited_cells": len(manual_edits)}
 
     staging_directory = library_root / ".staging" / f"{request.file_id}-{request.task_id}"
     final_directory = library_root / "files" / request.file_id / "versions" / version_id
@@ -305,40 +318,46 @@ def _run_apply_preview_task(
     working_temporary = workbook_record.working_path.with_name(
         f".{workbook_record.working_path.name}.{request.task_id}.tmp"
     )
-    child = VersionRecord(
-        version_id=version_id,
-        file_id=request.file_id,
-        parent_version_id=parent_version_id,
-        name=version_name,
-        created_at=datetime.now(UTC),
-        operation=operation,
-        engine=EngineName.PYTHON,
-        snapshot_path=final_snapshot,
-        content_hash=actual_hash,
-        parameters_json=json.dumps(
-            parameters,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ),
-    )
-    result = ImportedWorkbook(
-        file_id=workbook_record.file_id,
-        display_name=workbook_record.display_name,
-        original_path=workbook_record.original_path,
-        working_path=workbook_record.working_path,
-        root_version=child,
-        imported_at=workbook_record.imported_at,
-    )
 
     try:
         context.report_progress(0.2, "正在准备子版本快照")
         staging_snapshot.parent.mkdir(parents=True, exist_ok=True)
-        _copy_file(preview_path, staging_snapshot, context)
-        if _file_hash(staging_snapshot, context) != actual_hash:
-            raise RuntimeError("子版本快照校验失败")
+        if manual_edits:
+            _apply_edits_to_workbook_file(preview_path, staging_snapshot, manual_edits, context)
+            actual_hash = _file_hash(staging_snapshot, context)
+        else:
+            _copy_file(preview_path, staging_snapshot, context)
+            if _file_hash(staging_snapshot, context) != actual_hash:
+                raise RuntimeError("子版本快照校验失败")
+        if actual_hash == parent.content_hash:
+            raise ValueError("处理结果没有变化，无需生成新版本")
+        child = VersionRecord(
+            version_id=version_id,
+            file_id=request.file_id,
+            parent_version_id=parent_version_id,
+            name=version_name,
+            created_at=datetime.now(UTC),
+            operation=operation,
+            engine=EngineName.PYTHON,
+            snapshot_path=final_snapshot,
+            content_hash=actual_hash,
+            parameters_json=json.dumps(
+                parameters,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        )
+        result = ImportedWorkbook(
+            file_id=workbook_record.file_id,
+            display_name=workbook_record.display_name,
+            original_path=workbook_record.original_path,
+            working_path=workbook_record.working_path,
+            root_version=child,
+            imported_at=workbook_record.imported_at,
+        )
         write_recovery_manifest(staging_directory / "manifest.json", library_root, result)
-        _copy_file(preview_path, working_temporary, context)
+        _copy_file(staging_snapshot, working_temporary, context)
         context.check_cancelled()
         with context.critical_section("正在安全提交子版本"):
             context.commit()
@@ -502,6 +521,14 @@ def _payload_string(request: TaskRequest, key: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(f"任务参数缺少：{key}")
     return value
+
+
+def _optional_manual_edits(value: object) -> list[tuple[str, int, int, object]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("任务参数 edits 必须是数组")
+    return _manual_edits(value) if value else []
 
 
 def _manual_edits(value: object) -> list[tuple[str, int, int, object]]:

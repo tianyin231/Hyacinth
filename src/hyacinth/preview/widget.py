@@ -241,6 +241,9 @@ class WorkbookPreviewWidget(QFrame):
             }
         )
 
+    def current_preview(self) -> WorkbookPreview | None:
+        return self._preview
+
     def set_loading(self, display_name: str) -> None:
         self._close_source()
         self._preview = None
