@@ -1715,18 +1715,14 @@ class VersionTreePanel(QFrame):
         first_proxy: QGraphicsProxyWidget | None = None
         for tree in render_trees:
             lane_positions = self._lane_positions(tree)
-            max_x = max((x for x, _ in lane_positions.values()), default=0.0)
             lane_rows = 1
             for _, local_y in lane_positions.values():
                 lane_rows = max(lane_rows, int(local_y // NODE_DY) + 1)
             # 宽高各预留一段增长空间：新增分支/深度时泳道尺寸保持不变，
             # 避免把后续泳道整体推挤下移。
-            lane_width = 28.0 + max_x + VERSION_NODE_WIDTH + 52.0 + NODE_DX / 2
             lane_height = LANE_HEADER_HEIGHT + (lane_rows + 1) * NODE_DY + 10.0
             is_current = tree.file_id == current_file_id
-            lane_items = self._render_lane_header(
-                scene, tree, lane_top, lane_width, lane_height, is_current
-            )
+            lane_items = self._render_lane_label(scene, tree, lane_top, is_current)
             self._items_by_file[tree.file_id] = list(lane_items)
             self._lane_content_tops[tree.file_id] = lane_top + LANE_HEADER_HEIGHT
             for version in tree.versions:
@@ -1831,38 +1827,34 @@ class VersionTreePanel(QFrame):
     def clear_remembered_layouts(self) -> None:
         self._remembered_lane_positions.clear()
 
-    def _render_lane_header(
+    def _render_lane_label(
         self,
         scene: QGraphicsScene,
         tree: FileVersionTree,
         lane_top: float,
-        lane_width: float,
-        lane_height: float,
         is_current: bool,
-    ) -> tuple[QGraphicsItem, QGraphicsItem]:
-        background = scene.addRect(
-            QRectF(16.0, lane_top, lane_width, lane_height),
-            QPen(Qt.PenStyle.NoPen),
-            self._lane_background_brush(is_current),
-        )
-        background.setData(0, f"lane:{tree.file_id}")
-        background.setZValue(-3)
-        self._lane_decorations.append(background)
+    ) -> list[QGraphicsItem]:
+        # 文件分区用标签胶囊标识，不绘制泳道背景：
+        # 背景边界与节点自由拖动天然冲突（向上扩散、推挤、宽度追踪），
+        # 标签既标示文件归属，也作为泳道点击区域。
         label = scene.addSimpleText(
             tree.display_name,
             QFont("Segoe UI", 10, QFont.Weight.Bold if is_current else QFont.Weight.Normal),
         )
-        label.setData(0, f"lane:{tree.file_id}")
-        label.setBrush(QBrush(QColor("#0f6cbd" if is_current else "#68717e")))
-        self._lane_decorations.append(label)
-        label.setPos(28.0, lane_top + 9.0)
+        label_width = label.boundingRect().width() + 22.0
+        pill = scene.addRect(
+            QRectF(24.0, lane_top + 4.0, label_width, 24.0),
+            QPen(Qt.PenStyle.NoPen),
+            QBrush(QColor("#0f6cbd") if is_current else QColor("#e2e6ec")),
+        )
+        label.setBrush(QBrush(QColor("#ffffff") if is_current else QColor("#4d5663")))
+        label.setPos(35.0, lane_top + 8.0)
+        pill.setZValue(-3)
         label.setZValue(-2)
-        return background, label
-
-    @staticmethod
-    def _lane_background_brush(is_current: bool) -> QBrush:
-        color = QColor(234, 243, 251, 150) if is_current else QColor(243, 245, 248, 140)
-        return QBrush(color)
+        pill.setData(0, f"lane:{tree.file_id}")
+        label.setData(0, f"lane:{tree.file_id}")
+        self._lane_decorations.extend((pill, label))
+        return [pill, label]
 
     def _layout_lane(self, tree: FileVersionTree) -> tuple[dict[str, tuple[float, float]], int]:
         """树形排布：叶子按序占行，父节点纵向居中于其子树区间。
