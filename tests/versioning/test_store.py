@@ -31,7 +31,7 @@ def _record(root: Path) -> ImportedWorkbook:
         snapshot_path=snapshot,
         content_hash=sha256(b"snapshot").hexdigest(),
     )
-    return ImportedWorkbook("file-1", "销售.xls", original, working, version)
+    return ImportedWorkbook("file-1", "销售.xls", original, working, version, version.created_at)
 
 
 def test_metadata_store_persists_root_version_and_head_with_relative_paths(

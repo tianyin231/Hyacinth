@@ -65,6 +65,7 @@ def test_discovery_prefers_sqlite_metadata_and_root_version(tmp_path: Path) -> N
         directory / "original" / "销售.xlsx",
         directory / "working" / "current.xlsx",
         version,
+        version.created_at,
     )
     record.original_path.parent.mkdir(parents=True)
     record.working_path.parent.mkdir(parents=True)

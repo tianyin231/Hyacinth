@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS files (
     original_path TEXT NOT NULL,
     working_path TEXT NOT NULL,
     imported_at TEXT NOT NULL,
-    head_version_id TEXT NOT NULL
+    head_version_id TEXT NOT NULL,
+    deleted_at TEXT
 );
 CREATE TABLE IF NOT EXISTS versions (
     version_id TEXT PRIMARY KEY,
@@ -149,13 +150,83 @@ class MetadataStore:
                     f.file_id, f.display_name, f.original_path, f.working_path,
                     v.version_id, v.parent_version_id, v.name, v.created_at,
                     v.operation, v.engine, v.snapshot_path, v.content_hash
-                    , v.parameters_json, v.deleted_at
+                    , v.parameters_json, v.deleted_at,
+                    f.imported_at, f.deleted_at
                 FROM files AS f
                 JOIN versions AS v ON v.version_id = f.head_version_id
+                WHERE f.deleted_at IS NULL
                 ORDER BY f.imported_at DESC
                 """
             ).fetchall()
         return tuple(self._workbook_from_row(row) for row in rows)
+
+    def list_deleted_files(self) -> tuple[ImportedWorkbook, ...]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    f.file_id, f.display_name, f.original_path, f.working_path,
+                    v.version_id, v.parent_version_id, v.name, v.created_at,
+                    v.operation, v.engine, v.snapshot_path, v.content_hash
+                    , v.parameters_json, v.deleted_at,
+                    f.imported_at, f.deleted_at
+                FROM files AS f
+                JOIN versions AS v ON v.version_id = f.head_version_id
+                WHERE f.deleted_at IS NOT NULL
+                ORDER BY f.deleted_at DESC
+                """
+            ).fetchall()
+        return tuple(self._workbook_from_row(row) for row in rows)
+
+    def get_deleted_file(self, file_id: str) -> ImportedWorkbook:
+        records = {record.file_id: record for record in self.list_deleted_files()}
+        try:
+            return records[file_id]
+        except KeyError as error:
+            raise ValueError(f"回收站中找不到文件记录：{file_id}") from error
+
+    def soft_delete_file(
+        self,
+        file_id: str,
+        expected_head_version_id: str,
+        *,
+        deleted_at: datetime | None = None,
+    ) -> ImportedWorkbook:
+        timestamp = deleted_at or datetime.now().astimezone()
+        with self._connection() as connection:
+            updated = connection.execute(
+                """
+                UPDATE files SET deleted_at = ?
+                WHERE file_id = ? AND head_version_id = ? AND deleted_at IS NULL
+                """,
+                (timestamp.isoformat(), file_id, expected_head_version_id),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("文件不存在、已删除或当前工作版本已变化，请刷新文件列表")
+        return self.get_deleted_file(file_id)
+
+    def restore_file(self, file_id: str) -> ImportedWorkbook:
+        with self._connection() as connection:
+            updated = connection.execute(
+                """
+                UPDATE files SET deleted_at = NULL
+                WHERE file_id = ? AND deleted_at IS NOT NULL
+                """,
+                (file_id,),
+            )
+            if updated.rowcount != 1:
+                raise ValueError(f"文件未删除或不存在：{file_id}")
+        return self.get_workbook(file_id)
+
+    def purge_file_records(self, file_id: str) -> None:
+        with self._connection() as connection:
+            deleted = connection.execute(
+                "SELECT 1 FROM files WHERE file_id = ? AND deleted_at IS NOT NULL",
+                (file_id,),
+            ).fetchone()
+            if deleted is None:
+                raise ValueError(f"只有回收站中的文件才能永久删除：{file_id}")
+            connection.execute("DELETE FROM files WHERE file_id = ?", (file_id,))
 
     def get_workbook(self, file_id: str) -> ImportedWorkbook:
         records = {record.file_id: record for record in self.list_workbooks()}
@@ -497,6 +568,8 @@ class MetadataStore:
             original_path=self._library_root / str(row[2]),
             working_path=self._library_root / str(row[3]),
             root_version=version,
+            imported_at=_parse_optional_datetime(row[14]),
+            deleted_at=_parse_optional_datetime(row[15]),
         )
 
     def _version_from_row(self, row: tuple[object, ...]) -> VersionRecord:
@@ -614,6 +687,9 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
         )
     if "deleted_at" not in columns:
         connection.execute("ALTER TABLE versions ADD COLUMN deleted_at TEXT")
+    file_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(files)")}
+    if "deleted_at" not in file_columns:
+        connection.execute("ALTER TABLE files ADD COLUMN deleted_at TEXT")
 
 
 def _atomic_copy(source: Path, destination: Path) -> None:

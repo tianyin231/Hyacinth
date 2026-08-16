@@ -45,6 +45,8 @@ class ImportedWorkbook:
     original_path: Path
     working_path: Path
     root_version: VersionRecord | None = None
+    imported_at: datetime | None = None
+    deleted_at: datetime | None = None
 
     @property
     def head_version(self) -> VersionRecord | None:

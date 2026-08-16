@@ -1539,3 +1539,143 @@ def test_storage_status_empty_state_without_selected_file(qtbot: QtBot, tmp_path
     assert not any(
         request.operation == VERSION_STORAGE_STATS_OPERATION for request in task_queue.submitted
     )
+
+
+def test_file_delete_from_library_moves_to_trash_and_clears_current_preview(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    task_queue = FakeApplicationTaskQueue([])
+    confirmations: list[tuple[str, str]] = []
+    from hyacinth.app import create_main_window
+
+    def confirm_delete(_parent: QWidget, title: str, message: str) -> bool:
+        confirmations.append((title, message))
+        return True
+
+    window = create_main_window(
+        task_queue=task_queue,
+        library_root=library_root,
+        confirmation_presenter=confirm_delete,
+    )
+    qtbot.addWidget(window)
+    window.show()
+    file_list = _child(window, QListWidget, "library-file-list")
+
+    assert file_list.count() == 1
+    file_list.item(0).setSelected(True)
+    from hyacinth.library import FileLibraryWidget
+
+    library_panel = window.findChild(FileLibraryWidget, "file-library")
+    assert library_panel is not None
+    library_panel.workbook_delete_requested.emit(record)
+
+    store = MetadataStore(library_root)
+    assert confirmations and confirmations[0][0] == "删除文件"
+    assert file_list.count() == 0
+    assert store.list_workbooks() == ()
+    assert [item.file_id for item in store.list_deleted_files()] == [record.file_id]
+    assert _child(window, QLabel, "document-title").text() == "未选择文件"
+    assert _child(window, QLabel, "storage-format-pill").text() == "未选择文件"
+    assert record.head_version is not None
+    assert record.head_version.snapshot_path.is_file()
+
+    reopen_queue = FakeApplicationTaskQueue([])
+    reopen_window = create_main_window(task_queue=reopen_queue, library_root=library_root)
+    qtbot.addWidget(reopen_window)
+    reopened_list = _child(reopen_window, QListWidget, "library-file-list")
+
+    assert reopened_list.count() == 0
+
+
+def test_recycle_bin_restores_file_to_library(qtbot: QtBot, tmp_path: Path) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    store = MetadataStore(library_root)
+    assert record.head_version is not None
+    store.soft_delete_file(record.file_id, record.head_version.version_id)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+    from hyacinth.ui import RecycleBinDialog
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    recycle_button = _child(window, QPushButton, "toolbar-recycle-button")
+    assert recycle_button.isEnabled()
+
+    qtbot.mouseClick(recycle_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    dialog = window.findChild(RecycleBinDialog, "recycle-bin-dialog")
+    assert dialog is not None
+    bin_list = _child(dialog, QListWidget, "recycle-file-list")
+    assert bin_list.count() == 1
+    assert record.display_name in bin_list.item(0).text()
+    bin_list.setCurrentRow(0)
+
+    qtbot.mouseClick(
+        _child(dialog, QPushButton, "recycle-restore-button"), Qt.MouseButton.LeftButton
+    )  # type: ignore[no-untyped-call]
+
+    file_list = _child(window, QListWidget, "library-file-list")
+    assert file_list.count() == 1
+    assert [item.file_id for item in store.list_workbooks()] == [record.file_id]
+    assert store.list_deleted_files() == ()
+    assert bin_list.count() == 0
+
+
+def test_recycle_bin_purges_file_after_confirmation(qtbot: QtBot, tmp_path: Path) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    store = MetadataStore(library_root)
+    assert record.head_version is not None
+    store.soft_delete_file(record.file_id, record.head_version.version_id)
+    confirmations: list[tuple[str, str]] = []
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+    from hyacinth.ui import RecycleBinDialog
+
+    def confirm_purge(_parent: QWidget, title: str, message: str) -> bool:
+        confirmations.append((title, message))
+        return True
+
+    window = create_main_window(
+        task_queue=task_queue,
+        library_root=library_root,
+        confirmation_presenter=confirm_purge,
+    )
+    qtbot.addWidget(window)
+    window.show()
+
+    recycle_button = _child(window, QPushButton, "toolbar-recycle-button")
+    qtbot.mouseClick(recycle_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    from hyacinth.versioning import PURGE_FILE_OPERATION, run_purge_file_task
+
+    dialog = window.findChild(RecycleBinDialog, "recycle-bin-dialog")
+    assert dialog is not None
+    bin_list = _child(dialog, QListWidget, "recycle-file-list")
+    bin_list.setCurrentRow(0)
+
+    qtbot.mouseClick(_child(dialog, QPushButton, "recycle-purge-button"), Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    assert confirmations and "无法恢复" in confirmations[0][1]
+    purge_request = task_queue.submitted[-1]
+    assert purge_request.operation == PURGE_FILE_OPERATION
+    purged = run_purge_file_task(purge_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            purge_request.task_id,
+            TaskState.SUCCEEDED,
+            purge_request.name,
+            purge_request.file_id,
+            None,
+            result=purged,
+        )
+    )
+
+    qtbot.waitUntil(lambda: bin_list.count() == 0, timeout=2000)
+    assert not (library_root / "files" / record.file_id).exists()
+    assert store.list_deleted_files() == ()

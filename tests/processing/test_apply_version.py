@@ -97,7 +97,7 @@ def _seed_library(root: Path) -> ImportedWorkbook:
         snapshot,
         hashlib.sha256(snapshot.read_bytes()).hexdigest(),
     )
-    record = ImportedWorkbook("file-1", "销售.xlsx", original, working, version)
+    record = ImportedWorkbook("file-1", "销售.xlsx", original, working, version, version.created_at)
     MetadataStore(root).record_import(record)
     return record
 

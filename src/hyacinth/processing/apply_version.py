@@ -326,6 +326,7 @@ def _run_apply_preview_task(
         original_path=workbook_record.original_path,
         working_path=workbook_record.working_path,
         root_version=child,
+        imported_at=workbook_record.imported_at,
     )
 
     try:

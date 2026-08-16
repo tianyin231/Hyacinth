@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-16T11:59:21+08:00"
+updated_at: "2026-08-16T12:34:05+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -35,9 +35,9 @@ delivery:
   next_milestone: "用户实机复验版本图谱全向平移、节点边界和专注模式"
 
 current_task:
-  id: "STATUS-BAR-STORAGE-001"
+  id: "FILE-LEVEL-RECYCLE-BIN-001"
   status: "implementation-completed-awaiting-real-machine-validation"
-  goal: "按需求第 46 节实现右下角状态栏：当前文件工作格式后缀、版本树快照总占用与当前预览节点占用"
+  goal: "文件级回收站：文件列表右键/Delete 软删除整个文件记录，工具栏回收站对话框支持恢复与永久删除"
   owner: "codex-sol"
 
 last_completed:
@@ -252,9 +252,14 @@ last_completed:
   - "完成右下角状态栏：新增 version-storage-stats 后台任务统计版本树唯一快照总占用与预览节点占用，状态栏右侧显示格式徽标、版本总占用和当前预览占用，无文件时显示未选择文件"
   - "统计任务在文件选择、预览切换、版本应用/保存/签出/删除/恢复时刷新，且先于预览索引任务提交，避免阻塞或延迟预览"
   - "快照占用按唯一物理文件去重求和，缺失快照按 0 计入；格式徽标取内部识别的原始文件后缀（XLS/XLSX）"
+  - "用户实机检测状态栏功能通过，无大问题；状态栏关键节点已提交本地 main：c1581c6"
+  - "完成文件级回收站两个切片：files 表 deleted_at 软删除/恢复，文件列表右键菜单与 Delete 键删除，工具栏回收站按钮启用并支持按导入时间恢复原位"
+  - "永久删除采用后台 purge-file 任务：目录先改名暂存、再删数据库记录、失败回滚改名，最后清理磁盘，只有回收站中的文件可清除"
+  - "导入与应用任务返回的记录补齐 imported_at，catalog 只读发现跳过已软删除文件目录和 .purge-* 暂存目录，避免删除后重启复活"
 
 next_actions:
-  - "用户实机运行 uv run hyacinth，复验右下角状态栏的格式徽标、版本总占用和当前预览占用随文件与预览节点切换更新"
+  - "用户实机运行 uv run hyacinth，复验文件删除、回收站恢复与永久删除流程"
+  - "下一候选切片：版本图谱自动整理（第 38 节）或继续处理功能（查找与替换等）"
   - "用户实机运行 uv run hyacinth，复验版本图谱上下左右平移、边界限制和专注/恢复布局"
   - "用户实机运行 uv run hyacinth，复验节点拖动、Shift+滚轮横向滚动和 Ctrl+滚轮缩放"
   - "用户查看新品牌图标与本机 uv run hyacinth 的窗口图标，确认视觉方向"
@@ -420,17 +425,28 @@ changed_files:
   - "需求讨论记录.md"
   - "scripts/capture_ui_states.py"
   - "src/hyacinth/app.py"
+  - "src/hyacinth/library/catalog.py"
+  - "src/hyacinth/library/import_task.py"
+  - "src/hyacinth/library/widget.py"
+  - "src/hyacinth/processing/apply_version.py"
   - "src/hyacinth/ui/shell.py"
   - "src/hyacinth/ui/__init__.py"
   - "src/hyacinth/versioning/__init__.py"
+  - "src/hyacinth/versioning/models.py"
+  - "src/hyacinth/versioning/purge_task.py"
   - "src/hyacinth/versioning/storage_stats.py"
+  - "src/hyacinth/versioning/store.py"
+  - "tests/library/test_catalog.py"
+  - "tests/processing/test_apply_version.py"
   - "tests/test_app.py"
+  - "tests/versioning/test_file_trash.py"
   - "tests/versioning/test_storage_stats.py"
+  - "tests/versioning/test_store.py"
 
 verification:
   status: "passed-awaiting-real-machine-validation"
   commands:
-    - "uv run pytest：205 passed in 30.74s（新增 5 项统计任务单测与 2 项状态栏界面测试）"
+    - "uv run pytest：214 passed in 34.60s（本轮新增 6 项回收站存储/任务单测与 3 项界面测试）"
     - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check：全部通过"
     - "uv run python scripts/capture_ui_states.py --output output/playwright：8 张截图全部生成"
     - "本轮需求记录变更仅文档更新，无代码影响；完成度评估基于对 app.py、ui/shell.py、versioning/store.py、library/widget.py、preview/edit_session.py、tasks/status_widget.py 的逐文件阅读与 git log 核对"
@@ -566,6 +582,9 @@ verification:
     - "OpenCode DeepSeek session ses_ffb779869ffetPKJvDGwsXSdcX 导出并核验 provider/model/finish/files changed"
     - "OpenCode DeepSeek session ses_ffb6eb165ffeExum72T3S31KLf 导出并核验 provider/model/finish 与实际写入范围"
   evidence:
+    - "recycle-bin.png：回收站对话框显示“销售报表.xlsx · 2 个版本 · 删除于 2026-08-16 12:32”，恢复/永久删除按钮启用且随选中变化，无重叠或截断"
+    - "存储层测试覆盖软删除进入回收站、恢复回到原位、陈旧 HEAD/重复删除拒绝、purge 物理删除目录与记录、未软删除拒绝清除和真实常驻 Worker"
+    - "界面测试覆盖右键信号删除后清空当前预览与状态栏、重启不再显示已删文件、回收站恢复回到文件列表、永久删除经确认后由后台任务清除磁盘目录"
     - "fluent-shell-populated.png：状态栏右侧显示 XLSX 徽标与“版本总占用 4.9 KB · 当前预览 4.9 KB”，与左侧任务状态无重叠或截断"
     - "default-empty-state.png：无选中文件时状态栏右侧显示“未选择文件”占位，无重叠或截断"
     - "统计任务单测覆盖唯一快照去重求和、共享物理文件只计一次、无预览版本、快照缺失按 0 和处理器注册"

@@ -115,6 +115,7 @@ def run_import_task(
             original_path=final_original,
             working_path=final_working,
             root_version=root_version,
+            imported_at=root_version.created_at,
         )
         write_recovery_manifest(snapshot.parent / "manifest.json", library_root, result)
         with context.critical_section("正在安全完成导入"):

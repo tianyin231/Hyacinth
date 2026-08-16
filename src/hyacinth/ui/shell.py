@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMenu,
     QPushButton,
     QScrollArea,
@@ -47,7 +48,7 @@ from PySide6.QtWidgets import (
 )
 
 from hyacinth.ui.icons import fluent_icon
-from hyacinth.versioning import VersionLayout, VersionRecord
+from hyacinth.versioning import ImportedWorkbook, VersionLayout, VersionRecord
 
 APP_STYLESHEET = """
 QMainWindow#main-window, QWidget#workspace-root {
@@ -393,6 +394,7 @@ class CommandBar(QFrame):
     undo_requested = Signal()
     redo_requested = Signal()
     export_requested = Signal()
+    recycle_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -428,14 +430,14 @@ class CommandBar(QFrame):
         compare_button = _tool_button(
             "对比版本", "toolbar-compare-button", self, enabled=False, icon="compare"
         )
-        recycle_button = _tool_button(
-            "回收站", "toolbar-recycle-button", self, enabled=False, icon="trash"
-        )
+        self._recycle_button = _tool_button("回收站", "toolbar-recycle-button", self, icon="trash")
         settings_button = _tool_button(
             "设置", "toolbar-settings-button", self, enabled=False, icon="settings"
         )
         compare_button.setToolTip("版本对比将在后续节点开放")
-        recycle_button.setToolTip("文件回收站将在后续节点开放")
+        self._recycle_button.setToolTip("查看回收站中的文件，恢复或永久删除")
+        self._recycle_button.setAccessibleName("打开文件回收站")
+        self._recycle_button.clicked.connect(self.recycle_requested)
         settings_button.setToolTip("设置将在后续节点开放")
 
         divider = QFrame(self)
@@ -454,7 +456,7 @@ class CommandBar(QFrame):
         layout.addWidget(self._undo_button)
         layout.addWidget(self._redo_button)
         layout.addWidget(compare_button)
-        layout.addWidget(recycle_button)
+        layout.addWidget(self._recycle_button)
         layout.addStretch()
         layout.addWidget(mode)
         layout.addWidget(settings_button)
@@ -1943,3 +1945,94 @@ class VersionStorageStatus(QFrame):
             f"版本总占用 {format_byte_size(total_bytes)}"
             f" · 当前预览 {format_byte_size(preview_bytes)}"
         )
+
+
+class RecycleBinDialog(QDialog):
+    restore_requested = Signal(str)
+    purge_requested = Signal(str)
+
+    def __init__(
+        self,
+        records: tuple[tuple[ImportedWorkbook, int], ...] = (),
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("recycle-bin-dialog")
+        self.setWindowTitle("回收站")
+        self.resize(520, 380)
+        self.setModal(False)
+
+        self._file_list = QListWidget(self)
+        self._file_list.setObjectName("recycle-file-list")
+        self._file_list.setAccessibleName("回收站文件列表")
+        self._file_list.currentItemChanged.connect(self._update_actions)
+
+        self._restore = _tool_button("恢复到文件列表", "recycle-restore-button", self)
+        self._restore.setAccessibleName("恢复选中的已删除文件")
+        self._restore.clicked.connect(self._emit_restore)
+        self._purge = _tool_button("永久删除", "recycle-purge-button", self)
+        self._purge.setAccessibleName("永久删除选中的文件")
+        self._purge.clicked.connect(self._emit_purge)
+        self._hint = QLabel("恢复的文件会回到删除前的位置；永久删除无法撤销", self)
+        self._hint.setProperty("class", "form-label")
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, self)
+        buttons.rejected.connect(self.reject)
+        buttons.accepted.connect(self.accept)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 12)
+        layout.setSpacing(9)
+        layout.addWidget(self._file_list, 1)
+        layout.addWidget(self._hint)
+        actions_row = QHBoxLayout()
+        actions_row.addWidget(self._restore)
+        actions_row.addWidget(self._purge)
+        actions_row.addStretch()
+        actions_row.addWidget(buttons)
+        layout.addLayout(actions_row)
+        self.refresh(records)
+
+    def refresh(self, records: tuple[tuple[ImportedWorkbook, int], ...]) -> None:
+        self._file_list.clear()
+        for record, version_count in records:
+            deleted_at = (
+                record.deleted_at.astimezone().strftime("%Y-%m-%d %H:%M")
+                if record.deleted_at is not None
+                else ""
+            )
+            item = QListWidgetItem(
+                f"{record.display_name} · {version_count} 个版本 · 删除于 {deleted_at}"
+            )
+            item.setData(Qt.ItemDataRole.UserRole, record.file_id)
+            item.setSizeHint(QSize(0, 34))
+            self._file_list.addItem(item)
+        self._update_actions()
+
+    def selected_file_id(self) -> str | None:
+        item = self._file_list.currentItem()
+        return None if item is None else str(item.data(Qt.ItemDataRole.UserRole))
+
+    def mark_busy(self, busy: bool) -> None:
+        self._restore.setEnabled(not busy)
+        self._purge.setEnabled(not busy)
+        self._file_list.setEnabled(not busy)
+
+    def _emit_restore(self) -> None:
+        file_id = self.selected_file_id()
+        if file_id is not None:
+            self.restore_requested.emit(file_id)
+
+    def _emit_purge(self) -> None:
+        file_id = self.selected_file_id()
+        if file_id is not None:
+            self.purge_requested.emit(file_id)
+
+    def _update_actions(
+        self,
+        _current: QListWidgetItem | None = None,
+        _previous: QListWidgetItem | None = None,
+    ) -> None:
+        has_selection = self._file_list.currentItem() is not None
+        self._restore.setEnabled(has_selection)
+        self._purge.setEnabled(has_selection)

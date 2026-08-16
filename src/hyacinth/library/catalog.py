@@ -14,7 +14,9 @@ def discover_imported_workbooks(library_root: Path) -> tuple[ImportedWorkbook, .
         and record.root_version is not None
         and record.root_version.snapshot_path.is_file()
     ]
-    stored_ids = {record.file_id for record in stored_records}
+    known_ids = {record.file_id for record in stored_records}
+    # 已软删除的文件目录仍由数据库管理，不能再被只读发现当作旧记录恢复显示。
+    known_ids.update(record.file_id for record in store.list_deleted_files())
     files_root = library_root / "files"
     if not files_root.is_dir():
         return tuple(stored_records)
@@ -26,7 +28,7 @@ def discover_imported_workbooks(library_root: Path) -> tuple[ImportedWorkbook, .
         reverse=True,
     )
     for directory in directories:
-        if directory.name in stored_ids:
+        if directory.name in known_ids or directory.name.startswith("."):
             continue
         original_directory = directory / "original"
         working = directory / "working" / "current.xlsx"

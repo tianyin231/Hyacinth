@@ -368,12 +368,36 @@ def capture_ui_states(
         if not branch_window.grab().save(str(deleted_path)):
             raise RuntimeError("无法保存版本节点删除截图")
         branch_window.close()
+
+        from hyacinth.ui import RecycleBinDialog
+
+        recycle_store = MetadataStore(populated_root)
+        recycle_record = recycle_store.get_workbook("visual-file")
+        assert recycle_record.head_version is not None
+        recycle_store.soft_delete_file("visual-file", recycle_record.head_version.version_id)
+        recycle_window = create_main_window(
+            task_queue=CaptureTaskQueue(),
+            library_root=populated_root,
+        )
+        recycle_window.show()
+        app.processEvents()
+        recycle_window._open_recycle_bin()
+        _wait(150)
+        recycle_dialog = recycle_window.findChild(RecycleBinDialog, "recycle-bin-dialog")
+        if recycle_dialog is None:
+            raise RuntimeError("找不到回收站对话框")
+        recycle_path = output_directory / "recycle-bin.png"
+        if not recycle_dialog.grab().save(str(recycle_path)):
+            raise RuntimeError("无法保存回收站截图")
+        recycle_dialog.close()
+        recycle_window.close()
     return (
         empty_path,
         populated_path,
         deduplicate_path,
         blank_rows_path,
         filter_path,
+        recycle_path,
         branch_path,
         dragged_path,
         deleted_path,

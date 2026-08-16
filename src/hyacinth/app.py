@@ -68,6 +68,7 @@ from hyacinth.ui import (
     ApplicationHeader,
     CommandBar,
     FunctionPanel,
+    RecycleBinDialog,
     VersionStorageStatus,
     VersionTreePanel,
     WorkbookEditorFrame,
@@ -76,6 +77,7 @@ from hyacinth.versioning import (
     CHECKOUT_VERSION_OPERATION,
     DELETE_VERSION_OPERATION,
     EXPORT_VERSION_OPERATION,
+    PURGE_FILE_OPERATION,
     VERSION_STORAGE_STATS_OPERATION,
     ExportedVersion,
     MetadataStore,
@@ -84,6 +86,7 @@ from hyacinth.versioning import (
     checkout_version_handlers,
     delete_version_handlers,
     export_version_handlers,
+    purge_file_handlers,
     suggested_export_filename,
     version_storage_stats_handlers,
 )
@@ -180,6 +183,8 @@ class HyacinthMainWindow(QMainWindow):
         self._close_after_manual_save = False
         self._export_task_id: str | None = None
         self._storage_stats_task_id: str | None = None
+        self._purge_task_id: str | None = None
+        self._recycle_dialog: RecycleBinDialog | None = None
         self._focus_restore_main_sizes: list[int] | None = None
         self._focus_restore_left_sizes: list[int] | None = None
         self._focus_restore_hidden: tuple[bool, ...] | None = None
@@ -191,6 +196,7 @@ class HyacinthMainWindow(QMainWindow):
         self._command_bar.undo_requested.connect(self._workbook_preview_undo)
         self._command_bar.redo_requested.connect(self._workbook_preview_redo)
         self._command_bar.export_requested.connect(self._export_current_version)
+        self._command_bar.recycle_requested.connect(self._open_recycle_bin)
         self._function_panel = FunctionPanel(workspace_root)
         self._function_panel.preview_requested.connect(self._submit_sort_preview)
         self._function_panel.deduplicate_preview_requested.connect(self._submit_deduplicate_preview)
@@ -205,6 +211,7 @@ class HyacinthMainWindow(QMainWindow):
             workspace_root,
         )
         self._file_library.workbook_selected.connect(self._select_workbook)
+        self._file_library.workbook_delete_requested.connect(self._request_delete_file)
         self._version_tree = VersionTreePanel(workspace_root)
         self._version_tree.version_preview_requested.connect(self._preview_version)
         self._version_tree.version_continue_requested.connect(self._continue_from_version)
@@ -255,6 +262,7 @@ class HyacinthMainWindow(QMainWindow):
         self._task_bridge.event_received.connect(self._apply_delete_event)
         self._task_bridge.event_received.connect(self._apply_export_event)
         self._task_bridge.event_received.connect(self._apply_storage_stats_event)
+        self._task_bridge.event_received.connect(self._apply_purge_event)
         self._task_status.cancel_requested.connect(self._task_bridge.cancel)
 
         status_bar = self.statusBar()
@@ -1137,6 +1145,126 @@ class HyacinthMainWindow(QMainWindow):
                 or ("导出已取消" if event.state is TaskState.CANCELLED else "导出失败"),
             )
 
+    def _request_delete_file(self, workbook: ImportedWorkbook) -> None:
+        if self._purge_task_id is not None:
+            return
+        head = workbook.head_version
+        if head is None:
+            self._error_presenter(self, "旧记录尚未建立版本，暂不能在软件内删除")
+            return
+        is_current = (
+            self._current_workbook is not None
+            and self._current_workbook.file_id == workbook.file_id
+        )
+        if is_current and not self._resolve_unsaved_changes("删除文件"):
+            return
+        if not self._confirmation_presenter(
+            self,
+            "删除文件",
+            f"确定将“{workbook.display_name}”连同全部版本移入回收站吗？\n"
+            "可随时在回收站中恢复；永久删除前不会清除磁盘文件。",
+        ):
+            return
+        try:
+            MetadataStore(self._library_root).soft_delete_file(workbook.file_id, head.version_id)
+        except ValueError as error:
+            self._error_presenter(self, str(error))
+            return
+        self._file_library.remove_workbook(workbook.file_id)
+        if is_current:
+            self._clear_current_workbook()
+
+    def _clear_current_workbook(self) -> None:
+        if self._preview_task_id is not None:
+            self._task_queue.cancel(self._preview_task_id)
+            self._preview_task_id = None
+        self._current_workbook = None
+        self._previewed_version_id = None
+        self._storage_status.set_empty()
+        self.setWindowTitle("风信子")
+        self._application_header.set_document_name(None)
+        self._command_bar.set_version_available(False)
+        self._function_panel.clear_workbook()
+        self._editor.set_temporary_result(False)
+        self._version_tree.set_workbook(None)
+        self._workbook_preview.clear_preview()
+
+    def _open_recycle_bin(self) -> None:
+        if self._recycle_dialog is None:
+            self._recycle_dialog = RecycleBinDialog(parent=self)
+            self._recycle_dialog.restore_requested.connect(self._restore_file_from_bin)
+            self._recycle_dialog.purge_requested.connect(self._request_purge_file)
+        self._refresh_recycle_bin()
+        self._recycle_dialog.show()
+        self._recycle_dialog.raise_()
+        self._recycle_dialog.activateWindow()
+
+    def _recycle_records(self) -> tuple[tuple[ImportedWorkbook, int], ...]:
+        store = MetadataStore(self._library_root)
+        return tuple(
+            (record, len(store.list_versions(record.file_id)))
+            for record in store.list_deleted_files()
+        )
+
+    def _refresh_recycle_bin(self) -> None:
+        if self._recycle_dialog is not None:
+            self._recycle_dialog.refresh(self._recycle_records())
+
+    def _restore_file_from_bin(self, file_id: str) -> None:
+        try:
+            record = MetadataStore(self._library_root).restore_file(file_id)
+        except ValueError as error:
+            self._error_presenter(self, str(error))
+            self._refresh_recycle_bin()
+            return
+        self._file_library.restore_workbook(record)
+        self._refresh_recycle_bin()
+
+    def _request_purge_file(self, file_id: str) -> None:
+        if self._purge_task_id is not None or self._recycle_dialog is None:
+            return
+        try:
+            record = MetadataStore(self._library_root).get_deleted_file(file_id)
+        except ValueError as error:
+            self._error_presenter(self, str(error))
+            self._refresh_recycle_bin()
+            return
+        if not self._confirmation_presenter(
+            self,
+            "永久删除文件",
+            f"确定永久删除“{record.display_name}”及其全部版本吗？\n"
+            "磁盘文件和版本历史将被清除，且无法恢复。",
+        ):
+            return
+        task_id = uuid4().hex
+        self._purge_task_id = task_id
+        self._recycle_dialog.mark_busy(True)
+        self._task_queue.submit(
+            TaskRequest(
+                task_id=task_id,
+                name=f"永久删除 {record.display_name}",
+                file_id=file_id,
+                engine=None,
+                operation=PURGE_FILE_OPERATION,
+                payload={"library_root": str(self._library_root)},
+            )
+        )
+
+    def _apply_purge_event(self, event: TaskEvent) -> None:
+        if event.task_id != self._purge_task_id:
+            return
+        self._purge_task_id = None
+        if self._recycle_dialog is not None:
+            self._recycle_dialog.mark_busy(False)
+        if event.state is TaskState.SUCCEEDED:
+            self._refresh_recycle_bin()
+        elif event.state in {TaskState.FAILED, TaskState.CANCELLED}:
+            self._error_presenter(
+                self,
+                event.message
+                or ("永久删除已取消" if event.state is TaskState.CANCELLED else "永久删除失败"),
+            )
+
     def _refresh_storage_stats(self) -> None:
         workbook = self._current_workbook
         if workbook is None:
@@ -1288,6 +1416,7 @@ def create_main_window(
     handlers.update(delete_version_handlers())
     handlers.update(export_version_handlers())
     handlers.update(version_storage_stats_handlers())
+    handlers.update(purge_file_handlers())
     return HyacinthMainWindow(
         task_queue or TaskQueue(handlers),
         library_root or default_library_root(),
