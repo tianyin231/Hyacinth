@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from openpyxl.utils import get_column_letter
 from PySide6.QtCore import (
     QAbstractTableModel,
     QModelIndex,
@@ -1515,6 +1516,112 @@ class TemporaryResultBanner(QFrame):
         self.setVisible(False)
 
 
+class ProcessingParamsBar(QFrame):
+    """功能区条下方的原位参数确认行（需求第 16 节：不用遮挡数据的弹窗）。
+
+    为“删除重复行”“清除首尾空格”等选项被入口写死的功能提供确认界面；
+    关键列跟随表格当前选中列预填，改列通过重新选中表格区域完成。
+    """
+
+    deduplicate_confirmed = Signal(dict)
+    trim_confirmed = Signal(dict)
+    dismissed = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("processing-params-bar")
+        self._columns: list[int] = []
+
+        self._title = QLabel("", self)
+        self._title.setProperty("class", "panel-title")
+        self._columns_label = QLabel("", self)
+        self._columns_label.setObjectName("params-columns-label")
+        self._columns_label.setProperty("class", "form-label")
+
+        self._keep = QComboBox(self)
+        self._keep.setObjectName("params-keep-combo")
+        self._keep.setProperty("class", "field-control")
+        self._keep.addItem("保留第一条", "first")
+        self._keep.addItem("保留最后一条", "last")
+        self._keep.setMinimumHeight(28)
+        keep_label = QLabel("重复时", self)
+        keep_label.setProperty("class", "form-label")
+        self._ignore_case = QCheckBox("忽略大小写", self)
+        self._ignore_case.setObjectName("params-ignore-case")
+        self._ignore_trim = QCheckBox("比较时忽略首尾空格", self)
+        self._ignore_trim.setObjectName("params-ignore-trim")
+        self._collapse = QCheckBox("压缩中间连续空格", self)
+        self._collapse.setObjectName("params-collapse-spaces")
+
+        confirm = QPushButton("生成预览", self)
+        confirm.setObjectName("params-confirm-button")
+        confirm.setProperty("class", "ribbon-button")
+        confirm.clicked.connect(self._emit_confirm)
+        collapse_button = QPushButton("收起", self)
+        collapse_button.setObjectName("params-collapse-button")
+        collapse_button.setProperty("class", "ribbon-button")
+        collapse_button.clicked.connect(self.dismissed)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 4, 10, 4)
+        layout.setSpacing(8)
+        layout.addWidget(self._title)
+        layout.addWidget(self._columns_label)
+        layout.addStretch(1)
+        self._deduplicate_controls = (keep_label, self._keep, self._ignore_case, self._ignore_trim)
+        for widget in self._deduplicate_controls:
+            layout.addWidget(widget)
+        layout.addWidget(self._collapse)
+        layout.addWidget(confirm)
+        self.setVisible(False)
+
+    def show_deduplicate(self, columns: list[int]) -> None:
+        self._columns = list(columns)
+        self._title.setText("删除重复行")
+        self._columns_label.setText(self._columns_text("未选列时按整行判断"))
+        for widget in self._deduplicate_controls:
+            widget.setVisible(True)
+        self._collapse.setVisible(True)
+        self.setVisible(True)
+
+    def show_trim(self, columns: list[int]) -> None:
+        self._columns = list(columns)
+        self._title.setText("清除首尾空格")
+        self._columns_label.setText(self._columns_text("未选列时处理全部文本列"))
+        for widget in self._deduplicate_controls:
+            widget.setVisible(False)
+        self._collapse.setVisible(True)
+        self.setVisible(True)
+
+    def hide_bar(self) -> None:
+        self.setVisible(False)
+
+    def _columns_text(self, empty_hint: str) -> str:
+        if not self._columns:
+            return empty_hint
+        letters = "、".join(get_column_letter(column + 1) for column in self._columns)
+        return f"关键列 {letters}"
+
+    def _emit_confirm(self) -> None:
+        title = self._title.text()
+        if title == "删除重复行":
+            self.deduplicate_confirmed.emit(
+                {
+                    "key_columns": list(self._columns),
+                    "keep": self._keep.currentData(),
+                    "ignore_case": self._ignore_case.isChecked(),
+                    "trim_whitespace": self._ignore_trim.isChecked(),
+                }
+            )
+        elif title == "清除首尾空格":
+            self.trim_confirmed.emit(
+                {
+                    "key_columns": list(self._columns),
+                    "collapse_spaces": self._collapse.isChecked(),
+                }
+            )
+
+
 class ProcessingDetailsDialog(QDialog):
     """两阶段预览的明细查看窗口，按处理结果类型接收对应表格模型。"""
 
@@ -1562,32 +1669,46 @@ class FilterDialog(QDialog):
         self.setObjectName("filter-dialog")
         self.setWindowTitle(f"筛选 · {sheet_name}")
         self.setModal(False)
-        self.resize(460, 220)
+        self.resize(480, 280)
         self._sheet_name = sheet_name
+        self._column_labels = column_labels
+        self._condition_rows: list[dict[str, object]] = []
 
         form = QVBoxLayout(self)
         form.setContentsMargins(14, 14, 14, 12)
         form.setSpacing(8)
-        condition_row = QHBoxLayout()
-        self._column = QComboBox(self)
-        self._column.setProperty("class", "field-control")
-        self._column.addItems(column_labels)
-        self._value_type = QComboBox(self)
-        self._value_type.setProperty("class", "field-control")
-        self._value_type.addItem("文本", "text")
-        self._value_type.addItem("数字", "number")
-        self._value_type.addItem("日期", "date")
-        self._operator = QComboBox(self)
-        self._operator.setProperty("class", "field-control")
-        self._value = QLineEdit(self)
-        self._value.setPlaceholderText("比较值")
-        for widget in (self._column, self._value_type, self._operator, self._value):
-            widget.setMinimumHeight(30)
-            condition_row.addWidget(widget, 3 if widget is self._value else 2)
-        note = QLabel("跨列多条件筛选将在后续开放；当前按单列条件筛选", self)
+        form.addLayout(self._build_condition_row())
+
+        self._second = QCheckBox("添加第二条件", self)
+        self._second.setToolTip("最多配置两个条件（DEC-021）")
+        connector_label = QLabel("条件组合", self)
+        connector_label.setProperty("class", "form-label")
+        self._connector = QComboBox(self)
+        self._connector.setProperty("class", "field-control")
+        self._connector.addItem("并且", "and")
+        self._connector.addItem("或者", "or")
+        self._connector.setToolTip("跨列条件仅支持“并且”；同一列的两个条件可用“或者”")
+        connector_row = QHBoxLayout()
+        connector_row.addWidget(self._second)
+        connector_row.addWidget(connector_label)
+        connector_row.addWidget(self._connector)
+        connector_row.addStretch()
+        form.addLayout(connector_row)
+
+        second_row = self._build_condition_row()
+        assert isinstance(second_row, QHBoxLayout)
+        self._second_frame = QFrame(self)
+        self._second_frame.setObjectName("filter-second-condition")
+        second_layout = QHBoxLayout(self._second_frame)
+        second_layout.setContentsMargins(0, 0, 0, 0)
+        second_layout.addLayout(second_row)
+        self._second_frame.setVisible(False)
+        self._second.toggled.connect(self._second_frame.setVisible)
+        form.addWidget(self._second_frame)
+
+        note = QLabel("跨列条件仅支持“并且”；同一列的两个条件可用“或者”", self)
         note.setProperty("class", "form-label")
-        self._value_type.currentIndexChanged.connect(lambda _i: self._refresh_operators())
-        self._refresh_operators()
+        self._refresh_operators(0)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, self)
         buttons.rejected.connect(self.reject)
@@ -1597,7 +1718,6 @@ class FilterDialog(QDialog):
         apply_button.setProperty("class", "ribbon-button")
         apply_button.clicked.connect(self._submit)
 
-        form.addLayout(condition_row)
         form.addWidget(note)
         form.addStretch()
         button_row = QHBoxLayout()
@@ -1606,37 +1726,92 @@ class FilterDialog(QDialog):
         button_row.addWidget(buttons)
         form.addLayout(button_row)
 
-    def _refresh_operators(self) -> None:
-        self._operator.blockSignals(True)
-        self._operator.clear()
-        value_type = self._value_type.currentData()
+    def _build_condition_row(self) -> QHBoxLayout:
+        column = QComboBox(self)
+        column.setProperty("class", "field-control")
+        column.addItems(self._column_labels)
+        value_type = QComboBox(self)
+        value_type.setProperty("class", "field-control")
+        value_type.addItem("文本", "text")
+        value_type.addItem("数字", "number")
+        value_type.addItem("日期", "date")
+        operator = QComboBox(self)
+        operator.setProperty("class", "field-control")
+        value = QLineEdit(self)
+        value.setPlaceholderText("比较值")
+        index = len(self._condition_rows)
+        for widget in (column, value_type, operator, value):
+            widget.setMinimumHeight(30)
+        value_type.currentIndexChanged.connect(lambda _i, i=index: self._refresh_operators(i))
+        self._condition_rows.append(
+            {"column": column, "value_type": value_type, "operator": operator, "value": value}
+        )
+        row = QHBoxLayout()
+        row.addWidget(column, 2)
+        row.addWidget(value_type, 2)
+        row.addWidget(operator, 2)
+        row.addWidget(value, 3)
+        return row
+
+    def _refresh_operators(self, index: int) -> None:
+        row = self._condition_rows[index]
+        operator = row["operator"]
+        value_type = row["value_type"]
+        assert isinstance(operator, QComboBox) and isinstance(value_type, QComboBox)
+        operator.blockSignals(True)
+        operator.clear()
+        current_type = value_type.currentData()
         items = [("等于", "equal"), ("不等于", "not_equal")]
-        if value_type == "text":
+        if current_type == "text":
             items += [("包含", "contains"), ("不包含", "not_contains")]
         else:
             items += [("大于", "greater_than"), ("小于", "less_than"), ("介于", "between")]
         items += [("为空", "blank"), ("不为空", "not_blank")]
         for label, data in items:
-            self._operator.addItem(label, data)
-        self._operator.blockSignals(False)
-        self._value.setVisible(self._operator.currentData() not in {"blank", "not_blank"})
+            operator.addItem(label, data)
+        operator.blockSignals(False)
+        value = row["value"]
+        assert isinstance(value, QLineEdit)
+        value.setVisible(operator.currentData() not in {"blank", "not_blank"})
 
     def _submit(self) -> None:
+        conditions = [self._condition_payload(0)]
+        if self._second.isChecked():
+            conditions.append(self._condition_payload(1))
+        connector = self._connector.currentData()
+        if (
+            len(conditions) == 2
+            and connector == "or"
+            and conditions[0]["column_index"] != conditions[1]["column_index"]
+        ):
+            connector = "and"
         self.params_submitted.emit(
             {
                 "sheet_name": self._sheet_name,
-                "conditions": [
-                    {
-                        "column_index": self._column.currentIndex(),
-                        "operator": self._operator.currentData(),
-                        "value_type": self._value_type.currentData(),
-                        "value": self._value.text() or None,
-                        "second_value": None,
-                    }
-                ],
-                "connector": "and",
+                "conditions": conditions,
+                "connector": connector,
             }
         )
+
+    def _condition_payload(self, index: int) -> dict[str, object]:
+        row = self._condition_rows[index]
+        column = row["column"]
+        operator = row["operator"]
+        value_type = row["value_type"]
+        value = row["value"]
+        assert (
+            isinstance(column, QComboBox)
+            and isinstance(operator, QComboBox)
+            and isinstance(value_type, QComboBox)
+            and isinstance(value, QLineEdit)
+        )
+        return {
+            "column_index": column.currentIndex(),
+            "operator": operator.currentData(),
+            "value_type": value_type.currentData(),
+            "value": value.text() or None,
+            "second_value": None,
+        }
 
 
 class FindReplaceDialog(QDialog):
@@ -1674,9 +1849,12 @@ class FindReplaceDialog(QDialog):
         self._mode.addItem("公式", "formulas")
         self._match_case = QCheckBox("区分大小写", self)
         self._whole_cell = QCheckBox("单元格匹配", self)
+        self._ignore_trim = QCheckBox("忽略首尾空格", self)
+        self._ignore_trim.setToolTip("比较时先清除查找内容和单元格文本的首尾空格")
         options = QHBoxLayout()
         options.addWidget(self._match_case)
         options.addWidget(self._whole_cell)
+        options.addWidget(self._ignore_trim)
         form.addWidget(find_label, 0, 0)
         form.addWidget(self._find_text, 0, 1)
         form.addWidget(replace_label, 1, 0)
@@ -1726,7 +1904,7 @@ class FindReplaceDialog(QDialog):
                 "replace_text": self._replace_text.text(),
                 "match_case": self._match_case.isChecked(),
                 "whole_cell": self._whole_cell.isChecked(),
-                "trim_whitespace": False,
+                "trim_whitespace": self._ignore_trim.isChecked(),
                 "replace_all": replace_all,
             },
         )
@@ -1740,6 +1918,9 @@ class WorkbookEditorFrame(QFrame):
     apply_requested = Signal()
     preview_cancel_requested = Signal()
     details_requested = Signal()
+    deduplicate_params_confirmed = Signal(dict)
+    trim_params_confirmed = Signal(dict)
+    params_dismissed = Signal()
 
     def __init__(self, preview: QWidget, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1826,11 +2007,13 @@ class WorkbookEditorFrame(QFrame):
         format_layout.addStretch()
 
         self._banner = TemporaryResultBanner(self)
+        self._params_bar = ProcessingParamsBar(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(ribbon)
+        layout.addWidget(self._params_bar)
         layout.addWidget(formula)
         layout.addWidget(format_bar)
         layout.addWidget(self._banner)
@@ -1838,6 +2021,18 @@ class WorkbookEditorFrame(QFrame):
         self._banner.apply_requested.connect(self.apply_requested)
         self._banner.cancel_requested.connect(self.preview_cancel_requested)
         self._banner.details_requested.connect(self.details_requested)
+        self._params_bar.deduplicate_confirmed.connect(self.deduplicate_params_confirmed)
+        self._params_bar.trim_confirmed.connect(self.trim_params_confirmed)
+        self._params_bar.dismissed.connect(self.params_dismissed)
+
+    def show_deduplicate_params(self, columns: list[int]) -> None:
+        self._params_bar.show_deduplicate(columns)
+
+    def show_trim_params(self, columns: list[int]) -> None:
+        self._params_bar.show_trim(columns)
+
+    def hide_params_bar(self) -> None:
+        self._params_bar.hide_bar()
 
     def _emit_sort(self, direction: str) -> None:
         columns = self._selected_columns()

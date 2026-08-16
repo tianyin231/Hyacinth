@@ -9,7 +9,7 @@ from typing import Any
 
 from openpyxl import Workbook
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QPushButton, QTableView
+from PySide6.QtWidgets import QCheckBox, QComboBox, QFrame, QLabel, QPushButton, QTableView
 from pytestqt.qtbot import QtBot
 
 from hyacinth.app import HyacinthMainWindow
@@ -19,11 +19,13 @@ from hyacinth.preview import BUILD_PREVIEW_INDEX_OPERATION, run_preview_index_ta
 from hyacinth.processing import (
     APPLY_FIND_REPLACE_PREVIEW_OPERATION,
     APPLY_TRIM_PREVIEW_OPERATION,
+    DEDUPLICATE_PREVIEW_OPERATION,
     FIND_REPLACE_PREVIEW_OPERATION,
     SORT_PREVIEW_OPERATION,
     TRIM_PREVIEW_OPERATION,
     run_apply_find_replace_preview_task,
     run_apply_trim_preview_task,
+    run_deduplicate_preview_task,
     run_find_replace_preview_task,
     run_trim_preview_task,
 )
@@ -191,11 +193,18 @@ def test_trim_from_table_context_menu_creates_version(qtbot: QtBot, tmp_path: Pa
         [["名称", "数量"], ["  苹果  ", 3], [" 香蕉 ", 2]],
     )
 
-    # 表格右键菜单“清除首尾空格…”最终以选中列触发一步处理
+    # 表格右键菜单“清除首尾空格…”先在功能区条下方展开参数行并预填选中列
     window._one_step_processing("trim", [0])
+    params_bar = _child(window, QFrame, "processing-params-bar")
+    qtbot.waitUntil(lambda: params_bar.isVisibleTo(window), timeout=500)
+    assert "关键列 A" in _child(window, QLabel, "params-columns-label").text()
+    qtbot.mouseClick(
+        _child(window, QPushButton, "params-confirm-button"), Qt.MouseButton.LeftButton
+    )  # type: ignore[no-untyped-call]
 
     trim_request = _last_request(task_queue, TRIM_PREVIEW_OPERATION)
     assert trim_request.payload["key_columns"] == [0]
+    assert trim_request.payload["collapse_spaces"] is False
     result = run_trim_preview_task(trim_request, PreviewTaskContext())
     assert len(result.trimmed_cells) == 2
     _push_success(task_queue, trim_request, result)
@@ -247,6 +256,12 @@ def test_temporary_preview_supports_manual_edits_on_apply(qtbot: QtBot, tmp_path
         [["名称", "数量"], ["  苹果  ", 3], [" 香蕉 ", 2]],
     )
     window._one_step_processing("trim", [0])
+    qtbot.waitUntil(
+        lambda: _child(window, QFrame, "processing-params-bar").isVisibleTo(window), timeout=500
+    )
+    qtbot.mouseClick(
+        _child(window, QPushButton, "params-confirm-button"), Qt.MouseButton.LeftButton
+    )  # type: ignore[no-untyped-call]
     trim_request = _last_request(task_queue, TRIM_PREVIEW_OPERATION)
     _push_success(
         task_queue, trim_request, run_trim_preview_task(trim_request, PreviewTaskContext())
@@ -384,6 +399,70 @@ def test_editor_bar_sort_and_entry(qtbot: QtBot, tmp_path: Path) -> None:
     assert "按 A 列排序完整数据行" in _child(window, QLabel, "banner-message").text()
     # 处理预览进行中当前预览被清空，功能区条入口应禁用，避免误触发错误提示
     assert not _child(window, QPushButton, "bar-find-replace-button").isEnabled()
+
+
+def test_deduplicate_params_bar_options_flow_to_preview(qtbot: QtBot, tmp_path: Path) -> None:
+    """需求第 19.2 节：去重保留规则与比较选项在参数行可调并传入任务。"""
+    _library_root, task_queue, window = _ready_window(
+        qtbot,
+        tmp_path,
+        [["名称", "数量"], ["苹果", 1], ["苹果", 2], ["香蕉", 3]],
+    )
+    window._one_step_processing("deduplicate", [0])
+    qtbot.waitUntil(
+        lambda: _child(window, QFrame, "processing-params-bar").isVisibleTo(window), timeout=500
+    )
+    assert "关键列 A" in _child(window, QLabel, "params-columns-label").text()
+
+    keep = _child(window, QComboBox, "params-keep-combo")
+    keep.setCurrentIndex(1)
+    _child(window, QCheckBox, "params-ignore-case").setChecked(True)
+    qtbot.mouseClick(
+        _child(window, QPushButton, "params-confirm-button"), Qt.MouseButton.LeftButton
+    )  # type: ignore[no-untyped-call]
+
+    deduplicate_request = _last_request(task_queue, DEDUPLICATE_PREVIEW_OPERATION)
+    assert deduplicate_request.payload["key_columns"] == [0]
+    assert deduplicate_request.payload["keep"] == "last"
+    assert deduplicate_request.payload["ignore_case"] is True
+    assert deduplicate_request.payload["trim_whitespace"] is False
+    result = run_deduplicate_preview_task(deduplicate_request, PreviewTaskContext())
+    assert result.duplicate_groups
+
+
+def test_filter_dialog_two_conditions_same_column_or() -> None:
+    """DEC-021：同一列两个条件支持或者，跨列强制并且。"""
+    from hyacinth.ui import FilterDialog
+
+    dialog = FilterDialog("数据", ("A · 名称", "B · 数量"))
+    payloads: list[dict[str, object]] = []
+    dialog.params_submitted.connect(payloads.append)
+
+    dialog._second.setChecked(True)
+    dialog._connector.setCurrentIndex(1)
+    dialog._submit()
+    assert len(payloads[-1]["conditions"]) == 2  # type: ignore[arg-type]
+    assert payloads[-1]["connector"] == "or"
+
+    second_column = dialog._condition_rows[1]["column"]
+    assert isinstance(second_column, QComboBox)
+    second_column.setCurrentIndex(1)
+    dialog._submit()
+    assert payloads[-1].get("connector") == "and"
+
+
+def test_find_replace_dialog_trim_whitespace_option() -> None:
+    """需求第 19.4 节：查找替换支持忽略首尾空格比较。"""
+    from hyacinth.ui import FindReplaceDialog
+
+    dialog = FindReplaceDialog("数据")
+    payloads: list[dict[str, object]] = []
+    dialog.params_submitted.connect(lambda _sheet, params: payloads.append(params))
+
+    dialog._find_text.setText("苹果")
+    dialog._ignore_trim.setChecked(True)
+    dialog._submit(replace_all=False)
+    assert payloads[-1]["trim_whitespace"] is True
 
 
 def test_grid_shows_data_margin_and_select_all_is_safe(qtbot: QtBot, tmp_path: Path) -> None:

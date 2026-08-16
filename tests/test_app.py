@@ -924,6 +924,12 @@ def test_deduplicate_preview_apply_creates_child_and_shows_statistics(
     )
     qtbot.waitUntil(lambda: window._workbook_preview.current_preview() is not None, timeout=2000)
     window._one_step_processing("deduplicate", [0])
+    # 入口先在功能区条下方展开参数行，确认后才提交预览任务
+    params_bar = _child(window, QFrame, "processing-params-bar")
+    qtbot.waitUntil(lambda: params_bar.isVisibleTo(window), timeout=500)
+    qtbot.mouseClick(
+        _child(window, QPushButton, "params-confirm-button"), Qt.MouseButton.LeftButton
+    )  # type: ignore[no-untyped-call]
 
     deduplicate_request = next(
         request

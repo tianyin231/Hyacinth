@@ -260,6 +260,9 @@ class HyacinthMainWindow(QMainWindow):
         self._editor.apply_requested.connect(self._submit_apply_processing_preview)
         self._editor.preview_cancel_requested.connect(self._cancel_processing_workflow)
         self._editor.details_requested.connect(self._show_processing_details)
+        self._editor.deduplicate_params_confirmed.connect(self._confirm_deduplicate_params)
+        self._editor.trim_params_confirmed.connect(self._confirm_trim_params)
+        self._editor.params_dismissed.connect(self._editor.hide_params_bar)
 
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal, workspace_root)
         self._main_splitter.setObjectName("main-workspace-splitter")
@@ -478,53 +481,49 @@ class HyacinthMainWindow(QMainWindow):
                 self._workbook_preview.set_error("加载已取消，可重新选择文件")
 
     def _one_step_processing(self, action: str, columns: list[int]) -> None:
-        parameters_by_action: dict[str, dict[str, object]] = {
-            "deduplicate": {
-                "key_columns": list(columns),
-                "keep": "first",
-                "ignore_case": False,
-                "trim_whitespace": False,
-            },
-            "delete_blank_rows": {
-                "key_columns": list(columns),
-                "allow_unsafe": False,
-            },
-            "trim": {
-                "key_columns": list(columns),
-                "collapse_spaces": False,
-            },
-        }
-        parameters = parameters_by_action.get(action)
-        if parameters is None:
-            return
-        sheet_name = self._current_sheet_name()
-        if sheet_name is None:
+        if self._current_sheet_name() is None:
             self._error_presenter(self, "请先选择文件再使用处理功能")
             return
+        # 去重与清空格有可调参数，先在功能区条下方原位展开确认（需求第 16 节）。
         if action == "deduplicate":
-            self._submit_processing_preview(
-                operation=DEDUPLICATE_PREVIEW_OPERATION,
-                task_name="生成删除重复行预览",
-                busy_message="正在检查重复行…",
-                sheet_name=sheet_name,
-                parameters=parameters,
-            )
-        elif action == "delete_blank_rows":
+            self._editor.show_deduplicate_params(columns)
+            return
+        if action == "trim":
+            self._editor.show_trim_params(columns)
+            return
+        if action == "delete_blank_rows":
             self._submit_processing_preview(
                 operation=DELETE_BLANK_ROWS_PREVIEW_OPERATION,
                 task_name="生成删除空白行预览",
                 busy_message="正在检查空白行…",
-                sheet_name=sheet_name,
-                parameters=parameters,
+                sheet_name=self._current_sheet_name() or "",
+                parameters={
+                    "key_columns": list(columns),
+                    "allow_unsafe": False,
+                },
             )
-        elif action == "trim":
-            self._submit_processing_preview(
-                operation=TRIM_PREVIEW_OPERATION,
-                task_name="生成清除空格预览",
-                busy_message="正在清理文本空格…",
-                sheet_name=sheet_name,
-                parameters=parameters,
-            )
+
+    def _confirm_deduplicate_params(self, parameters: object) -> None:
+        if not isinstance(parameters, dict):
+            return
+        self._submit_processing_preview(
+            operation=DEDUPLICATE_PREVIEW_OPERATION,
+            task_name="生成删除重复行预览",
+            busy_message="正在检查重复行…",
+            sheet_name=self._current_sheet_name() or "",
+            parameters=parameters,
+        )
+
+    def _confirm_trim_params(self, parameters: object) -> None:
+        if not isinstance(parameters, dict):
+            return
+        self._submit_processing_preview(
+            operation=TRIM_PREVIEW_OPERATION,
+            task_name="生成清除空格预览",
+            busy_message="正在清理文本空格…",
+            sheet_name=self._current_sheet_name() or "",
+            parameters=parameters,
+        )
 
     def _current_sheet_name(self) -> str | None:
         preview = self._workbook_preview.current_preview()
@@ -638,6 +637,7 @@ class HyacinthMainWindow(QMainWindow):
             workbook.working_path.parent.parent / ".previews" / preview_id / "result.xlsx"
         )
         self._processing_task_id = task_id
+        self._editor.hide_params_bar()
         self._editor.set_busy(busy_message)
         self._set_processing_navigation_enabled(False)
         self._task_queue.submit(
