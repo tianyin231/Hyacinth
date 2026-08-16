@@ -227,7 +227,6 @@ class HyacinthMainWindow(QMainWindow):
         self._version_tree.version_restore_requested.connect(self._restore_deleted_version)
         self._version_tree.version_export_requested.connect(self._request_export_version)
         self._version_tree.version_purge_requested.connect(self._request_purge_version)
-        self._version_tree.lane_activated.connect(self._activate_file_lane)
         self._version_tree.layout_reset_requested.connect(self._request_reset_layouts)
         self._workbook_preview = WorkbookPreviewWidget(workspace_root)
         self._workbook_preview.import_requested.connect(self._choose_import_file)
@@ -1360,17 +1359,6 @@ class HyacinthMainWindow(QMainWindow):
             self._file_library.replace_workbook(refreshed)
             self._refresh_version_canvas()
         self._refresh_recycle_bin()
-
-    def _activate_file_lane(self, file_id: str) -> None:
-        workbook = self._current_workbook
-        if workbook is not None and workbook.file_id == file_id:
-            return
-        try:
-            target = MetadataStore(self._library_root).get_workbook(file_id)
-        except ValueError as error:
-            self._error_presenter(self, str(error))
-            return
-        self._select_workbook(target)
 
     def _request_reset_layouts(self) -> None:
         store = MetadataStore(self._library_root)

@@ -291,8 +291,8 @@ def test_version_tree_drag_moves_connected_edge_and_emits_persisted_position(
     }
     edges = [item for item in view.scene().items() if isinstance(item, QGraphicsLineItem)]
     assert proxies[root.version_id].pos().x() == 80.0
-    # 固定坐标的 y 是泳道内容区相对坐标：泳道顶 82 + 相对 60
-    assert proxies[root.version_id].pos().y() == 142.0
+    # 固定布局保存画布绝对坐标，渲染原样使用
+    assert proxies[root.version_id].pos().y() == 60.0
     assert len(edges) == 1
     old_line = edges[0].line()
     root_card = proxies[root.version_id].widget()
@@ -313,8 +313,7 @@ def test_version_tree_drag_moves_connected_edge_and_emits_persisted_position(
     assert moved_signal.args[0] == "file-1"
     assert moved_signal.args[1] == root.version_id
     assert moved_signal.args[2] > 80.0
-    # y 为泳道内容区相对坐标：固定根 60 + 拖动 35 - 泳道顶 82 > 0
-    assert moved_signal.args[3] > 0.0
+    assert moved_signal.args[3] > 60.0
     assert edges[0].line() != old_line
 
 
@@ -809,43 +808,16 @@ def test_deleted_version_node_can_be_dragged(qtbot: QtBot, tmp_path: Path) -> No
     assert moved.args[1] == "deleted-child"
 
 
-def test_lane_click_and_reset_layout_button_signals(qtbot: QtBot, tmp_path: Path) -> None:
-    from hyacinth.ui import FileVersionTree, VersionTreePanel
+def test_reset_layout_button_emits_signal(qtbot: QtBot) -> None:
+    from hyacinth.ui import VersionTreePanel
 
-    root = _record("root", None, "导入原始文件", 8, tmp_path / "r.xlsx")
     panel = VersionTreePanel()
     qtbot.addWidget(panel)
-    panel.resize(700, 500)
-    panel.show()
-    panel.set_workbooks(
-        (
-            FileVersionTree("file-1", "销售.xlsx", (root,), "root", {}),
-            FileVersionTree("file-2", "库存.xlsx", (), None, {}),
-        ),
-        current_file_id="file-1",
-    )
     reset_button = panel.findChild(QPushButton, "version-reset-layout-button")
     assert reset_button is not None
 
     with qtbot.waitSignal(panel.layout_reset_requested):
         qtbot.mouseClick(reset_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
-
-    view = panel.findChild(QGraphicsView, "version-tree-view")
-    assert view is not None
-    from PySide6.QtCore import QRectF
-
-    lane_rect_item = next(
-        item for item in view.scene().items() if str(item.data(0)) == "lane:file-2"
-    )
-    lane_center = view.mapFromScene(lane_rect_item.sceneBoundingRect().center())
-
-    with qtbot.waitSignal(panel.lane_activated) as lane:
-        qtbot.mouseClick(  # type: ignore[no-untyped-call]
-            view.viewport(), Qt.MouseButton.LeftButton, pos=lane_center
-        )
-
-    assert lane.args == ["file-2"]
-    del QRectF
 
 
 def test_lane_positions_stay_stable_when_current_file_changes(
@@ -882,13 +854,11 @@ def test_lane_positions_stay_stable_when_current_file_changes(
     assert position_of("root-a")[1] < before_b[1]
 
 
-def test_lane_backgrounds_survive_gc_after_canvas_rebuild(
+def test_canvas_has_no_lane_decorations_and_nodes_survive_gc(
     qtbot: QtBot,
     tmp_path: Path,
 ) -> None:
     import gc
-
-    from PySide6.QtWidgets import QGraphicsRectItem
 
     from hyacinth.ui import FileVersionTree, VersionTreePanel
 
@@ -901,23 +871,23 @@ def test_lane_backgrounds_survive_gc_after_canvas_rebuild(
     )
     panel.set_workbooks(trees, current_file_id="file-1")
 
-    def lane_rect_count() -> int:
+    def node_count() -> int:
         view = panel.findChild(QGraphicsView, "version-tree-view")
         assert view is not None
         return sum(
             1
             for item in view.scene().items()
-            if isinstance(item, QGraphicsRectItem) and str(item.data(0)).startswith("lane:")
+            if isinstance(item, QGraphicsProxyWidget) and item.widget() is not None
         )
 
-    assert lane_rect_count() == 2
+    assert node_count() == 1
     gc.collect()
-    assert lane_rect_count() == 2
+    assert node_count() == 1
+    from PySide6.QtWidgets import QGraphicsSimpleTextItem
 
-    panel.set_workbooks(trees, current_file_id="file-2")
-    gc.collect()
-
-    assert lane_rect_count() == 2
+    view = panel.findChild(QGraphicsView, "version-tree-view")
+    assert view is not None
+    assert not [item for item in view.scene().items() if isinstance(item, QGraphicsSimpleTextItem)]
 
 
 def test_view_mode_toggle_filters_current_file_and_keeps_position(

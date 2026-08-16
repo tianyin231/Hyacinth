@@ -14,10 +14,7 @@ from PySide6.QtCore import (
     Signal,
 )
 from PySide6.QtGui import (
-    QBrush,
-    QColor,
     QContextMenuEvent,
-    QFont,
     QKeyEvent,
     QKeySequence,
     QMouseEvent,
@@ -1303,7 +1300,6 @@ class FileVersionTree:
 
 class _VersionTreeView(QGraphicsView):
     node_selected = Signal(str, str)
-    lane_activated = Signal(str)
     position_changing = Signal(str, str, float, float)
     position_committed = Signal(str, str, float, float)
 
@@ -1315,11 +1311,9 @@ class _VersionTreeView(QGraphicsView):
         self._drag_origin_view: QPoint | None = None
         self._drag_origin_scene: QPointF | None = None
         self._dragged = False
-        self._lane_press: tuple[str, QPoint] | None = None
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         self._reset_node_drag()
-        self._lane_press = None
         if event.button() is Qt.MouseButton.LeftButton:
             item = self.itemAt(event.position().toPoint())
             while item is not None and not isinstance(item, QGraphicsProxyWidget):
@@ -1338,20 +1332,7 @@ class _VersionTreeView(QGraphicsView):
                     card.setFocus()
                     if not bool(card.property("deleted")):
                         self.node_selected.emit(file_id, version_id)
-            else:
-                lane_file_id = self._lane_file_at(event.position().toPoint())
-                if lane_file_id is not None:
-                    self._lane_press = (lane_file_id, event.position().toPoint())
         super().mousePressEvent(event)
-
-    def _lane_file_at(self, position: QPoint) -> str | None:
-        item = self.itemAt(position)
-        while item is not None:
-            data = str(item.data(0))
-            if data.startswith("lane:"):
-                return data.removeprefix("lane:")
-            item = item.parentItem()
-        return None
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if (
@@ -1394,17 +1375,9 @@ class _VersionTreeView(QGraphicsView):
                 position.x(),
                 position.y(),
             )
-        if (
-            event.button() is Qt.MouseButton.LeftButton
-            and self._lane_press is not None
-            and (event.position().toPoint() - self._lane_press[1]).manhattanLength()
-            < QApplication.startDragDistance()
-        ):
-            self.lane_activated.emit(self._lane_press[0])
         super().mouseReleaseEvent(event)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self._reset_node_drag()
-        self._lane_press = None
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         vertical_delta = event.angleDelta().y()
@@ -1491,7 +1464,6 @@ class VersionTreePanel(QFrame):
     version_restore_requested = Signal(str, str)
     version_export_requested = Signal(str, str, bool)
     version_purge_requested = Signal(str, str)
-    lane_activated = Signal(str)
     layout_reset_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -1558,7 +1530,6 @@ class VersionTreePanel(QFrame):
         self._view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self._view.setRenderHint(QPainter.RenderHint.Antialiasing)
         self._view.node_selected.connect(self._select_version)
-        self._view.lane_activated.connect(self.lane_activated)
         self._view.position_changing.connect(self._move_version)
         self._view.position_committed.connect(self._commit_version_position)
 
@@ -1700,9 +1671,10 @@ class VersionTreePanel(QFrame):
         self._cards = {}
         self._proxies = {}
         self._edge_relations = []
-        self._lane_decorations = []
         self._lane_content_tops = {}
         self._items_by_file = {}
+        # 全画布已占用区域：新节点对全部已定位节点避让，已定位节点永不移动。
+        occupied: list[QRectF] = []
         render_trees: tuple[FileVersionTree, ...] = trees
         if (
             self._single_file_mode
@@ -1714,20 +1686,16 @@ class VersionTreePanel(QFrame):
         focus_proxy: QGraphicsProxyWidget | None = None
         first_proxy: QGraphicsProxyWidget | None = None
         for tree in render_trees:
-            lane_positions = self._lane_positions(tree)
+            lane_positions = self._lane_positions(tree, occupied)
             lane_rows = 1
-            for _, local_y in lane_positions.values():
-                lane_rows = max(lane_rows, int(local_y // NODE_DY) + 1)
-            # 宽高各预留一段增长空间：新增分支/深度时泳道尺寸保持不变，
-            # 避免把后续泳道整体推挤下移。
+            for _, y in lane_positions.values():
+                lane_rows = max(lane_rows, int((y - lane_top - LANE_HEADER_HEIGHT) // NODE_DY) + 1)
             lane_height = LANE_HEADER_HEIGHT + (lane_rows + 1) * NODE_DY + 10.0
             is_current = tree.file_id == current_file_id
-            lane_items = self._render_lane_label(scene, tree, lane_top, is_current)
-            self._items_by_file[tree.file_id] = list(lane_items)
+            self._items_by_file[tree.file_id] = []
             self._lane_content_tops[tree.file_id] = lane_top + LANE_HEADER_HEIGHT
             for version in tree.versions:
-                local_x, local_y = lane_positions[version.version_id]
-                position = (local_x, lane_top + LANE_HEADER_HEIGHT + local_y)
+                position = lane_positions[version.version_id]
                 bounded = self._bounded_position(*position)
                 key = (tree.file_id, version.version_id)
                 card = self._version_card(
@@ -1794,13 +1762,18 @@ class VersionTreePanel(QFrame):
         # 可避开 QGraphicsProxyWidget 延迟销毁的原生竞态窗口。
         del self._retired_scenes[:-3]
 
-    def _lane_positions(self, tree: FileVersionTree) -> dict[str, tuple[float, float]]:
-        """解析泳道内每个版本的（绝对 x, 泳道相对 y）。
+    def _lane_positions(
+        self,
+        tree: FileVersionTree,
+        occupied: list[QRectF],
+    ) -> dict[str, tuple[float, float]]:
+        """解析每个版本的画布绝对坐标。
 
-        固定布局与位置记忆优先；新节点按树形算法定位并对已占区域避让。
+        固定布局与位置记忆优先且永不移动；新节点按树形算法在泳道基线
+        定位，并对全画布已占用区域避让。记忆保存绝对坐标。
         """
         tree_positions, _ = self._layout_lane(tree)
-        occupied: list[QRectF] = []
+        lane_base = self._lane_content_tops.get(tree.file_id, 82.0)
         lane_positions: dict[str, tuple[float, float]] = {}
         for version in tree.versions:
             key = (tree.file_id, version.version_id)
@@ -1811,12 +1784,13 @@ class VersionTreePanel(QFrame):
                 position = self._remembered_lane_positions[key]
             else:
                 tree_x, tree_y = tree_positions[version.version_id]
-                tree_x = 28.0 + tree_x
-                candidate = QRectF(tree_x, tree_y, VERSION_NODE_WIDTH, VERSION_NODE_HEIGHT)
+                position = (28.0 + tree_x, lane_base + tree_y)
+                candidate = QRectF(
+                    position[0], position[1], VERSION_NODE_WIDTH, VERSION_NODE_HEIGHT
+                )
                 while any(candidate.adjusted(-8, -8, 8, 8).intersects(rect) for rect in occupied):
-                    tree_y += NODE_DY
-                    candidate.moveTop(tree_y)
-                position = (tree_x, tree_y)
+                    position = (position[0], position[1] + NODE_DY)
+                    candidate.moveTop(position[1])
             occupied.append(
                 QRectF(position[0], position[1], VERSION_NODE_WIDTH, VERSION_NODE_HEIGHT)
             )
@@ -1826,35 +1800,6 @@ class VersionTreePanel(QFrame):
 
     def clear_remembered_layouts(self) -> None:
         self._remembered_lane_positions.clear()
-
-    def _render_lane_label(
-        self,
-        scene: QGraphicsScene,
-        tree: FileVersionTree,
-        lane_top: float,
-        is_current: bool,
-    ) -> list[QGraphicsItem]:
-        # 文件分区用标签胶囊标识，不绘制泳道背景：
-        # 背景边界与节点自由拖动天然冲突（向上扩散、推挤、宽度追踪），
-        # 标签既标示文件归属，也作为泳道点击区域。
-        label = scene.addSimpleText(
-            tree.display_name,
-            QFont("Segoe UI", 10, QFont.Weight.Bold if is_current else QFont.Weight.Normal),
-        )
-        label_width = label.boundingRect().width() + 22.0
-        pill = scene.addRect(
-            QRectF(24.0, lane_top + 4.0, label_width, 24.0),
-            QPen(Qt.PenStyle.NoPen),
-            QBrush(QColor("#0f6cbd") if is_current else QColor("#e2e6ec")),
-        )
-        label.setBrush(QBrush(QColor("#ffffff") if is_current else QColor("#4d5663")))
-        label.setPos(35.0, lane_top + 8.0)
-        pill.setZValue(-3)
-        label.setZValue(-2)
-        pill.setData(0, f"lane:{tree.file_id}")
-        label.setData(0, f"lane:{tree.file_id}")
-        self._lane_decorations.extend((pill, label))
-        return [pill, label]
 
     def _layout_lane(self, tree: FileVersionTree) -> tuple[dict[str, tuple[float, float]], int]:
         """树形排布：叶子按序占行，父节点纵向居中于其子树区间。
@@ -2093,9 +2038,7 @@ class VersionTreePanel(QFrame):
         x: float,
         y: float,
     ) -> None:
-        lane_content_top = self._lane_content_tops.get(file_id)
-        relative_y = y - lane_content_top if lane_content_top is not None else y
-        self.version_position_changed.emit(file_id, version_id, x, relative_y)
+        self.version_position_changed.emit(file_id, version_id, x, y)
 
     def _toggle_view_mode(self) -> None:
         self._single_file_mode = not self._single_file_mode

@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-16T16:58:00+08:00"
+updated_at: "2026-08-16T17:01:39+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -277,6 +277,8 @@ last_completed:
   - "用户复验布局记忆生效；改进泳道变动观感：宽高预留增长空间（新增分支不再推挤后续泳道）、背景改半透明柔和色调"
   - "修复点击其他文件节点时视口不跟随：跨文件节点点击现在将视口聚焦到被点击节点；文件列表点击聚焦 HEAD 行为不变"
   - "按用户决定抛弃泳道背景矩形（DEC-20260816-033）：背景只能向下扩散且与节点自由拖动冲突；文件分区改用文件名标签胶囊（当前文件蓝底白字、其他灰底），标签保留泳道点击切换"
+  - "用户进一步要求：抛弃文件名标签胶囊（节点卡片自带文件名，归属可辨），同时删除依附标签的泳道点击切换机制"
+  - "节点布局改为画布绝对坐标钉定（DEC-20260816-034）：固定与记忆位置永不再动，新节点树形定位并对全画布已定位节点避让；把 A 文件节点拖到 B 文件旁后任何重建都不再移动它，也不再自动调整 B 文件节点"
 
 next_actions:
   - "用户实机复验六项修复：泳道强调随文件切换、泳道点击切换、已删节点拖动与永久删除、重整布局确认、树形排布"
@@ -374,6 +376,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260816-034"
+    date: "2026-08-16"
+    status: "approved-and-implemented"
+    summary: "抛弃泳道文件名标签（节点卡片自带文件名）；节点位置改为画布绝对坐标钉定：固定与记忆节点永不移动，新节点对全画布已定位节点避让，跨文件拖动不再引起任何节点自动调整"
+    source: "用户实机反馈：抛弃主节点上方文件名标识；把文件1节点拖到文件2旁后文件2不要再动"
+    supersedes: "DEC-20260816-033 的标签胶囊与泳道相对坐标设计"
+    impact: "需求讨论记录第 47 节、_lane_positions 绝对坐标与全局避让、删除泳道点击机制、version_layouts 恢复绝对 y 语义及相关测试"
   - id: "DEC-20260816-033"
     date: "2026-08-16"
     status: "approved-and-implemented"
@@ -477,7 +486,7 @@ changed_files:
 verification:
   status: "passed-awaiting-real-machine-validation"
   commands:
-    - "uv run pytest：230 passed（全局画布测试补充：点击 file-1 节点后视口聚焦该节点，列表点击 file-2 后聚焦其 HEAD）"
+    - "uv run pytest：229 passed（绝对坐标钉定回归：file-1 增加子版本重建后 file-2 固定节点位置逐一不变；布局记忆测试沿用绝对语义）"
     - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check：全部通过"
     - "uv run python scripts/capture_ui_states.py --output output/playwright：8 张截图全部生成"
     - "本轮需求记录变更仅文档更新，无代码影响；完成度评估基于对 app.py、ui/shell.py、versioning/store.py、library/widget.py、preview/edit_session.py、tasks/status_widget.py 的逐文件阅读与 git log 核对"
