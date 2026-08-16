@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 from PySide6.QtCore import QObject, QPoint, QPointF, QSize, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -208,7 +209,7 @@ def test_delete_head_from_tree_switches_working_version_and_can_be_undone(
     window.show()
     tree_panel = _child(window, VersionTreePanel, "version-tree-panel")
 
-    tree_panel.version_delete_requested.emit(child.version_id)
+    tree_panel.version_delete_requested.emit(record.file_id, child.version_id)
 
     delete_request = task_queue.submitted[-1]
     assert delete_request.operation == DELETE_VERSION_OPERATION
@@ -517,7 +518,7 @@ def test_version_node_save_as_exports_and_reports_destination(
     export_button = _child(window, QPushButton, "toolbar-export-button")
     assert export_button.isEnabled()
     version_tree = _child(window, VersionTreePanel, "version-tree-panel")
-    version_tree.version_export_requested.emit(version.version_id, True)
+    version_tree.version_export_requested.emit(record.file_id, version.version_id, True)
     request = task_queue.submitted[-1]
     assert request.operation == EXPORT_VERSION_OPERATION
     assert request.payload["destination_path"] == str(destination)
@@ -1547,7 +1548,7 @@ def test_storage_status_shows_format_and_sizes_for_selected_and_previewed_versio
     assert format_byte_size(child_snapshot.stat().st_size) in sizes_label.text()
 
     tree_panel = _child(window, VersionTreePanel, "version-tree-panel")
-    tree_panel.version_preview_requested.emit(root.version_id)
+    tree_panel.version_preview_requested.emit(record.file_id, root.version_id)
 
     switch_stats_request = task_queue.submitted[-2]
     assert switch_stats_request.operation == VERSION_STORAGE_STATS_OPERATION
@@ -1770,3 +1771,84 @@ def test_recycle_bin_lists_and_restores_deleted_version_node(
         if isinstance(proxy, QGraphicsProxyWidget) and proxy.widget() is not None
     }
     assert cards[child.version_id].property("deleted") is False
+
+
+def test_global_canvas_renders_all_files_and_switches_on_node_click(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    second_directory = library_root / "files/file-2"
+    second_original = second_directory / "original/库存.xlsx"
+    second_working = second_directory / "working/current.xlsx"
+    second_snapshot = second_directory / "versions/version-b/snapshot.xlsx"
+    for path in (second_original, second_working, second_snapshot):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        workbook = Workbook()
+        sheet = workbook.active
+        assert sheet is not None
+        sheet.title = "库存"
+        sheet.append(["名称", "数量"])
+        sheet.append(["螺丝", 8])
+        workbook.save(path)
+        workbook.close()
+    second_root = VersionRecord(
+        "version-b",
+        "file-2",
+        None,
+        "导入原始文件",
+        datetime(2026, 8, 16, 10, 0, tzinfo=UTC),
+        "import",
+        None,
+        second_snapshot,
+        sha256(second_snapshot.read_bytes()).hexdigest(),
+    )
+    second_record = ImportedWorkbook(
+        "file-2",
+        "库存.xlsx",
+        second_original,
+        second_working,
+        second_root,
+        datetime(2026, 8, 16, 10, 0, tzinfo=UTC),
+    )
+    MetadataStore(library_root).record_import(second_record)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    view = _child(window, QGraphicsView, "version-tree-view")
+
+    cards = {
+        str(proxy.widget().property("file-id")): proxy.widget()
+        for proxy in view.scene().items()
+        if isinstance(proxy, QGraphicsProxyWidget) and proxy.widget() is not None
+    }
+    assert set(cards) == {"file-1", "file-2"}
+    assert window.windowTitle() == "风信子 — 库存.xlsx"
+
+    QTest.mouseClick(cards["file-1"], Qt.MouseButton.LeftButton)
+
+    assert window.windowTitle() == "风信子 — 销售.xlsx"
+    assert _child(window, QLabel, "document-title").text() == "销售.xlsx"
+    assert MetadataStore(library_root).get_workbook("file-2").display_name == "库存.xlsx"
+
+    file_list = _child(window, QListWidget, "library-file-list")
+    for row in range(file_list.count()):
+        if file_list.item(row).data(Qt.ItemDataRole.UserRole) == "file-1":
+            file_list.setCurrentRow(row)
+            break
+
+    assert window.windowTitle() == "风信子 — 销售.xlsx"
+    proxies = {
+        str(proxy.widget().property("file-id")): proxy
+        for proxy in view.scene().items()
+        if isinstance(proxy, QGraphicsProxyWidget) and proxy.widget() is not None
+    }
+    assert record.head_version is not None
+    head_center = proxies["file-1"].sceneBoundingRect().center()
+    view_center = view.mapToScene(view.viewport().rect().center())
+    assert abs(view_center.x() - head_center.x()) < 260.0
+    assert abs(view_center.y() - head_center.y()) < 260.0

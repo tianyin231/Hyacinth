@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-16T12:58:33+08:00"
+updated_at: "2026-08-16T13:13:52+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -35,9 +35,9 @@ delivery:
   next_milestone: "用户实机复验版本图谱全向平移、节点边界和专注模式"
 
 current_task:
-  id: "FOCUS-ANCHOR-FIX-AND-GLOBAL-CANVAS-PROPOSAL-001"
-  status: "fix-completed-canvas-proposal-awaiting-confirmation"
-  goal: "修复专注模式画布位置跳变；提出全局版本画布方案（DEC-20260816-029）等待用户确认后实施"
+  id: "GLOBAL-VERSION-CANVAS-001"
+  status: "implementation-completed-awaiting-real-machine-validation"
+  goal: "按 DEC-20260816-029 实现全局版本画布：全部文件版本树同画布泳道显示、跨文件节点切换、文件列表定位 HEAD"
   owner: "codex-sol"
 
 last_completed:
@@ -260,9 +260,12 @@ last_completed:
   - "回收站版本条目支持已提交本地 main：340bb0e"
   - "修复专注模式画布位置跳变：进入/退出前后记录并恢复视图场景中心锚点，视口尺寸变化不再移动画布内容"
   - "全局版本画布需求按 DEC-20260816-029 写入需求讨论记录第 47 节（方案待确认）：全部文件版本树同画布分区显示、点击跨文件节点切换、文件列表点击定位 HEAD"
+  - "用户确认方案后完成全局版本画布：VersionTreePanel 改为 set_workbooks 多文件泳道渲染，文件标签+浅色泳道背景，当前文件强调、其他文件 78% 不透明度"
+  - "全部版本节点信号带 file_id；点击其他文件节点先走未保存保护再切换当前工作文件并预览；文件列表点击将视口聚焦到该文件 HEAD"
+  - "节点拖动/右键/删除/恢复/导出/从此继续在全局画布对任意文件生效；删除与恢复事件按目标文件刷新，画布重建保持视口位置"
 
 next_actions:
-  - "等待用户确认全局版本画布方案（需求第 47 节），确认后按分区布局、跨文件切换、文件列表定位 HEAD 实施"
+  - "用户实机运行 uv run hyacinth，复验全局画布：多文件泳道显示、跨文件节点点击切换、文件列表点击定位 HEAD、专注模式位置保持"
   - "用户实机运行 uv run hyacinth，复验专注模式进入/退出画布位置保持"
   - "用户实机运行 uv run hyacinth，复验文件删除、回收站恢复与永久删除流程"
   - "下一候选切片：版本图谱自动整理（第 38 节）或继续处理功能（查找与替换等）"
@@ -356,6 +359,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260816-029"
+    date: "2026-08-16"
+    status: "approved-and-implemented"
+    summary: "版本演化树升级为全局画布：全部文件版本树按泳道分区同画布显示，点击任意文件节点跨文件切换预览，文件列表点击定位到该文件 HEAD；专注模式保持画布视口位置"
+    source: "用户实机反馈提出方向并确认推荐方案"
+    supersedes: "第 26、38 节中版本树仅显示当前单文件版本的设计"
+    impact: "需求讨论记录第 47 节、VersionTreePanel 泳道渲染与带 file_id 的节点信号、跨文件预览/继续/删除/恢复/导出接线、文件列表聚焦、专注模式锚点保持与全部相关测试"
   - id: "DEC-20260816-028"
     date: "2026-08-16"
     status: "approved"
@@ -419,13 +429,6 @@ recent_decisions:
     source: "用户当前会话确认继续推荐的删除空白行切片；具体规则来自需求讨论记录第 19.3 节"
     supersedes: "none"
     impact: "删除空白行预览任务、行号统计、FunctionPanel 参数页、通用版本应用和端到端测试"
-  - id: "DEC-20260815-019"
-    date: "2026-08-15"
-    status: "approved"
-    summary: "下一处理功能垂直切片采用删除重复行；先修复只读单元格输入导致界面卡死的问题，再继续实现"
-    source: "用户当前会话确认推荐方案并报告单元格输入卡死"
-    supersedes: "none"
-    impact: "只读表格输入事件、回归测试、删除重复行两阶段预览与版本闭环的实施顺序"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
   - "需求讨论记录.md"
@@ -452,7 +455,7 @@ changed_files:
 verification:
   status: "passed-awaiting-real-machine-validation"
   commands:
-    - "uv run pytest：216 passed in 35.04s（专注模式画布位置保持新增 1 项回归）"
+    - "uv run pytest：217 passed in 33.95s（全局画布端到端新增 1 项：双文件泳道渲染、点击 file-1 节点切换当前文件、文件列表点击视口聚焦 HEAD）"
     - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check：全部通过"
     - "uv run python scripts/capture_ui_states.py --output output/playwright：8 张截图全部生成"
     - "本轮需求记录变更仅文档更新，无代码影响；完成度评估基于对 app.py、ui/shell.py、versioning/store.py、library/widget.py、preview/edit_session.py、tasks/status_widget.py 的逐文件阅读与 git log 核对"
@@ -588,6 +591,8 @@ verification:
     - "OpenCode DeepSeek session ses_ffb779869ffetPKJvDGwsXSdcX 导出并核验 provider/model/finish/files changed"
     - "OpenCode DeepSeek session ses_ffb6eb165ffeExum72T3S31KLf 导出并核验 provider/model/finish 与实际写入范围"
   evidence:
+    - "version-node-dragged.png：泳道文件名标签（蓝色加粗）、浅色泳道背景、节点横向演化与连线清晰，无重叠截断"
+    - "既有 14 项面板测试与全部主窗口流程测试在新画布接口下全部通过"
     - "专注模式回归：视图 centerOn(-1200,-900) 后进入/退出专注，视口中心场景坐标偏差均小于 5 像素"
     - "recycle-bin.png：回收站同时显示“文件 · 销售报表.xlsx · 2 个版本”与“版本 · 销售报表.xlsx / 多列排序”条目，恢复按钮随选中启用、永久删除仅文件条目启用，无重叠或截断"
     - "版本条目恢复测试：软删除子版本进入回收站，恢复后版本树节点 deleted 属性为 False 且列表清空"

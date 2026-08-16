@@ -42,6 +42,22 @@ def _send_wheel(
     QApplication.sendEvent(view.viewport(), event)
 
 
+def _set_tree(
+    panel: object,
+    display_name: str,
+    versions: tuple[VersionRecord, ...],
+    head_version_id: str | None = None,
+    layouts: dict[str, VersionLayout] | None = None,
+) -> None:
+    from hyacinth.ui import FileVersionTree
+
+    head = head_version_id or (versions[-1].version_id if versions else None)
+    panel.set_workbooks(  # type: ignore[attr-defined]
+        (FileVersionTree("file-1", display_name, versions, head, layouts or {}),),
+        current_file_id="file-1",
+    )
+
+
 def test_version_tree_renders_real_root_node_and_head(qtbot: QtBot, tmp_path: Path) -> None:
     from hyacinth.ui import VersionTreePanel
 
@@ -61,7 +77,7 @@ def test_version_tree_renders_real_root_node_and_head(qtbot: QtBot, tmp_path: Pa
     panel.resize(340, 500)
     panel.show()
 
-    panel.set_workbook("销售报表.xlsx", version)
+    _set_tree(panel, "销售报表.xlsx", (version,))
 
     view = panel.findChild(QGraphicsView, "version-tree-view")
     assert view is not None
@@ -113,7 +129,7 @@ def test_version_tree_renders_child_to_right_with_edge_and_head(
     panel.resize(340, 500)
     panel.show()
 
-    panel.set_workbook("销售报表.xlsx", (root, child), child.version_id)
+    _set_tree(panel, "销售报表.xlsx", (root, child), child.version_id)
     qtbot.wait(20)
 
     view = panel.findChild(QGraphicsView, "version-tree-view")
@@ -158,13 +174,13 @@ def test_version_tree_keeps_replaced_scene_alive_until_panel_closes(
     )
     panel = VersionTreePanel()
     qtbot.addWidget(panel)
-    panel.set_workbook("销售报表.xlsx", version, version.version_id)
+    _set_tree(panel, "销售报表.xlsx", (version,), version.version_id)
     view = panel.findChild(QGraphicsView, "version-tree-view")
     assert view is not None
     replaced_scene = view.scene()
 
     for _ in range(10):
-        panel.set_workbook("销售报表.xlsx", version, version.version_id)
+        _set_tree(panel, "销售报表.xlsx", (version,), version.version_id)
     qtbot.wait(20)
 
     assert isValid(replaced_scene)
@@ -199,7 +215,7 @@ def test_version_tree_selects_history_and_requests_continue(qtbot: QtBot, tmp_pa
     qtbot.addWidget(panel)
     panel.resize(340, 500)
     panel.show()
-    panel.set_workbook("销售报表.xlsx", (root, child), child.version_id)
+    _set_tree(panel, "销售报表.xlsx", (root, child), child.version_id)
     view = panel.findChild(QGraphicsView, "version-tree-view")
     assert view is not None
     cards = {
@@ -214,17 +230,17 @@ def test_version_tree_selects_history_and_requests_continue(qtbot: QtBot, tmp_pa
     with qtbot.waitSignal(panel.version_preview_requested) as preview_signal:
         qtbot.mouseClick(cards["version-1"], Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
 
-    assert preview_signal.args == ["version-1"]
+    assert preview_signal.args == ["file-1", "version-1"]
     assert cards["version-1"].property("selected") is True
     assert cards["version-2"].property("selected") is False
     assert continue_button.isEnabled()
     with qtbot.waitSignal(panel.version_continue_requested) as continue_signal:
         qtbot.mouseClick(continue_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
-    assert continue_signal.args == ["version-1"]
+    assert continue_signal.args == ["file-1", "version-1"]
 
     with qtbot.waitSignal(panel.version_continue_requested) as double_click_signal:
         qtbot.mouseDClick(cards["version-1"], Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
-    assert double_click_signal.args == ["version-1"]
+    assert double_click_signal.args == ["file-1", "version-1"]
 
 
 def test_version_tree_drag_moves_connected_edge_and_emits_persisted_position(
@@ -259,7 +275,8 @@ def test_version_tree_drag_moves_connected_edge_and_emits_persisted_position(
     qtbot.addWidget(panel)
     panel.resize(700, 500)
     panel.show()
-    panel.set_workbook(
+    _set_tree(
+        panel,
         "销售报表.xlsx",
         (root, child),
         child.version_id,
@@ -292,9 +309,10 @@ def test_version_tree_drag_moves_connected_edge_and_emits_persisted_position(
             pos=center + QPoint(50, 35),
         )  # type: ignore[no-untyped-call]
 
-    assert moved_signal.args[0] == root.version_id
-    assert moved_signal.args[1] > 80.0
-    assert moved_signal.args[2] > 60.0
+    assert moved_signal.args[0] == "file-1"
+    assert moved_signal.args[1] == root.version_id
+    assert moved_signal.args[2] > 80.0
+    assert moved_signal.args[3] > 60.0
     assert edges[0].line() != old_line
 
 
@@ -330,7 +348,7 @@ def test_version_tree_wheel_gestures_follow_original_document(
     qtbot.addWidget(panel)
     panel.resize(320, 420)
     panel.show()
-    panel.set_workbook("销售报表.xlsx", (root, child), child.version_id)
+    _set_tree(panel, "销售报表.xlsx", (root, child), child.version_id)
     view = panel.findChild(QGraphicsView, "version-tree-view")
     assert view is not None
     qtbot.waitUntil(lambda: view.horizontalScrollBar().maximum() > 0)
@@ -370,12 +388,12 @@ def test_version_nodes_are_clamped_inside_large_canvas(qtbot: QtBot, tmp_path: P
     )
     panel = VersionTreePanel()
     qtbot.addWidget(panel)
-    panel.set_workbook("销售报表.xlsx", root, root.version_id)
+    _set_tree(panel, "销售报表.xlsx", (root,), root.version_id)
     view = panel.findChild(QGraphicsView, "version-tree-view")
     assert view is not None
     proxy = next(item for item in view.scene().items() if isinstance(item, QGraphicsProxyWidget))
 
-    panel._move_version(root.version_id, -100000.0, 100000.0)
+    panel._move_version("file-1", root.version_id, -100000.0, 100000.0)
 
     assert proxy.pos().x() == view.sceneRect().left()
     assert proxy.pos().y() == view.sceneRect().bottom() - proxy.size().height()
@@ -412,7 +430,7 @@ def test_deleted_version_is_placeholder_and_can_be_restored_but_not_previewed(
     )
     panel = VersionTreePanel()
     qtbot.addWidget(panel)
-    panel.set_workbook("销售报表.xlsx", (root, child), child.version_id)
+    _set_tree(panel, "销售报表.xlsx", (root, child), child.version_id)
     view = panel.findChild(QGraphicsView, "version-tree-view")
     assert view is not None
     cards = {
@@ -427,12 +445,12 @@ def test_deleted_version_is_placeholder_and_can_be_restored_but_not_previewed(
     with qtbot.assertNotEmitted(panel.version_preview_requested):
         qtbot.mouseClick(deleted_card, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
 
-    panel.show_delete_undo(root.version_id)
+    panel.show_delete_undo("file-1", root.version_id)
     undo = panel.findChild(QPushButton, "version-undo-delete-button")
     assert undo is not None and undo.isVisibleTo(panel)
     with qtbot.waitSignal(panel.version_restore_requested) as restore_signal:
         qtbot.mouseClick(undo, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
-    assert restore_signal.args == [root.version_id]
+    assert restore_signal.args == ["file-1", root.version_id]
 
 
 def test_version_card_delete_key_requests_soft_delete(qtbot: QtBot, tmp_path: Path) -> None:
@@ -451,7 +469,7 @@ def test_version_card_delete_key_requests_soft_delete(qtbot: QtBot, tmp_path: Pa
     )
     panel = VersionTreePanel()
     qtbot.addWidget(panel)
-    panel.set_workbook("销售报表.xlsx", root, root.version_id)
+    _set_tree(panel, "销售报表.xlsx", (root,), root.version_id)
     panel.show()
     view = panel.findChild(QGraphicsView, "version-tree-view")
     assert view is not None
@@ -466,7 +484,7 @@ def test_version_card_delete_key_requests_soft_delete(qtbot: QtBot, tmp_path: Pa
             card,
             QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier),
         )
-    assert delete_signal.args == [root.version_id]
+    assert delete_signal.args == ["file-1", root.version_id]
 
 
 def test_version_tree_requests_download_and_save_as_for_active_node(
@@ -488,15 +506,15 @@ def test_version_tree_requests_download_and_save_as_for_active_node(
     )
     panel = VersionTreePanel()
     qtbot.addWidget(panel)
-    panel.set_workbook("销售报表.xlsx", root, root.version_id)
+    _set_tree(panel, "销售报表.xlsx", (root,), root.version_id)
 
     with qtbot.waitSignal(panel.version_export_requested) as download:
-        panel._request_export(root.version_id, False)
+        panel._request_export("file-1", root.version_id, False)
     with qtbot.waitSignal(panel.version_export_requested) as save_as:
-        panel._request_export(root.version_id, True)
+        panel._request_export("file-1", root.version_id, True)
 
-    assert download.args == [root.version_id, False]
-    assert save_as.args == [root.version_id, True]
+    assert download.args == ["file-1", root.version_id, False]
+    assert save_as.args == ["file-1", root.version_id, True]
 
 
 def test_function_panel_emits_accessible_sort_parameters(qtbot: QtBot) -> None:

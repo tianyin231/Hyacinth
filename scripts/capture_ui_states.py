@@ -349,7 +349,7 @@ def capture_ui_states(
         tree_panel = branch_window.findChild(VersionTreePanel, "version-tree-panel")
         if tree_panel is None:
             raise RuntimeError("找不到版本演化树面板")
-        tree_panel.version_delete_requested.emit("root-version")
+        tree_panel.version_delete_requested.emit("visual-file", "root-version")
         delete_request = branch_queue.submitted[-1]
         deleted_workbook = run_delete_version_task(delete_request, CaptureTaskContext())
         branch_queue.events.append(

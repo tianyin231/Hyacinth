@@ -68,6 +68,7 @@ from hyacinth.ui import (
     APP_STYLESHEET,
     ApplicationHeader,
     CommandBar,
+    FileVersionTree,
     FunctionPanel,
     RecycleBinDialog,
     RecycleEntry,
@@ -181,6 +182,7 @@ class HyacinthMainWindow(QMainWindow):
         self._checkout_task_id: str | None = None
         self._delete_task_id: str | None = None
         self._delete_version_id: str | None = None
+        self._delete_file_id: str | None = None
         self._previewed_version_id: str | None = None
         self._close_after_manual_save = False
         self._export_task_id: str | None = None
@@ -381,7 +383,9 @@ class HyacinthMainWindow(QMainWindow):
         )
         self.setWindowTitle(f"风信子 — {workbook.display_name}")
         self._application_header.set_document_name(workbook.display_name)
-        self._show_versions(workbook)
+        self._refresh_version_canvas(
+            focus_file_id=workbook.file_id, focus_version_id=self._previewed_version_id
+        )
         self._function_panel.clear_workbook()
         self._editor.set_temporary_result(False)
         self._load_preview(workbook.working_path, workbook.display_name, temporary=False)
@@ -676,7 +680,7 @@ class HyacinthMainWindow(QMainWindow):
             workbook.head_version.version_id if workbook.head_version is not None else None
         )
         self._file_library.replace_workbook(workbook)
-        self._show_versions(workbook)
+        self._refresh_version_canvas()
         self._load_preview(workbook.working_path, workbook.display_name, temporary=False)
 
     def _workbook_preview_undo(self) -> None:
@@ -749,7 +753,7 @@ class HyacinthMainWindow(QMainWindow):
             head = event.result.head_version
             self._previewed_version_id = head.version_id if head is not None else None
             self._file_library.replace_workbook(event.result)
-            self._show_versions(event.result)
+            self._refresh_version_canvas()
             self._load_preview(
                 event.result.working_path,
                 event.result.display_name,
@@ -769,11 +773,33 @@ class HyacinthMainWindow(QMainWindow):
                 or ("保存已取消" if event.state is TaskState.CANCELLED else "保存失败"),
             )
 
-    def _preview_version(self, version_id: str) -> None:
+    def _preview_version(self, file_id: str, version_id: str) -> None:
         workbook = self._current_workbook
-        if workbook is None or self._checkout_task_id is not None:
+        if self._checkout_task_id is not None:
             return
-        if version_id != self._previewed_version_id and not self._resolve_unsaved_changes(
+        if workbook is None or workbook.file_id != file_id:
+            try:
+                target = MetadataStore(self._library_root).get_workbook(file_id)
+            except ValueError as error:
+                self._error_presenter(self, str(error))
+                return
+            if not self._resolve_unsaved_changes("切换文件"):
+                return
+            if self._processing_result is not None:
+                self._cancel_processing_workflow(reload_base=False)
+            if self._preview_task_id is not None:
+                self._task_queue.cancel(self._preview_task_id)
+                self._preview_task_id = None
+            self._current_workbook = target
+            self._previewed_version_id = None
+            self._file_library.select_workbook(file_id)
+            self.setWindowTitle(f"风信子 — {target.display_name}")
+            self._application_header.set_document_name(target.display_name)
+            self._function_panel.clear_workbook()
+            self._editor.set_temporary_result(False)
+            self._refresh_version_canvas()
+            workbook = target
+        elif version_id != self._previewed_version_id and not self._resolve_unsaved_changes(
             "切换版本"
         ):
             return
@@ -796,7 +822,25 @@ class HyacinthMainWindow(QMainWindow):
         self._refresh_storage_stats()
         self._load_preview(version.snapshot_path, workbook.display_name, temporary=False)
 
-    def _continue_from_version(self, version_id: str) -> None:
+    def _continue_from_version(self, file_id: str, version_id: str) -> None:
+        if self._current_workbook is None or self._current_workbook.file_id != file_id:
+            try:
+                target = MetadataStore(self._library_root).get_workbook(file_id)
+            except ValueError as error:
+                self._error_presenter(self, str(error))
+                return
+            if not self._resolve_unsaved_changes("切换文件"):
+                return
+            if self._preview_task_id is not None:
+                self._task_queue.cancel(self._preview_task_id)
+                self._preview_task_id = None
+            self._current_workbook = target
+            self._previewed_version_id = None
+            self._file_library.select_workbook(file_id)
+            self.setWindowTitle(f"风信子 — {target.display_name}")
+            self._application_header.set_document_name(target.display_name)
+            self._function_panel.clear_workbook()
+            self._editor.set_temporary_result(False)
         workbook = self._current_workbook
         head = workbook.head_version if workbook is not None else None
         if workbook is None or head is None or version_id == head.version_id:
@@ -833,7 +877,7 @@ class HyacinthMainWindow(QMainWindow):
             head = event.result.head_version
             self._previewed_version_id = head.version_id if head is not None else None
             self._file_library.replace_workbook(event.result)
-            self._show_versions(event.result)
+            self._refresh_version_canvas()
             self._function_panel.setEnabled(True)
             self._set_processing_navigation_enabled(True)
             self._load_preview(
@@ -851,8 +895,14 @@ class HyacinthMainWindow(QMainWindow):
             self._set_processing_navigation_enabled(True)
             self._restore_current_head_preview()
 
-    def _request_delete_version(self, version_id: str) -> None:
+    def _request_delete_version(self, file_id: str, version_id: str) -> None:
         workbook = self._current_workbook
+        if workbook is not None and workbook.file_id != file_id:
+            try:
+                workbook = MetadataStore(self._library_root).get_workbook(file_id)
+            except ValueError as error:
+                self._error_presenter(self, str(error))
+                return
         head = workbook.head_version if workbook is not None else None
         if workbook is None or head is None or self._delete_task_id is not None:
             return
@@ -865,7 +915,7 @@ class HyacinthMainWindow(QMainWindow):
             return
         store = MetadataStore(self._library_root)
         try:
-            plan = store.plan_version_deletion(workbook.file_id, version_id)
+            plan = store.plan_version_deletion(file_id, version_id)
         except ValueError as error:
             self._error_presenter(self, str(error))
             return
@@ -907,12 +957,13 @@ class HyacinthMainWindow(QMainWindow):
         task_id = uuid4().hex
         self._delete_task_id = task_id
         self._delete_version_id = version_id
+        self._delete_file_id = file_id
         self._set_processing_navigation_enabled(False)
         self._task_queue.submit(
             TaskRequest(
                 task_id=task_id,
                 name=f"删除版本 {plan.target.name}",
-                file_id=workbook.file_id,
+                file_id=file_id,
                 engine=None,
                 operation=DELETE_VERSION_OPERATION,
                 payload={
@@ -929,48 +980,62 @@ class HyacinthMainWindow(QMainWindow):
     def _apply_delete_event(self, event: TaskEvent) -> None:
         if event.task_id != self._delete_task_id:
             return
+        deleted_file_id = self._delete_file_id
         deleted_version_id = self._delete_version_id
         if event.state is TaskState.SUCCEEDED and isinstance(event.result, ImportedWorkbook):
             self._delete_task_id = None
             self._delete_version_id = None
-            self._current_workbook = event.result
-            head = event.result.head_version
-            self._previewed_version_id = head.version_id if head is not None else None
             self._file_library.replace_workbook(event.result)
-            self._show_versions(event.result)
-            if deleted_version_id is not None:
-                self._version_tree.show_delete_undo(deleted_version_id)
-            self._set_processing_navigation_enabled(True)
-            self._load_preview(
-                event.result.working_path,
-                event.result.display_name,
-                temporary=False,
+            is_current = (
+                self._current_workbook is not None
+                and self._current_workbook.file_id == event.result.file_id
             )
+            if is_current:
+                self._current_workbook = event.result
+                head = event.result.head_version
+                self._previewed_version_id = head.version_id if head is not None else None
+            if is_current:
+                self._set_processing_navigation_enabled(True)
+                self._load_preview(
+                    event.result.working_path,
+                    event.result.display_name,
+                    temporary=False,
+                )
+            self._refresh_version_canvas(
+                focus_file_id=deleted_file_id,
+                focus_version_id=event.result.head_version.version_id
+                if event.result.head_version is not None
+                else None,
+            )
+            if deleted_file_id is not None and deleted_version_id is not None:
+                self._version_tree.show_delete_undo(deleted_file_id, deleted_version_id)
         elif event.state is TaskState.FAILED:
             self._delete_task_id = None
             self._delete_version_id = None
+            self._delete_file_id = None
             self._set_processing_navigation_enabled(True)
             self._error_presenter(self, event.message or "版本删除失败")
             self._restore_current_head_preview()
         elif event.state is TaskState.CANCELLED:
             self._delete_task_id = None
             self._delete_version_id = None
+            self._delete_file_id = None
             self._set_processing_navigation_enabled(True)
             self._restore_current_head_preview()
 
-    def _restore_deleted_version(self, version_id: str) -> None:
-        workbook = self._current_workbook
-        if workbook is None or self._delete_task_id is not None:
+    def _restore_deleted_version(self, file_id: str, version_id: str) -> None:
+        if self._delete_task_id is not None:
             return
         try:
-            MetadataStore(self._library_root).restore_version(workbook.file_id, version_id)
-            refreshed = MetadataStore(self._library_root).get_workbook(workbook.file_id)
+            MetadataStore(self._library_root).restore_version(file_id, version_id)
+            refreshed = MetadataStore(self._library_root).get_workbook(file_id)
         except ValueError as error:
             self._error_presenter(self, str(error))
             return
-        self._current_workbook = refreshed
         self._file_library.replace_workbook(refreshed)
-        self._show_versions(refreshed)
+        if self._current_workbook is not None and self._current_workbook.file_id == file_id:
+            self._current_workbook = refreshed
+        self._refresh_version_canvas()
         self._version_tree.clear_delete_undo()
 
     def _restore_current_head_preview(self) -> None:
@@ -979,7 +1044,9 @@ class HyacinthMainWindow(QMainWindow):
         if workbook is None or head is None:
             return
         self._previewed_version_id = head.version_id
-        self._show_versions(workbook)
+        self._refresh_version_canvas(
+            focus_file_id=workbook.file_id, focus_version_id=head.version_id
+        )
         self._function_panel.setEnabled(True)
         self._load_preview(workbook.working_path, workbook.display_name, temporary=False)
 
@@ -1066,37 +1133,56 @@ class HyacinthMainWindow(QMainWindow):
         self._processing_result = None
         self._temporary_preview = None
 
-    def _show_versions(self, workbook: ImportedWorkbook) -> None:
+    def _refresh_version_canvas(
+        self,
+        *,
+        focus_file_id: str | None = None,
+        focus_version_id: str | None = None,
+    ) -> None:
         self._refresh_storage_stats()
-        head = workbook.head_version
-        if head is None:
-            self._command_bar.set_version_available(False)
-            self._version_tree.set_workbook(workbook.display_name, None)
-            return
-        self._command_bar.set_version_available(True)
         store = MetadataStore(self._library_root)
-        versions = store.list_versions(workbook.file_id)
-        layouts = store.list_version_layouts(workbook.file_id)
-        self._version_tree.set_workbook(
-            workbook.display_name,
-            versions,
-            head.version_id,
-            layouts,
+        workbooks = store.list_workbooks()
+        current_id = self._current_workbook.file_id if self._current_workbook is not None else None
+        ordered = sorted(workbooks, key=lambda w: w.file_id != current_id)
+        trees: list[FileVersionTree] = []
+        for workbook in ordered:
+            head = workbook.head_version
+            trees.append(
+                FileVersionTree(
+                    file_id=workbook.file_id,
+                    display_name=workbook.display_name,
+                    versions=store.list_versions(workbook.file_id),
+                    head_version_id=head.version_id if head is not None else None,
+                    layouts=store.list_version_layouts(workbook.file_id),
+                )
+            )
+        self._command_bar.set_version_available(self._previewed_version_id is not None)
+        self._version_tree.set_workbooks(
+            tuple(trees),
+            current_file_id=current_id,
+            focus_file_id=focus_file_id or current_id,
+            focus_version_id=focus_version_id,
         )
 
     def _export_current_version(self) -> None:
         workbook = self._current_workbook
         head = workbook.head_version if workbook is not None else None
         version_id = self._previewed_version_id or (head.version_id if head is not None else None)
-        if version_id is not None:
-            self._request_export_version(version_id, False)
+        if version_id is not None and self._current_workbook is not None:
+            self._request_export_version(self._current_workbook.file_id, version_id, False)
 
-    def _request_export_version(self, version_id: str, save_as: bool) -> None:
+    def _request_export_version(self, file_id: str, version_id: str, save_as: bool) -> None:
         workbook = self._current_workbook
-        if workbook is None or self._export_task_id is not None:
+        if workbook is None or workbook.file_id != file_id:
+            try:
+                workbook = MetadataStore(self._library_root).get_workbook(file_id)
+            except ValueError as error:
+                self._error_presenter(self, str(error))
+                return
+        if self._export_task_id is not None:
             return
         try:
-            version = MetadataStore(self._library_root).get_version(workbook.file_id, version_id)
+            version = MetadataStore(self._library_root).get_version(file_id, version_id)
         except ValueError as error:
             self._error_presenter(self, str(error))
             return
@@ -1193,7 +1279,7 @@ class HyacinthMainWindow(QMainWindow):
         self._command_bar.set_version_available(False)
         self._function_panel.clear_workbook()
         self._editor.set_temporary_result(False)
-        self._version_tree.set_workbook(None)
+        self._refresh_version_canvas()
         self._workbook_preview.clear_preview()
 
     def _open_recycle_bin(self) -> None:
@@ -1265,7 +1351,7 @@ class HyacinthMainWindow(QMainWindow):
             refreshed = MetadataStore(self._library_root).get_workbook(file_id)
             self._current_workbook = refreshed
             self._file_library.replace_workbook(refreshed)
-            self._show_versions(refreshed)
+            self._refresh_version_canvas()
         self._refresh_recycle_bin()
 
     def _request_purge_file(self, file_id: str) -> None:
@@ -1353,13 +1439,16 @@ class HyacinthMainWindow(QMainWindow):
         elif event.state in {TaskState.FAILED, TaskState.CANCELLED}:
             self._storage_stats_task_id = None
 
-    def _save_version_position(self, version_id: str, x: float, y: float) -> None:
-        workbook = self._current_workbook
-        if workbook is None:
-            return
+    def _save_version_position(
+        self,
+        file_id: str,
+        version_id: str,
+        x: float,
+        y: float,
+    ) -> None:
         try:
             MetadataStore(self._library_root).save_version_layout(
-                workbook.file_id,
+                file_id,
                 version_id,
                 x,
                 y,

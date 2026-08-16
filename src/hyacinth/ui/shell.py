@@ -14,7 +14,10 @@ from PySide6.QtCore import (
     Signal,
 )
 from PySide6.QtGui import (
+    QBrush,
+    QColor,
     QContextMenuEvent,
+    QFont,
     QKeyEvent,
     QKeySequence,
     QMouseEvent,
@@ -1282,14 +1285,30 @@ class DeletedRowsModel(QAbstractTableModel):
         return "原始行号" if section == 0 else None
 
 
+LANE_HEADER_HEIGHT = 40.0
+LANE_GAP = 56.0
+NODE_DX = 260.0
+NODE_DY = 126.0
+
+
+@dataclass(frozen=True, slots=True)
+class FileVersionTree:
+    file_id: str
+    display_name: str
+    versions: tuple[VersionRecord, ...]
+    head_version_id: str | None
+    layouts: dict[str, VersionLayout]
+
+
 class _VersionTreeView(QGraphicsView):
-    node_selected = Signal(str)
-    position_changing = Signal(str, float, float)
-    position_committed = Signal(str, float, float)
+    node_selected = Signal(str, str)
+    position_changing = Signal(str, str, float, float)
+    position_committed = Signal(str, str, float, float)
 
     def __init__(self, scene: QGraphicsScene, parent: QWidget | None = None) -> None:
         super().__init__(scene, parent)
         self._drag_proxy: QGraphicsProxyWidget | None = None
+        self._drag_file_id: str | None = None
         self._drag_version_id: str | None = None
         self._drag_origin_view: QPoint | None = None
         self._drag_origin_scene: QPointF | None = None
@@ -1305,18 +1324,21 @@ class _VersionTreeView(QGraphicsView):
                 card = item.widget()
                 if card is not None and not bool(card.property("deleted")):
                     version_id = str(card.property("version-id"))
+                    file_id = str(card.property("file-id"))
                     self._drag_proxy = item
+                    self._drag_file_id = file_id
                     self._drag_version_id = version_id
                     self._drag_origin_view = event.position().toPoint()
                     self._drag_origin_scene = item.pos()
                     self.setDragMode(QGraphicsView.DragMode.NoDrag)
                     card.setFocus()
-                    self.node_selected.emit(version_id)
+                    self.node_selected.emit(file_id, version_id)
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if (
             self._drag_proxy is not None
+            and self._drag_file_id is not None
             and self._drag_version_id is not None
             and self._drag_origin_view is not None
             and self._drag_origin_scene is not None
@@ -1330,6 +1352,7 @@ class _VersionTreeView(QGraphicsView):
                 )
                 position = self._drag_origin_scene + scene_delta
                 self.position_changing.emit(
+                    self._drag_file_id,
                     self._drag_version_id,
                     position.x(),
                     position.y(),
@@ -1343,10 +1366,16 @@ class _VersionTreeView(QGraphicsView):
             event.button() is Qt.MouseButton.LeftButton
             and self._dragged
             and self._drag_proxy is not None
+            and self._drag_file_id is not None
             and self._drag_version_id is not None
         ):
             position = self._drag_proxy.pos()
-            self.position_committed.emit(self._drag_version_id, position.x(), position.y())
+            self.position_committed.emit(
+                self._drag_file_id,
+                self._drag_version_id,
+                position.x(),
+                position.y(),
+            )
         super().mouseReleaseEvent(event)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self._reset_node_drag()
@@ -1371,6 +1400,7 @@ class _VersionTreeView(QGraphicsView):
 
     def _reset_node_drag(self) -> None:
         self._drag_proxy = None
+        self._drag_file_id = None
         self._drag_version_id = None
         self._drag_origin_view = None
         self._drag_origin_scene = None
@@ -1383,11 +1413,12 @@ class _VersionNodeCard(QFrame):
     delete_requested = Signal(str)
     context_menu_requested = Signal(str, QPoint)
 
-    def __init__(self, version_id: str, *, deleted: bool) -> None:
+    def __init__(self, version_id: str, *, deleted: bool, file_id: str = "") -> None:
         super().__init__()
         self._version_id = version_id
         self._deleted = deleted
         self.setProperty("version-id", version_id)
+        self.setProperty("file-id", file_id)
         self.setProperty("deleted", deleted)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -1427,12 +1458,12 @@ class _VersionNodeCard(QFrame):
 
 class VersionTreePanel(QFrame):
     focus_mode_requested = Signal(bool)
-    version_preview_requested = Signal(str)
-    version_continue_requested = Signal(str)
-    version_position_changed = Signal(str, float, float)
-    version_delete_requested = Signal(str)
-    version_restore_requested = Signal(str)
-    version_export_requested = Signal(str, bool)
+    version_preview_requested = Signal(str, str)
+    version_continue_requested = Signal(str, str)
+    version_position_changed = Signal(str, str, float, float)
+    version_delete_requested = Signal(str, str)
+    version_restore_requested = Signal(str, str)
+    version_export_requested = Signal(str, str, bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1476,10 +1507,10 @@ class VersionTreePanel(QFrame):
         empty_icon.setPixmap(fluent_icon("tree", color="#0f6cbd", size=22).pixmap(22, 22))
         empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         empty_icon.setFixedSize(44, 44)
-        self._empty_title = QLabel("选择文件查看版本演化树", empty)
+        self._empty_title = QLabel("导入文件查看版本演化树", empty)
         self._empty_title.setObjectName("tree-empty-title")
         self._empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_detail = QLabel("导入后将从根版本开始记录每次处理", empty)
+        self._empty_detail = QLabel("每个文件的版本树都会显示在同一画布", empty)
         self._empty_detail.setObjectName("tree-empty-detail")
         self._empty_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_detail.setWordWrap(True)
@@ -1511,7 +1542,7 @@ class VersionTreePanel(QFrame):
         self._focus_button.setProperty("class", "tool-button")
         self._focus_button.setCheckable(True)
         self._focus_button.setAccessibleName("进入版本图谱专注模式")
-        self._focus_button.setToolTip("隐藏其他区域，只查看版本演化树")
+        self._focus_button.setToolTip("隐藏其他区域，只查看全部文件的版本图谱")
         self._focus_button.clicked.connect(self._toggle_focus_mode)
         header_layout = header.layout()
         assert header_layout is not None
@@ -1523,189 +1554,289 @@ class VersionTreePanel(QFrame):
         layout.addWidget(header)
         layout.addWidget(search_row)
         layout.addWidget(self._content, 1)
-        self._cards: dict[str, _VersionNodeCard] = {}
-        self._head_version_id: str | None = None
-        self._selected_version_id: str | None = None
-        self._proxies: dict[str, QGraphicsProxyWidget] = {}
-        self._edge_relations: list[tuple[str, str, QGraphicsLineItem]] = []
-        self._records: dict[str, VersionRecord] = {}
-        self._recently_deleted_version_id: str | None = None
+        self._cards: dict[tuple[str, str], _VersionNodeCard] = {}
+        self._proxies: dict[tuple[str, str], QGraphicsProxyWidget] = {}
+        self._edge_relations: list[tuple[str, str, str, QGraphicsLineItem]] = []
+        self._records: dict[tuple[str, str], VersionRecord] = {}
+        self._tree_heads: dict[str, str | None] = {}
+        self._current_file_id: str | None = None
+        self._file_ids_by_version: dict[str, str] = {}
+        self._selected_key: tuple[str, str] | None = None
+        self._recently_deleted_key: tuple[str, str] | None = None
         # QGraphicsProxyWidget 的延迟销毁在 Qt 6.11/Windows 下存在原生崩溃窗口。
         # 版本树只在文件或节点变化时重建，因此保留旧场景到面板销毁更安全且开销可控。
         self._retired_scenes: list[QGraphicsScene] = []
 
-    def set_workbook(
+    def set_workbooks(
         self,
-        display_name: str | None,
-        versions: VersionRecord | tuple[VersionRecord, ...] | None = None,
-        head_version_id: str | None = None,
-        layouts: dict[str, VersionLayout] | None = None,
+        trees: tuple[FileVersionTree, ...],
+        *,
+        current_file_id: str | None = None,
+        focus_file_id: str | None = None,
+        focus_version_id: str | None = None,
     ) -> None:
-        if display_name is None:
-            self._empty_title.setText("选择文件查看版本演化树")
-            self._empty_detail.setText("根版本会在文件导入完成后显示")
+        self._current_file_id = current_file_id
+        self._tree_heads = {tree.file_id: tree.head_version_id for tree in trees}
+        self._records = {
+            (tree.file_id, version.version_id): version
+            for tree in trees
+            for version in tree.versions
+        }
+        self._file_ids_by_version = {
+            version.version_id: tree.file_id for tree in trees for version in tree.versions
+        }
+        if not trees:
+            self._empty_title.setText("导入文件查看版本演化树")
+            self._empty_detail.setText("每个文件的版本树都会显示在同一画布")
             self._content.setCurrentIndex(0)
             self._continue.setEnabled(False)
             self.clear_delete_undo()
-            return
-        if versions is None:
-            self._empty_title.setText("旧记录尚未建立根版本")
-            self._empty_detail.setText("文件仍可预览，后续可安全补建版本记录")
-            self._content.setCurrentIndex(0)
-            self._continue.setEnabled(False)
-            self.clear_delete_undo()
+            self._selected_key = None
             return
 
-        records = (versions,) if isinstance(versions, VersionRecord) else versions
-        head_id = head_version_id or records[-1].version_id
-        self._head_version_id = head_id
-        self._selected_version_id = head_id
-        self._records = {record.version_id: record for record in records}
-        self._render_versions(display_name, records, head_id, layouts or {})
+        focus_tree = next(
+            (tree for tree in trees if tree.file_id == (focus_file_id or current_file_id)),
+            trees[0],
+        )
+        if focus_tree.head_version_id is not None:
+            self._selected_key = (focus_tree.file_id, focus_tree.head_version_id)
+        self._render_workbooks(
+            trees,
+            current_file_id,
+            focus_key=(
+                (focus_file_id, focus_version_id)
+                if focus_file_id is not None and focus_version_id is not None
+                else None
+            ),
+        )
         self._content.setCurrentIndex(1)
         self._continue.setEnabled(False)
         self.clear_delete_undo()
 
-    def show_delete_undo(self, version_id: str) -> None:
-        self._recently_deleted_version_id = version_id
+    def show_delete_undo(self, file_id: str, version_id: str) -> None:
+        self._recently_deleted_key = (file_id, version_id)
         self._undo_delete.setVisible(True)
         self._undo_delete.setEnabled(True)
 
     def clear_delete_undo(self) -> None:
-        self._recently_deleted_version_id = None
+        self._recently_deleted_key = None
         self._undo_delete.setVisible(False)
 
-    def _render_versions(
+    def focus_anchor(self) -> QPointF:
+        return self._view.mapToScene(self._view.viewport().rect().center())
+
+    def restore_focus_anchor(self, anchor: QPointF) -> None:
+        self._view.centerOn(anchor)
+
+    def _render_workbooks(
         self,
-        display_name: str,
-        versions: tuple[VersionRecord, ...],
-        head_version_id: str,
-        layouts: dict[str, VersionLayout],
+        trees: tuple[FileVersionTree, ...],
+        current_file_id: str | None,
+        focus_key: tuple[str, str] | None,
     ) -> None:
         previous_scene = self._scene
         scene = QGraphicsScene(self)
         scene.setObjectName("version-tree-scene")
         scene.setSceneRect(VERSION_CANVAS_RECT)
-        positions: dict[str, tuple[float, float]] = {}
-        depths: dict[str, int] = {}
-        proxies: dict[str, QGraphicsProxyWidget] = {}
+        anchor = self._view.mapToScene(self._view.viewport().rect().center())
         self._cards = {}
+        self._proxies = {}
+        self._edge_relations = []
+        lane_top = 42.0
+        focus_proxy: QGraphicsProxyWidget | None = None
+        first_proxy: QGraphicsProxyWidget | None = None
+        for tree in trees:
+            local_positions, max_depth = self._layout_lane(tree)
+            lane_width = 28.0 + (max_depth + 1) * NODE_DX + 24.0
+            lane_rows = 1
+            for _, local_y in local_positions.values():
+                lane_rows = max(lane_rows, int(local_y // NODE_DY) + 1)
+            lane_height = LANE_HEADER_HEIGHT + lane_rows * NODE_DY + 10.0
+            is_current = tree.file_id == current_file_id
+            self._render_lane_header(scene, tree, lane_top, lane_width, lane_height, is_current)
+            for version in tree.versions:
+                layout = tree.layouts.get(version.version_id)
+                if layout is not None and layout.fixed:
+                    position = (layout.x, layout.y)
+                else:
+                    local_x, local_y = local_positions[version.version_id]
+                    position = (28.0 + local_x, lane_top + LANE_HEADER_HEIGHT + local_y)
+                bounded = self._bounded_position(*position)
+                key = (tree.file_id, version.version_id)
+                card = self._version_card(
+                    tree.display_name,
+                    version,
+                    file_id=tree.file_id,
+                    is_head=tree.head_version_id == version.version_id,
+                    is_current_file=is_current,
+                )
+                card.selected.connect(lambda vid, fid=tree.file_id: self._select_version(fid, vid))
+                card.continue_requested.connect(
+                    lambda vid, fid=tree.file_id: self._request_continue(fid, vid)
+                )
+                card.delete_requested.connect(
+                    lambda vid, fid=tree.file_id: self._request_delete(fid, vid)
+                )
+                card.context_menu_requested.connect(
+                    lambda vid, pos, fid=tree.file_id: self._show_context_menu(fid, vid, pos)
+                )
+                proxy = scene.addWidget(card)
+                assert isinstance(proxy, QGraphicsProxyWidget)
+                proxy.setPos(*bounded)
+                if not is_current:
+                    proxy.setOpacity(0.78)
+                self._proxies[key] = proxy
+                self._cards[key] = card
+                if first_proxy is None:
+                    first_proxy = proxy
+                if key == focus_key:
+                    focus_proxy = proxy
+            for version in tree.versions:
+                parent_id = version.parent_version_id
+                if parent_id is None:
+                    continue
+                parent_proxy = self._proxies.get((tree.file_id, parent_id))
+                child_proxy = self._proxies.get((tree.file_id, version.version_id))
+                if parent_proxy is None or child_proxy is None:
+                    continue
+                parent_rect = parent_proxy.sceneBoundingRect()
+                child_rect = child_proxy.sceneBoundingRect()
+                line = scene.addLine(
+                    parent_rect.right(),
+                    parent_rect.center().y(),
+                    child_rect.left(),
+                    child_rect.center().y(),
+                    QPen(Qt.GlobalColor.gray, 1.5),
+                )
+                line.setZValue(-1)
+                self._edge_relations.append((tree.file_id, parent_id, version.version_id, line))
+            lane_top += lane_height + LANE_GAP
+        self._view.setScene(scene)
+        self._scene = scene
+        if focus_proxy is not None:
+            self._view.centerOn(focus_proxy)
+        elif previous_scene.items() or first_proxy is None:
+            self._view.centerOn(anchor)
+        elif first_proxy is not None:
+            self._view.centerOn(first_proxy)
+        self._retired_scenes.append(previous_scene)
+
+    def _render_lane_header(
+        self,
+        scene: QGraphicsScene,
+        tree: FileVersionTree,
+        lane_top: float,
+        lane_width: float,
+        lane_height: float,
+        is_current: bool,
+    ) -> None:
+        background = scene.addRect(
+            QRectF(16.0, lane_top, lane_width, lane_height),
+            QPen(Qt.PenStyle.NoPen),
+            self._lane_background_brush(is_current),
+        )
+        background.setZValue(-3)
+        label = scene.addSimpleText(
+            tree.display_name,
+            QFont("Segoe UI", 10, QFont.Weight.Bold if is_current else QFont.Weight.Normal),
+        )
+        label.setBrush(QBrush(QColor("#0f6cbd" if is_current else "#68717e")))
+        label.setPos(28.0, lane_top + 9.0)
+        label.setZValue(-2)
+
+    @staticmethod
+    def _lane_background_brush(is_current: bool) -> QBrush:
+        color = QColor(234, 243, 251, 255) if is_current else QColor(243, 245, 248, 255)
+        return QBrush(color)
+
+    def _layout_lane(self, tree: FileVersionTree) -> tuple[dict[str, tuple[float, float]], int]:
+        depths: dict[str, int] = {}
+        version_ids = {version.version_id for version in tree.versions}
         occupied = [
             QRectF(layout.x, layout.y, VERSION_NODE_WIDTH, VERSION_NODE_HEIGHT)
-            for version_id, layout in layouts.items()
-            if layout.fixed and any(version.version_id == version_id for version in versions)
+            for version_id, layout in tree.layouts.items()
+            if layout.fixed and version_id in version_ids
         ]
-        for index, version in enumerate(versions):
+        positions: dict[str, tuple[float, float]] = {}
+        max_depth = 0
+        for index, version in enumerate(tree.versions):
             depth = (
                 0
                 if version.parent_version_id is None
                 else depths.get(version.parent_version_id, 0) + 1
             )
             depths[version.version_id] = depth
-            layout = layouts.get(version.version_id)
+            max_depth = max(max_depth, depth)
+            layout = tree.layouts.get(version.version_id)
             if layout is not None and layout.fixed:
-                position = (layout.x, layout.y)
-            else:
-                x = 28.0 + depth * 260.0
-                y = 42.0 + index * 126.0
-                candidate = QRectF(x, y, VERSION_NODE_WIDTH, VERSION_NODE_HEIGHT)
-                while any(candidate.adjusted(-8, -8, 8, 8).intersects(rect) for rect in occupied):
-                    y += 126.0
-                    candidate.moveTop(y)
-                position = (x, y)
-                occupied.append(candidate)
-            position = self._bounded_position(*position)
-            positions[version.version_id] = position
-            card = self._version_card(
-                display_name,
-                version,
-                is_head=version.version_id == head_version_id,
-            )
-            card.selected.connect(self._select_version)
-            card.continue_requested.connect(self._request_continue)
-            card.delete_requested.connect(self._request_delete)
-            card.context_menu_requested.connect(self._show_context_menu)
-            proxy = scene.addWidget(card)
-            assert isinstance(proxy, QGraphicsProxyWidget)
-            proxy.setPos(*position)
-            proxies[version.version_id] = proxy
-            self._cards[version.version_id] = card
-        self._proxies = proxies
-        self._edge_relations = []
-        pen = QPen(Qt.GlobalColor.gray, 1.5)
-        for version in versions:
-            parent_id = version.parent_version_id
-            if parent_id is None or parent_id not in positions:
                 continue
-            parent_proxy = proxies[parent_id]
-            child_proxy = proxies[version.version_id]
-            parent_rect = parent_proxy.sceneBoundingRect()
-            child_rect = child_proxy.sceneBoundingRect()
-            line = scene.addLine(
-                parent_rect.right(),
-                parent_rect.center().y(),
-                child_rect.left(),
-                child_rect.center().y(),
-                pen,
-            )
-            line.setZValue(-1)
-            self._edge_relations.append((parent_id, version.version_id, line))
-        self._view.setScene(scene)
-        self._scene = scene
-        if versions:
-            self._view.centerOn(proxies[versions[0].version_id])
-        self._retired_scenes.append(previous_scene)
+            x = depth * NODE_DX
+            y = index * NODE_DY
+            candidate = QRectF(x, y, VERSION_NODE_WIDTH, VERSION_NODE_HEIGHT)
+            while any(candidate.adjusted(-8, -8, 8, 8).intersects(rect) for rect in occupied):
+                y += NODE_DY
+                candidate.moveTop(y)
+            occupied.append(candidate)
+            positions[version.version_id] = (x, y)
+        return positions, max_depth
 
     def _version_card(
         self,
         display_name: str,
         version: VersionRecord,
         *,
+        file_id: str,
         is_head: bool,
+        is_current_file: bool,
     ) -> _VersionNodeCard:
         is_deleted = version.deleted_at is not None
-        card = _VersionNodeCard(version.version_id, deleted=is_deleted)
+        card = _VersionNodeCard(version.version_id, deleted=is_deleted, file_id=file_id)
         is_root = version.parent_version_id is None
         card.setObjectName("root-version-card" if is_root else "child-version-card")
         card.setAccessibleName(
             f"已删除版本 {version.name}" if is_deleted else f"版本 {version.name}"
         )
         card.setFixedSize(230, 108)
-        card.setProperty("selected", version.version_id == self._selected_version_id)
+        selected = self._selected_key is not None and self._selected_key == (
+            file_id,
+            version.version_id,
+        )
+        card.setProperty("selected", selected)
+        emphasis = "#0f6cbd" if is_current_file else "#8a94a3"
         card.setStyleSheet(
-            """
-            QFrame#root-version-card, QFrame#child-version-card {
+            f"""
+            QFrame#root-version-card, QFrame#child-version-card {{
                 background: #ffffff;
                 border: 1px solid #cfd5de;
-                border-left: 3px solid #0f6cbd;
+                border-left: 3px solid {emphasis};
                 border-radius: 7px;
-            }
+            }}
             QFrame#root-version-card[selected="true"],
             QFrame#child-version-card[selected="true"],
             QFrame#root-version-card:focus,
-            QFrame#child-version-card:focus {
+            QFrame#child-version-card:focus {{
                 border: 2px solid #0f6cbd;
                 border-left: 4px solid #0f6cbd;
-            }
+            }}
             QFrame#root-version-card[deleted="true"],
-            QFrame#child-version-card[deleted="true"] {
+            QFrame#child-version-card[deleted="true"] {{
                 background: #eef1f4;
                 border: 1px dashed #9aa2ad;
                 border-left: 3px solid #9aa2ad;
-            }
+            }}
             QFrame#root-version-card[deleted="true"] QLabel,
-            QFrame#child-version-card[deleted="true"] QLabel { color: #7b8491; }
-            QLabel { border: 0; background: transparent; }
-            QLabel#root-version-name { color: #343a45; font-weight: 600; }
-            QLabel#root-version-file { color: #343a45; font-size: 11px; }
-            QLabel#root-version-meta { color: #68717e; font-size: 10px; }
-            QLabel#root-version-head {
+            QFrame#child-version-card[deleted="true"] QLabel {{ color: #7b8491; }}
+            QLabel {{ border: 0; background: transparent; }}
+            QLabel#root-version-name {{ color: #343a45; font-weight: 600; }}
+            QLabel#root-version-file {{ color: #343a45; font-size: 11px; }}
+            QLabel#root-version-meta {{ color: #68717e; font-size: 10px; }}
+            QLabel#root-version-head {{
                 color: #0b5a9d;
                 background: #e5f2fb;
                 border-radius: 4px;
                 padding: 2px 6px;
                 font-size: 10px;
-            }
+            }}
             """
         )
         layout = QVBoxLayout(card)
@@ -1739,82 +1870,87 @@ class VersionTreePanel(QFrame):
             )
         return card
 
-    def _select_version(self, version_id: str) -> None:
-        record = self._records.get(version_id)
+    def _select_version(self, file_id: str, version_id: str) -> None:
+        key = (file_id, version_id)
+        record = self._records.get(key)
         if record is None or record.deleted_at is not None:
             return
-        selection_changed = version_id != self._selected_version_id
-        self._selected_version_id = version_id
-        for card_id, card in self._cards.items():
-            card.setProperty("selected", card_id == version_id)
+        selection_changed = key != self._selected_key
+        self._selected_key = key
+        for card_key, card in self._cards.items():
+            card.setProperty("selected", card_key == key)
             card.style().unpolish(card)
             card.style().polish(card)
-        self._continue.setEnabled(version_id != self._head_version_id)
+        self._continue.setEnabled(version_id != self._tree_heads.get(file_id))
         if selection_changed:
-            self.version_preview_requested.emit(version_id)
+            self.version_preview_requested.emit(file_id, version_id)
 
     def _continue_selected_version(self) -> None:
-        if self._selected_version_id is not None:
-            self._request_continue(self._selected_version_id)
+        if self._selected_key is not None:
+            self._request_continue(*self._selected_key)
 
-    def _request_continue(self, version_id: str) -> None:
-        record = self._records.get(version_id)
-        if record is not None and record.deleted_at is None and version_id != self._head_version_id:
-            self.version_continue_requested.emit(version_id)
+    def _request_continue(self, file_id: str, version_id: str) -> None:
+        record = self._records.get((file_id, version_id))
+        head_id = self._tree_heads.get(file_id)
+        if record is not None and record.deleted_at is None and version_id != head_id:
+            self.version_continue_requested.emit(file_id, version_id)
 
-    def _request_delete(self, version_id: str) -> None:
-        record = self._records.get(version_id)
+    def _request_delete(self, file_id: str, version_id: str) -> None:
+        record = self._records.get((file_id, version_id))
         if record is not None and record.deleted_at is None:
-            self.version_delete_requested.emit(version_id)
+            self.version_delete_requested.emit(file_id, version_id)
 
-    def _request_restore(self, version_id: str) -> None:
-        record = self._records.get(version_id)
+    def _request_restore(self, file_id: str, version_id: str) -> None:
+        record = self._records.get((file_id, version_id))
         if record is not None and record.deleted_at is not None:
-            self.version_restore_requested.emit(version_id)
+            self.version_restore_requested.emit(file_id, version_id)
 
-    def _request_export(self, version_id: str, save_as: bool) -> None:
-        record = self._records.get(version_id)
-        if record is not None and record.deleted_at is None:
-            self.version_export_requested.emit(version_id, save_as)
+    def _request_export(self, file_id: str, version_id: str, save_as: bool) -> None:
+        record = self._records.get((file_id, version_id))
+        if record is not None and record.deleted_at is not None:
+            return
+        self.version_export_requested.emit(file_id, version_id, save_as)
 
     def _restore_recently_deleted(self) -> None:
-        if self._recently_deleted_version_id is not None:
-            self.version_restore_requested.emit(self._recently_deleted_version_id)
+        if self._recently_deleted_key is not None:
+            self.version_restore_requested.emit(*self._recently_deleted_key)
 
-    def _show_context_menu(self, version_id: str, global_position: QPoint) -> None:
-        record = self._records.get(version_id)
+    def _show_context_menu(self, file_id: str, version_id: str, global_position: QPoint) -> None:
+        record = self._records.get((file_id, version_id))
         if record is None:
             return
         menu = QMenu(self)
         if record.deleted_at is not None:
             restore = menu.addAction("恢复版本")
-            restore.triggered.connect(lambda: self._request_restore(version_id))
+            restore.triggered.connect(lambda: self._request_restore(file_id, version_id))
         else:
             preview = menu.addAction("预览版本")
-            preview.triggered.connect(lambda: self._select_version(version_id))
+            preview.triggered.connect(lambda: self._select_version(file_id, version_id))
             download = menu.addAction("下载该节点")
-            download.triggered.connect(lambda: self._request_export(version_id, False))
+            download.triggered.connect(lambda: self._request_export(file_id, version_id, False))
             save_as = menu.addAction("另存为…")
-            save_as.triggered.connect(lambda: self._request_export(version_id, True))
-            if version_id != self._head_version_id:
+            save_as.triggered.connect(lambda: self._request_export(file_id, version_id, True))
+            if version_id != self._tree_heads.get(file_id):
                 continue_action = menu.addAction("从此继续")
-                continue_action.triggered.connect(lambda: self._request_continue(version_id))
+                continue_action.triggered.connect(
+                    lambda: self._request_continue(file_id, version_id)
+                )
             menu.addSeparator()
             delete_action = menu.addAction("删除版本")
-            delete_action.triggered.connect(lambda: self._request_delete(version_id))
+            delete_action.triggered.connect(lambda: self._request_delete(file_id, version_id))
         menu.exec(global_position)
 
-    def _move_version(self, version_id: str, x: float, y: float) -> None:
-        proxy = self._proxies.get(version_id)
+    def _move_version(self, file_id: str, version_id: str, x: float, y: float) -> None:
+        proxy = self._proxies.get((file_id, version_id))
         if proxy is None:
             return
         bounded_x, bounded_y = self._bounded_position(x, y)
         proxy.setPos(bounded_x, bounded_y)
-        for parent_id, child_id, line in self._edge_relations:
-            if version_id not in {parent_id, child_id}:
+        for lane_file_id, parent_id, child_id, line in self._edge_relations:
+            if version_id not in {parent_id, child_id} or lane_file_id != file_id:
                 continue
-            parent_rect = self._proxies[parent_id].sceneBoundingRect()
-            child_rect = self._proxies[child_id].sceneBoundingRect()
+            parent_rect = self._proxies[(file_id, parent_id)].sceneBoundingRect()
+            child_rect = self._proxies[(file_id, child_id)].sceneBoundingRect()
             line.setLine(
                 parent_rect.right(),
                 parent_rect.center().y(),
@@ -1822,14 +1958,14 @@ class VersionTreePanel(QFrame):
                 child_rect.center().y(),
             )
 
-    def _commit_version_position(self, version_id: str, x: float, y: float) -> None:
-        self.version_position_changed.emit(version_id, x, y)
-
-    def focus_anchor(self) -> QPointF:
-        return self._view.mapToScene(self._view.viewport().rect().center())
-
-    def restore_focus_anchor(self, anchor: QPointF) -> None:
-        self._view.centerOn(anchor)
+    def _commit_version_position(
+        self,
+        file_id: str,
+        version_id: str,
+        x: float,
+        y: float,
+    ) -> None:
+        self.version_position_changed.emit(file_id, version_id, x, y)
 
     def _toggle_focus_mode(self, enabled: bool) -> None:
         if enabled:
@@ -1839,7 +1975,7 @@ class VersionTreePanel(QFrame):
         else:
             self._focus_button.setText("专注")
             self._focus_button.setAccessibleName("进入版本图谱专注模式")
-            self._focus_button.setToolTip("隐藏其他区域，只查看版本演化树")
+            self._focus_button.setToolTip("隐藏其他区域，只查看全部文件的版本图谱")
         self.focus_mode_requested.emit(enabled)
 
     @staticmethod
