@@ -1,4 +1,10 @@
-from PySide6.QtCore import QAbstractItemModel, Qt, Signal
+from PySide6.QtCore import (
+    QAbstractItemModel,
+    QItemSelection,
+    QItemSelectionModel,
+    Qt,
+    Signal,
+)
 from PySide6.QtGui import (
     QCloseEvent,
     QColor,
@@ -43,10 +49,32 @@ class EmptyWorkbookCanvas(QFrame):
 
 
 class ReadOnlyWorkbookTableView(QTableView):
-    """只读预览表格，不执行 Qt 默认的百万行键盘搜索。"""
+    """只读预览表格，不执行 Qt 默认的百万行键盘搜索，全选只选数据区域。"""
 
     def keyboardSearch(self, search: str) -> None:
         return
+
+    def selectAll(self) -> None:
+        model = self.model()
+        data_rows = getattr(model, "data_row_count", None)
+        data_columns = getattr(model, "data_column_count", None)
+        if model is None or data_rows is None or data_columns is None:
+            super().selectAll()
+            return
+        selection_model = self.selectionModel()
+        if selection_model is None:
+            return
+        selection_model.clear()
+        top_left = model.index(0, 0)
+        bottom_right = model.index(
+            min(int(data_rows), model.rowCount()) - 1,
+            min(int(data_columns), model.columnCount()) - 1,
+        )
+        selection = QItemSelection(top_left, bottom_right)
+        selection_model.select(
+            selection,
+            QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Current,
+        )
 
 
 class WorkbookPreviewWidget(QFrame):
@@ -183,6 +211,9 @@ class WorkbookPreviewWidget(QFrame):
         blank_rows = menu.addAction("删除空白行…")
         trim = menu.addAction("清除首尾空格…")
         find_replace = menu.addAction("查找替换…")
+        menu.addSeparator()
+        add_rows = menu.addAction("向下添加 20 行")
+        add_columns = menu.addAction("向右添加 4 列")
         chosen = menu.exec(event.globalPos())
         actions = {
             deduplicate: "deduplicate",
@@ -192,6 +223,23 @@ class WorkbookPreviewWidget(QFrame):
         }
         if chosen in actions:
             self.processing_menu_requested.emit(actions[chosen], columns)
+        elif chosen is add_rows or chosen is add_columns:
+            model = self._table.model()
+            if model is not None and hasattr(model, "extend_grid"):
+                model.extend_grid(
+                    20 if chosen is add_rows else 0, 4 if chosen is add_columns else 0
+                )
+
+    def selected_columns(self) -> list[int]:
+        if self._table.model() is None:
+            return []
+        return sorted(
+            {
+                index.column()
+                for index in self._table.selectionModel().selectedIndexes()
+                if index.isValid()
+            }
+        )
 
     def set_loading(self, display_name: str) -> None:
         self._close_source()

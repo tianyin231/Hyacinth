@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-16T17:45:28+08:00"
+updated_at: "2026-08-16T18:04:23+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -35,9 +35,9 @@ delivery:
   next_milestone: "用户实机复验版本图谱全向平移、节点边界和专注模式"
 
 current_task:
-  id: "TABLE-ENTRY-PROCESSING-001"
+  id: "GRID-SAFETY-AND-RIBBON-001"
   status: "implementation-completed-awaiting-real-machine-validation"
-  goal: "按 DEC-20260816-035 实现处理功能入口下沉表格：列头菜单、右键菜单、选区预填、Ctrl+F/H，新增清除首尾空格与查找替换"
+  goal: "修复百万行逻辑网格全选卡死（改为数据区+余量、全选只选数据区、右键自主扩展）并将处理功能入口调整为表格上方功能区条"
   owner: "codex-sol"
 
 last_completed:
@@ -280,6 +280,8 @@ last_completed:
   - "完成 DEC-20260816-035 第一批：表格列头点击菜单（升/降序直接生成排序预览、按此列筛选预填列）与右键处理菜单（删除重复行/空白行/清除空格/查找替换，按选中列预填），Ctrl+F/Ctrl+H 打开查找替换，顶部工具栏保留"
   - "新增清除首尾空格完整闭环：文本单元格首尾空格/制表/换行/全角/不间断空格清理、可选压缩中间空格、关键列限定、明细对照、预览与应用版本化"
   - "新增查找与替换完整闭环：值与文本/公式两种模式、区分大小写/整格匹配/忽略首尾空格、当前工作表或全部工作表、只查找返回匹配明细不落盘、全部替换两阶段提交生成版本"
+  - "用户实机反馈全选卡死：废除 1048576x256 逻辑网格（DEC-20260816-036），改为数据区域+32 行 4 列编辑余量，全选只选数据区域，右键菜单可自主向下/向右扩展"
+  - "处理功能主入口按用户意图调整为表格上方功能区条（升序/降序/筛选/去重/空白行/清空格/查找替换，按选中列生效），列头与右键菜单保留为辅助入口"
   - "节点布局改为画布绝对坐标钉定（DEC-20260816-034）：固定与记忆位置永不再动，新节点树形定位并对全画布已定位节点避让；把 A 文件节点拖到 B 文件旁后任何重建都不再移动它，也不再自动调整 B 文件节点"
 
 next_actions:
@@ -380,6 +382,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260816-036"
+    date: "2026-08-16"
+    status: "approved-and-implemented"
+    summary: "废除百万行逻辑网格：表格为数据区域+32行4列编辑余量，全选只选数据区域，右键自主添加行列；处理功能主入口改为表格上方 Excel 风格功能区条"
+    source: "用户实机反馈全选卡死、功能入口应在表格表头处按标准 Excel 方式排布"
+    supersedes: "DEC-20260815-018 中 1048576x256 逻辑网格决策；第 48 节列头/右键为主入口的表述（降为辅助入口）"
+    impact: "需求讨论记录第 48 节、preview/data_source 余量网格、表格 selectAll 数据区限制、右键扩展行列、WorkbookEditorFrame 功能区条及测试"
   - id: "DEC-20260816-035"
     date: "2026-08-16"
     status: "approved-and-implemented"
@@ -497,7 +506,7 @@ changed_files:
 verification:
   status: "passed-awaiting-real-machine-validation"
   commands:
-    - "uv run pytest：242 passed（新增 trim/查找替换核心单测 11 项与表格入口端到端 2 项：右键入口预填→预览→应用生成 trim-whitespace/find-replace 子版本、只查找返回匹配清单）"
+    - "uv run pytest：244 passed（新增功能区条端到端：选中列点升序提交排序预览、查找替换按钮切换面板；网格安全测试：3x2 数据渲染 35x6 余量网格且 selectAll 只选 3x2）"
     - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check：全部通过"
     - "uv run python scripts/capture_ui_states.py --output output/playwright：8 张截图全部生成"
     - "本轮需求记录变更仅文档更新，无代码影响；完成度评估基于对 app.py、ui/shell.py、versioning/store.py、library/widget.py、preview/edit_session.py、tasks/status_widget.py 的逐文件阅读与 git log 核对"

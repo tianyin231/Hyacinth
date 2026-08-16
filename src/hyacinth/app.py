@@ -253,6 +253,8 @@ class HyacinthMainWindow(QMainWindow):
         self._workbook_preview.header_filter_requested.connect(self._filter_from_table_column)
         self._workbook_preview.processing_menu_requested.connect(self._open_processing_entry)
         self._editor = WorkbookEditorFrame(self._workbook_preview, workspace_root)
+        self._editor.sort_requested.connect(self._sort_from_editor_bar)
+        self._editor.processing_requested.connect(self._open_processing_entry)
 
         self._left_splitter = QSplitter(Qt.Orientation.Vertical, workspace_root)
         self._left_splitter.setObjectName("left-workspace-splitter")
@@ -537,6 +539,9 @@ class HyacinthMainWindow(QMainWindow):
             sheet_name=sheet_name,
             parameters=parameters,
         )
+
+    def _sort_from_editor_bar(self, column: int, direction: str) -> None:
+        self._quick_sort_from_table(column, direction)
 
     def _quick_sort_from_table(self, column: int, direction: str) -> None:
         if self._function_panel.isEnabled():

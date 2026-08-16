@@ -33,6 +33,18 @@ class WorkbookTableModel(QAbstractTableModel):
         self._source = source
         self._editable = editable
         self._edit_value_at = edit_value_at
+        self.data_row_count = getattr(source, "data_row_count", source.row_count)
+        self.data_column_count = getattr(source, "data_column_count", source.column_count)
+
+    def extend_grid(self, extra_rows: int, extra_columns: int) -> None:
+        extend = getattr(self._source, "extend", None)
+        if extend is not None:
+            extend(extra_rows, extra_columns)
+        self.data_row_count = getattr(self._source, "data_row_count", self._source.row_count)
+        self.data_column_count = getattr(
+            self._source, "data_column_count", self._source.column_count
+        )
+        self.layoutChanged.emit()
 
     def rowCount(
         self,

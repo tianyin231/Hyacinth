@@ -210,10 +210,11 @@ QPushButton#function-apply-button:disabled {
 }
 QGraphicsView#version-tree-view { background: #fbfcfe; border: 0; }
 QFrame#editor-frame { background: #ffffff; }
-QFrame#formula-bar, QFrame#format-bar {
+QFrame#formula-bar, QFrame#format-bar, QFrame#processing-bar {
     background: #fafbfc;
     border-bottom: 1px solid #dfe3e8;
 }
+QPushButton[class="tool-button"] { min-height: 26px; padding: 0 9px; }
 QLabel#formula-name, QLabel#formula-value, QLabel#font-family-control {
     color: #4d5663;
     background: #ffffff;
@@ -2429,10 +2430,39 @@ class VersionTreePanel(QFrame):
 
 
 class WorkbookEditorFrame(QFrame):
+    sort_requested = Signal(int, str)
+    processing_requested = Signal(str, list)
+
     def __init__(self, preview: QWidget, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("editor-frame")
         self.setMinimumWidth(480)
+        self._preview = preview
+
+        processing = QFrame(self)
+        processing.setObjectName("processing-bar")
+        processing.setFixedHeight(38)
+        processing_layout = QHBoxLayout(processing)
+        processing_layout.setContentsMargins(8, 3, 8, 3)
+        processing_layout.setSpacing(4)
+        for text, object_name, action in (
+            ("升序", "bar-sort-asc-button", "sort-asc"),
+            ("降序", "bar-sort-desc-button", "sort-desc"),
+            ("筛选", "bar-filter-button", "filter"),
+            ("删除重复行", "bar-deduplicate-button", "deduplicate"),
+            ("删除空白行", "bar-blank-rows-button", "delete_blank_rows"),
+            ("清除空格", "bar-trim-button", "trim"),
+            ("查找替换", "bar-find-replace-button", "find_replace"),
+        ):
+            button = QPushButton(text, processing)
+            button.setObjectName(object_name)
+            button.setProperty("class", "tool-button")
+            button.setMinimumHeight(26)
+            button.clicked.connect(
+                lambda _checked=False, act=action: self._bar_action_triggered(act)
+            )
+            processing_layout.addWidget(button)
+        processing_layout.addStretch()
 
         formula = QFrame(self)
         formula.setObjectName("formula-bar")
@@ -2479,10 +2509,25 @@ class WorkbookEditorFrame(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+        layout.addWidget(processing)
         layout.addWidget(formula)
         layout.addWidget(format_bar)
         layout.addWidget(self._temporary_banner)
         layout.addWidget(preview, 1)
+
+    def _bar_action_triggered(self, action: str) -> None:
+        columns = self._selected_columns()
+        if action in {"sort-asc", "sort-desc"}:
+            if not columns:
+                return
+            direction = "asc" if action == "sort-asc" else "desc"
+            self.sort_requested.emit(columns[0], direction)
+            return
+        self.processing_requested.emit(action, columns)
+
+    def _selected_columns(self) -> list[int]:
+        getter = getattr(self._preview, "selected_columns", None)
+        return getter() if getter is not None else []
 
     def set_temporary_result(self, visible: bool) -> None:
         self._temporary_banner.setVisible(visible)

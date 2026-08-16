@@ -5,8 +5,10 @@ from pathlib import Path
 from hyacinth.preview.edit_session import EditSession
 from hyacinth.preview.index_task import SheetPreview
 
-LOGICAL_PREVIEW_ROWS = 1_048_576
-LOGICAL_PREVIEW_COLUMNS = 256
+# 网格只显示数据区域加少量编辑余量；需要更多行列时用户可通过
+# 右键菜单自主扩展，避免百万行逻辑网格在全选等操作中卡死界面。
+EDIT_MARGIN_ROWS = 32
+EDIT_MARGIN_COLUMNS = 4
 
 
 class SqliteGridDataSource:
@@ -17,8 +19,10 @@ class SqliteGridDataSource:
         *,
         row_cache_size: int = 128,
     ) -> None:
-        self.row_count = max(sheet.row_count, LOGICAL_PREVIEW_ROWS)
-        self.column_count = max(sheet.column_count, LOGICAL_PREVIEW_COLUMNS)
+        self.data_row_count = sheet.row_count
+        self.data_column_count = sheet.column_count
+        self.row_count = sheet.row_count + EDIT_MARGIN_ROWS
+        self.column_count = sheet.column_count + EDIT_MARGIN_COLUMNS
         self._sheet_index = sheet.index
         self._physical_row_count = sheet.row_count
         self._visible_row_count = sheet.visible_row_count
@@ -96,6 +100,10 @@ class SqliteGridDataSource:
     def set_value(self, row: int, column: int, value: object) -> None:
         raise RuntimeError("工作簿预览为只读")
 
+    def extend(self, extra_rows: int, extra_columns: int) -> None:
+        self.row_count += max(0, extra_rows)
+        self.column_count += max(0, extra_columns)
+
     def close(self) -> None:
         self._connection.close()
         self._rows.clear()
@@ -110,6 +118,8 @@ class EditableGridDataSource:
     ) -> None:
         self.row_count = source.row_count
         self.column_count = source.column_count
+        self.data_row_count = source.data_row_count
+        self.data_column_count = source.data_column_count
         self._source = source
         self._session = session
         self._sheet_name = sheet_name
@@ -131,6 +141,11 @@ class EditableGridDataSource:
             column,
             self._source.edit_value_at(row, column),
         )
+
+    def extend(self, extra_rows: int, extra_columns: int) -> None:
+        self._source.extend(extra_rows, extra_columns)
+        self.row_count = self._source.row_count
+        self.column_count = self._source.column_count
 
     def set_value(self, row: int, column: int, value: object) -> None:
         source_row = self._source.source_row_index(row)

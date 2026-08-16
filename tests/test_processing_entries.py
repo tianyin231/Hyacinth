@@ -19,6 +19,7 @@ from hyacinth.processing import (
     APPLY_FIND_REPLACE_PREVIEW_OPERATION,
     APPLY_TRIM_PREVIEW_OPERATION,
     FIND_REPLACE_PREVIEW_OPERATION,
+    SORT_PREVIEW_OPERATION,
     TRIM_PREVIEW_OPERATION,
     run_apply_find_replace_preview_task,
     run_apply_trim_preview_task,
@@ -386,3 +387,58 @@ def test_find_replace_only_and_apply_flow(qtbot: QtBot, tmp_path: Path) -> None:
         lambda: _head_operation() == "find-replace",
         timeout=2000,
     )
+
+
+def test_editor_bar_sort_and_entry(qtbot: QtBot, tmp_path: Path) -> None:
+    library_root, task_queue, window, _panel = _ready_window(
+        qtbot,
+        tmp_path,
+        [["名称", "数量"], ["b", 2], ["a", 1]],
+    )
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QPushButton, QTableView
+
+    table = window.findChild(QTableView, "preview-table")
+    assert table is not None
+    table.selectColumn(0)
+
+    asc = window.findChild(QPushButton, "bar-sort-asc-button")
+    assert asc is not None
+    qtbot.mouseClick(asc, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    sort_request = task_queue.submitted[-1]
+    assert sort_request.operation == SORT_PREVIEW_OPERATION
+    sort_keys = sort_request.payload["sort_keys"]
+    assert isinstance(sort_keys, list) and isinstance(sort_keys[0], dict)
+    assert sort_keys[0]["column_index"] == 0
+    assert sort_keys[0]["direction"] == "asc"
+
+    find_button = window.findChild(QPushButton, "bar-find-replace-button")
+    assert find_button is not None
+    qtbot.mouseClick(find_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    from PySide6.QtWidgets import QComboBox
+
+    assert _child(window, QComboBox, "processing-operation").currentData() == "find_replace"
+
+
+def test_grid_shows_data_margin_and_select_all_is_safe(qtbot: QtBot, tmp_path: Path) -> None:
+    library_root, task_queue, window, _panel = _ready_window(
+        qtbot,
+        tmp_path,
+        [["名称", "数量"], ["苹果", 3], ["香蕉", 2]],
+    )
+    from PySide6.QtWidgets import QTableView
+
+    table = window.findChild(QTableView, "preview-table")
+    assert table is not None
+    model = table.model()
+    assert model is not None
+    # 数据 3 行 2 列 + 编辑余量 32 行 4 列，不再生成百万行逻辑网格
+    assert model.rowCount() == 3 + 32
+    assert model.columnCount() == 2 + 4
+
+    table.selectAll()
+    selected = table.selectionModel().selectedIndexes()
+    # 全选只选数据区域，不会选中余量，更不会触碰百万行
+    assert len(selected) == 3 * 2

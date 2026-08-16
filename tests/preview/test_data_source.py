@@ -26,8 +26,9 @@ def test_sqlite_grid_source_random_access_uses_sparse_rows(tmp_path: Path) -> No
     source = SqliteGridDataSource(index_path, sheet)
 
     try:
-        assert source.row_count == 1_048_576
-        assert source.column_count == 256
+        assert source.data_row_count == 1_048_576
+        assert source.row_count == 1_048_576 + 32
+        assert source.column_count == 256 + 4
         assert source.value_at(0, 0) == "首行"
         assert source.value_at(500_000, 20) == ""
         assert source.value_at(1_048_575, 255) == "末端"
@@ -35,7 +36,7 @@ def test_sqlite_grid_source_random_access_uses_sparse_rows(tmp_path: Path) -> No
         source.close()
 
 
-def test_small_sheet_keeps_excel_like_blank_grid_without_materializing_cells(
+def test_small_sheet_shows_data_area_plus_edit_margin(
     tmp_path: Path,
 ) -> None:
     from hyacinth.preview import SheetPreview, SqliteGridDataSource
@@ -59,8 +60,10 @@ def test_small_sheet_keeps_excel_like_blank_grid_without_materializing_cells(
     source = SqliteGridDataSource(index_path, SheetPreview(0, "小表", 2, 3))
 
     try:
-        assert source.row_count == 1_048_576
-        assert source.column_count == 256
+        assert source.data_row_count == 2
+        assert source.data_column_count == 3
+        assert source.row_count == 2 + 32
+        assert source.column_count == 3 + 4
         assert source.value_at(0, 0) == "表头"
         assert source.value_at(100, 20) == ""
     finally:
