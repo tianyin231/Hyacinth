@@ -173,3 +173,67 @@ def test_real_task_queue_purges_file(tmp_path: Path) -> None:
     final = [event for event in events if event.task_id == request.task_id][-1]
     assert final.state is TaskState.SUCCEEDED
     assert not (root / "files/file-1").exists()
+
+
+def _seed_child_version(root: Path, record: ImportedWorkbook) -> VersionRecord:
+    store = MetadataStore(root)
+    root_version = record.head_version
+    assert root_version is not None
+    child_snapshot = root / "files/file-1/versions/version-2/snapshot.xlsx"
+    child_snapshot.parent.mkdir(parents=True, exist_ok=True)
+    child_snapshot.write_bytes(b"child-content-for-purge-check")
+    child = VersionRecord(
+        "version-2",
+        "file-1",
+        root_version.version_id,
+        "多列排序",
+        datetime(2026, 8, 16, 9, 0, tzinfo=UTC),
+        "sort",
+        None,
+        child_snapshot,
+        sha256(child_snapshot.read_bytes()).hexdigest(),
+    )
+    store.record_child_version(child, root_version.version_id)
+    return child
+
+
+def test_plan_version_purge_rejects_active_or_parent_versions(tmp_path: Path) -> None:
+    root = tmp_path / "library"
+    record = _seed_library(root)
+    child = _seed_child_version(root, record)
+    store = MetadataStore(root)
+    assert record.head_version is not None
+
+    with pytest.raises(ValueError, match="回收状态"):
+        store.plan_version_purge("file-1", child.version_id)
+
+    store.soft_delete_version("file-1", record.head_version.version_id, child.version_id)
+
+    with pytest.raises(ValueError, match="子版本"):
+        store.plan_version_purge("file-1", record.head_version.version_id)
+
+
+def test_purge_version_task_removes_snapshot_and_records(tmp_path: Path) -> None:
+    root = tmp_path / "library"
+    record = _seed_library(root)
+    child = _seed_child_version(root, record)
+    store = MetadataStore(root)
+    assert record.head_version is not None
+    store.soft_delete_version("file-1", child.version_id, child.version_id)
+
+    from hyacinth.versioning import PURGE_VERSION_OPERATION, run_purge_version_task
+
+    request = TaskRequest(
+        task_id="task-purge-version",
+        name="永久删除版本",
+        file_id="file-1",
+        engine=None,
+        operation=PURGE_VERSION_OPERATION,
+        payload={"library_root": str(root), "version_id": child.version_id},
+    )
+    result = run_purge_version_task(request, PurgeContext())
+
+    assert result.version_id == child.version_id
+    assert not child.snapshot_path.parent.exists()
+    with pytest.raises(ValueError):
+        store.get_version("file-1", child.version_id)

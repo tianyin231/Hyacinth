@@ -57,5 +57,60 @@ def purge_file_task(request: TaskRequest, context: PurgeFileTaskContext) -> obje
     return run_purge_file_task(request, context)
 
 
+PURGE_VERSION_OPERATION = "purge-version"
+
+
+@dataclass(frozen=True, slots=True)
+class PurgedVersion:
+    file_id: str
+    version_id: str
+    version_name: str
+
+
+def run_purge_version_task(request: TaskRequest, context: PurgeFileTaskContext) -> PurgedVersion:
+    library_root_value = request.payload.get("library_root")
+    if not isinstance(library_root_value, str) or not library_root_value:
+        raise ValueError("任务参数缺少：library_root")
+
+    library_root = Path(library_root_value)
+    version_id_value = request.payload.get("version_id")
+    if not isinstance(version_id_value, str) or not version_id_value:
+        raise ValueError("任务参数缺少：version_id")
+    store = MetadataStore(library_root)
+    version = store.plan_version_purge(request.file_id, version_id_value)
+
+    context.report_progress(0.3, "正在移出版本快照")
+    directory = version.snapshot_path.parent
+    pending = directory.parent / f".purge-{directory.name}-{request.task_id}"
+    moved = False
+    try:
+        if directory.is_dir():
+            os.replace(directory, pending)
+            moved = True
+        context.report_progress(0.6, "正在清除版本记录")
+        store.purge_version_records(request.file_id, version.version_id)
+    except BaseException:
+        if moved:
+            os.replace(pending, directory)
+        raise
+    context.report_progress(0.9, "正在清理磁盘文件")
+    if moved:
+        shutil.rmtree(pending, ignore_errors=True)
+    context.report_progress(1.0, "版本已永久删除")
+    return PurgedVersion(
+        file_id=request.file_id,
+        version_id=version.version_id,
+        version_name=version.name,
+    )
+
+
+def purge_version_task(request: TaskRequest, context: PurgeFileTaskContext) -> object:
+    return run_purge_version_task(request, context)
+
+
 def purge_file_handlers() -> dict[str, TaskHandler]:
     return {PURGE_FILE_OPERATION: purge_file_task}
+
+
+def purge_version_handlers() -> dict[str, TaskHandler]:
+    return {PURGE_VERSION_OPERATION: purge_version_task}

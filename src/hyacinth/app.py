@@ -81,6 +81,7 @@ from hyacinth.versioning import (
     DELETE_VERSION_OPERATION,
     EXPORT_VERSION_OPERATION,
     PURGE_FILE_OPERATION,
+    PURGE_VERSION_OPERATION,
     VERSION_STORAGE_STATS_OPERATION,
     ExportedVersion,
     MetadataStore,
@@ -90,6 +91,7 @@ from hyacinth.versioning import (
     delete_version_handlers,
     export_version_handlers,
     purge_file_handlers,
+    purge_version_handlers,
     suggested_export_filename,
     version_storage_stats_handlers,
 )
@@ -188,6 +190,7 @@ class HyacinthMainWindow(QMainWindow):
         self._export_task_id: str | None = None
         self._storage_stats_task_id: str | None = None
         self._purge_task_id: str | None = None
+        self._purge_version_task_id: str | None = None
         self._recycle_dialog: RecycleBinDialog | None = None
         self._focus_restore_main_sizes: list[int] | None = None
         self._focus_restore_left_sizes: list[int] | None = None
@@ -223,6 +226,9 @@ class HyacinthMainWindow(QMainWindow):
         self._version_tree.version_delete_requested.connect(self._request_delete_version)
         self._version_tree.version_restore_requested.connect(self._restore_deleted_version)
         self._version_tree.version_export_requested.connect(self._request_export_version)
+        self._version_tree.version_purge_requested.connect(self._request_purge_version)
+        self._version_tree.lane_activated.connect(self._activate_file_lane)
+        self._version_tree.layout_reset_requested.connect(self._request_reset_layouts)
         self._workbook_preview = WorkbookPreviewWidget(workspace_root)
         self._workbook_preview.import_requested.connect(self._choose_import_file)
         self._workbook_preview.edit_state_changed.connect(self._apply_edit_state)
@@ -267,6 +273,7 @@ class HyacinthMainWindow(QMainWindow):
         self._task_bridge.event_received.connect(self._apply_export_event)
         self._task_bridge.event_received.connect(self._apply_storage_stats_event)
         self._task_bridge.event_received.connect(self._apply_purge_event)
+        self._task_bridge.event_received.connect(self._apply_purge_version_event)
         self._task_status.cancel_requested.connect(self._task_bridge.cancel)
 
         status_bar = self.statusBar()
@@ -1143,9 +1150,9 @@ class HyacinthMainWindow(QMainWindow):
         store = MetadataStore(self._library_root)
         workbooks = store.list_workbooks()
         current_id = self._current_workbook.file_id if self._current_workbook is not None else None
-        ordered = sorted(workbooks, key=lambda w: w.file_id != current_id)
+        # 泳道顺序固定为导入顺序，不随当前文件重排，保证节点坐标稳定。
         trees: list[FileVersionTree] = []
-        for workbook in ordered:
+        for workbook in workbooks:
             head = workbook.head_version
             trees.append(
                 FileVersionTree(
@@ -1354,6 +1361,82 @@ class HyacinthMainWindow(QMainWindow):
             self._refresh_version_canvas()
         self._refresh_recycle_bin()
 
+    def _activate_file_lane(self, file_id: str) -> None:
+        workbook = self._current_workbook
+        if workbook is not None and workbook.file_id == file_id:
+            return
+        try:
+            target = MetadataStore(self._library_root).get_workbook(file_id)
+        except ValueError as error:
+            self._error_presenter(self, str(error))
+            return
+        self._select_workbook(target)
+
+    def _request_reset_layouts(self) -> None:
+        store = MetadataStore(self._library_root)
+        workbooks = store.list_workbooks()
+        if not workbooks:
+            return
+        names = "、".join(workbook.display_name for workbook in workbooks[:5])
+        if len(workbooks) > 5:
+            names += f" 等 {len(workbooks)} 个文件"
+        if not self._confirmation_presenter(
+            self,
+            "重整布局",
+            f"将清除以下文件的手动节点位置并恢复默认排布：\n{names}\n确定继续吗？",
+        ):
+            return
+        for workbook in workbooks:
+            store.clear_version_layouts(workbook.file_id)
+        self._refresh_version_canvas()
+
+    def _request_purge_version(self, file_id: str, version_id: str) -> None:
+        if self._purge_version_task_id is not None:
+            return
+        try:
+            version = MetadataStore(self._library_root).plan_version_purge(file_id, version_id)
+        except ValueError as error:
+            self._error_presenter(self, str(error))
+            return
+        if not self._confirmation_presenter(
+            self,
+            "永久删除版本",
+            f"确定永久删除“{version.name}”吗？\n该版本的快照文件将被清除，且无法恢复。",
+        ):
+            return
+        task_id = uuid4().hex
+        self._purge_version_task_id = task_id
+        self._task_queue.submit(
+            TaskRequest(
+                task_id=task_id,
+                name=f"永久删除版本 {version.name}",
+                file_id=file_id,
+                engine=None,
+                operation=PURGE_VERSION_OPERATION,
+                payload={
+                    "library_root": str(self._library_root),
+                    "version_id": version_id,
+                },
+            )
+        )
+
+    def _apply_purge_version_event(self, event: TaskEvent) -> None:
+        if event.task_id != self._purge_version_task_id:
+            return
+        self._purge_version_task_id = None
+        if event.state is TaskState.SUCCEEDED:
+            self._refresh_version_canvas()
+        elif event.state in {TaskState.FAILED, TaskState.CANCELLED}:
+            self._error_presenter(
+                self,
+                event.message
+                or (
+                    "版本永久删除已取消"
+                    if event.state is TaskState.CANCELLED
+                    else "版本永久删除失败"
+                ),
+            )
+
     def _request_purge_file(self, file_id: str) -> None:
         if self._purge_task_id is not None or self._recycle_dialog is None:
             return
@@ -1554,6 +1637,7 @@ def create_main_window(
     handlers.update(export_version_handlers())
     handlers.update(version_storage_stats_handlers())
     handlers.update(purge_file_handlers())
+    handlers.update(purge_version_handlers())
     return HyacinthMainWindow(
         task_queue or TaskQueue(handlers),
         library_root or default_library_root(),

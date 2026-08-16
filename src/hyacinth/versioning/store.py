@@ -363,6 +363,41 @@ class MetadataStore:
                 raise ValueError(f"版本未删除或不存在：{version_id}")
         return self.get_version(file_id, version_id)
 
+    def clear_version_layouts(self, file_id: str) -> int:
+        with self._connection() as connection:
+            exists = connection.execute(
+                "SELECT 1 FROM files WHERE file_id = ?", (file_id,)
+            ).fetchone()
+            if exists is None:
+                raise ValueError(f"找不到文件记录：{file_id}")
+            cursor = connection.execute(
+                "DELETE FROM version_layouts "
+                "WHERE version_id IN (SELECT version_id FROM versions WHERE file_id = ?)",
+                (file_id,),
+            )
+            return int(cursor.rowcount)
+
+    def plan_version_purge(self, file_id: str, version_id: str) -> VersionRecord:
+        versions = self.list_versions(file_id)
+        target = next((v for v in versions if v.version_id == version_id), None)
+        if target is None:
+            raise ValueError(f"找不到版本记录：{version_id}")
+        if target.deleted_at is None:
+            raise ValueError("只有回收状态中的版本才能永久删除")
+        if any(v.parent_version_id == version_id for v in versions):
+            raise ValueError("该版本仍有子版本，不能永久删除；请先处理其子版本")
+        return target
+
+    def purge_version_records(self, file_id: str, version_id: str) -> None:
+        with self._connection() as connection:
+            cursor = connection.execute(
+                "DELETE FROM versions WHERE file_id = ? AND version_id = ? "
+                "AND deleted_at IS NOT NULL",
+                (file_id, version_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("版本未删除、不存在或仍有子版本，无法永久删除")
+
     def list_version_layouts(self, file_id: str) -> dict[str, VersionLayout]:
         with self._connection() as connection:
             rows = connection.execute(

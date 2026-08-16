@@ -1852,3 +1852,172 @@ def test_global_canvas_renders_all_files_and_switches_on_node_click(
     view_center = view.mapToScene(view.viewport().rect().center())
     assert abs(view_center.x() - head_center.x()) < 260.0
     assert abs(view_center.y() - head_center.y()) < 260.0
+
+
+def test_reset_layouts_restores_default_positions(qtbot: QtBot, tmp_path: Path) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    root = record.head_version
+    assert root is not None
+    store = MetadataStore(library_root)
+    store.save_version_layout(record.file_id, root.version_id, 900.0, -800.0, fixed=True)
+    confirmations: list[tuple[str, str]] = []
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    def confirm_reset(_parent: QWidget, title: str, message: str) -> bool:
+        confirmations.append((title, message))
+        return True
+
+    window = create_main_window(
+        task_queue=task_queue,
+        library_root=library_root,
+        confirmation_presenter=confirm_reset,
+    )
+    qtbot.addWidget(window)
+    window.show()
+    view = _child(window, QGraphicsView, "version-tree-view")
+    proxies = {
+        str(proxy.widget().property("version-id")): proxy
+        for proxy in view.scene().items()
+        if isinstance(proxy, QGraphicsProxyWidget) and proxy.widget() is not None
+    }
+    assert (proxies[root.version_id].pos().x(), proxies[root.version_id].pos().y()) == (
+        900.0,
+        -800.0,
+    )
+
+    reset_button = _child(window, QPushButton, "version-reset-layout-button")
+    qtbot.mouseClick(reset_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    assert confirmations and record.display_name in confirmations[0][1]
+    assert store.list_version_layouts(record.file_id) == {}
+    after = next(
+        proxy
+        for proxy in view.scene().items()
+        if isinstance(proxy, QGraphicsProxyWidget)
+        and proxy.widget() is not None
+        and str(proxy.widget().property("version-id")) == root.version_id
+    )
+    assert after.pos().x() < 900.0
+    assert after.pos().y() > -800.0
+
+
+def test_deleted_version_can_be_purged_from_canvas(qtbot: QtBot, tmp_path: Path) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    root = record.head_version
+    assert root is not None
+    child_snapshot = library_root / "files/file-1/versions/version-2/snapshot.xlsx"
+    child_snapshot.parent.mkdir(parents=True)
+    child_snapshot.write_bytes(record.working_path.read_bytes() + b"purge-me")
+    child = VersionRecord(
+        "version-2",
+        record.file_id,
+        root.version_id,
+        "多列排序",
+        datetime(2026, 8, 16, 9, 0, tzinfo=UTC),
+        "sort",
+        None,
+        child_snapshot,
+        sha256(child_snapshot.read_bytes()).hexdigest(),
+    )
+    store = MetadataStore(library_root)
+    store.record_child_version(child, root.version_id)
+    store.soft_delete_version(record.file_id, child.version_id, child.version_id)
+    confirmations: list[tuple[str, str]] = []
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+    from hyacinth.versioning import PURGE_VERSION_OPERATION, run_purge_version_task
+
+    def confirm_purge(_parent: QWidget, title: str, message: str) -> bool:
+        confirmations.append((title, message))
+        return True
+
+    window = create_main_window(
+        task_queue=task_queue,
+        library_root=library_root,
+        confirmation_presenter=confirm_purge,
+    )
+    qtbot.addWidget(window)
+    window.show()
+    tree_panel = _child(window, VersionTreePanel, "version-tree-panel")
+
+    tree_panel.version_purge_requested.emit(record.file_id, child.version_id)
+
+    assert confirmations and "无法恢复" in confirmations[0][1]
+    purge_request = task_queue.submitted[-1]
+    assert purge_request.operation == PURGE_VERSION_OPERATION
+    purged = run_purge_version_task(purge_request, PreviewTaskContext())
+    assert purged.version_id == child.version_id
+    task_queue.push_event(
+        TaskEvent(
+            purge_request.task_id,
+            TaskState.SUCCEEDED,
+            purge_request.name,
+            purge_request.file_id,
+            None,
+            result=purged,
+        )
+    )
+
+    view = _child(window, QGraphicsView, "version-tree-view")
+    qtbot.waitUntil(
+        lambda: (
+            not any(
+                isinstance(proxy, QGraphicsProxyWidget)
+                and proxy.widget() is not None
+                and str(proxy.widget().property("version-id")) == child.version_id
+                for proxy in view.scene().items()
+            )
+        ),
+        timeout=2000,
+    )
+    assert not child_snapshot.parent.exists()
+    with pytest.raises(ValueError):
+        store.get_version(record.file_id, child.version_id)
+
+
+def test_lane_click_switches_current_file(qtbot: QtBot, tmp_path: Path) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    second_directory = library_root / "files/file-2"
+    second_original = second_directory / "original/库存.xlsx"
+    second_working = second_directory / "working/current.xlsx"
+    second_snapshot = second_directory / "versions/version-b/snapshot.xlsx"
+    for path in (second_original, second_working, second_snapshot):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"second-file")
+    second_root = VersionRecord(
+        "version-b",
+        "file-2",
+        None,
+        "导入原始文件",
+        datetime(2026, 8, 16, 10, 0, tzinfo=UTC),
+        "import",
+        None,
+        second_snapshot,
+        sha256(second_snapshot.read_bytes()).hexdigest(),
+    )
+    second_record = ImportedWorkbook(
+        "file-2",
+        "库存.xlsx",
+        second_original,
+        second_working,
+        second_root,
+        datetime(2026, 8, 16, 10, 0, tzinfo=UTC),
+    )
+    MetadataStore(library_root).record_import(second_record)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    assert window.windowTitle() == "风信子 — 库存.xlsx"
+    tree_panel = _child(window, VersionTreePanel, "version-tree-panel")
+
+    tree_panel.lane_activated.emit(record.file_id)
+
+    assert window.windowTitle() == "风信子 — 销售.xlsx"
+    assert _child(window, QLabel, "document-title").text() == "销售.xlsx"

@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-16T13:13:52+08:00"
+updated_at: "2026-08-16T13:44:18+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -35,9 +35,9 @@ delivery:
   next_milestone: "用户实机复验版本图谱全向平移、节点边界和专注模式"
 
 current_task:
-  id: "GLOBAL-VERSION-CANVAS-001"
+  id: "GLOBAL-CANVAS-REAL-MACHINE-FIXES-001"
   status: "implementation-completed-awaiting-real-machine-validation"
-  goal: "按 DEC-20260816-029 实现全局版本画布：全部文件版本树同画布泳道显示、跨文件节点切换、文件列表定位 HEAD"
+  goal: "按 DEC-20260816-030 修复全局画布六项实机反馈：泳道稳定可点击、已删节点可拖动与永久删除、重整布局、树形排布"
   owner: "codex-sol"
 
 last_completed:
@@ -263,8 +263,14 @@ last_completed:
   - "用户确认方案后完成全局版本画布：VersionTreePanel 改为 set_workbooks 多文件泳道渲染，文件标签+浅色泳道背景，当前文件强调、其他文件 78% 不透明度"
   - "全部版本节点信号带 file_id；点击其他文件节点先走未保存保护再切换当前工作文件并预览；文件列表点击将视口聚焦到该文件 HEAD"
   - "节点拖动/右键/删除/恢复/导出/从此继续在全局画布对任意文件生效；删除与恢复事件按目标文件刷新，画布重建保持视口位置"
+  - "用户实机复验反馈六项问题，按 DEC-20260816-030 修复：泳道顺序固定不再随当前文件重排（解决强调不动/背景消失/位置回跳）"
+  - "泳道背景与文件名单击切换到该文件 HEAD，拖动距离区分平移画布"
+  - "已删除占位节点可自由拖动；右键新增'永久删除该版本'（限无子版本，二次确认，后台任务清除快照与记录）"
+  - "版本树标题栏新增'重整布局'按钮：二次确认列出受影响文件后清除全部手动布局恢复默认排布"
+  - "默认排布改为树形算法：叶子按序占行、父节点居中于子树区间"
 
 next_actions:
+  - "用户实机复验六项修复：泳道强调随文件切换、泳道点击切换、已删节点拖动与永久删除、重整布局确认、树形排布"
   - "用户实机运行 uv run hyacinth，复验全局画布：多文件泳道显示、跨文件节点点击切换、文件列表点击定位 HEAD、专注模式位置保持"
   - "用户实机运行 uv run hyacinth，复验专注模式进入/退出画布位置保持"
   - "用户实机运行 uv run hyacinth，复验文件删除、回收站恢复与永久删除流程"
@@ -359,6 +365,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260816-030"
+    date: "2026-08-16"
+    status: "approved-and-implemented"
+    summary: "全局画布实机修正：泳道顺序固定且可点击切换文件、已删除节点可拖动并无子版本时可永久删除、重整布局按钮带影响范围确认、默认排布改树形"
+    source: "用户实机复验全局画布后提出六项问题"
+    supersedes: "none"
+    impact: "需求讨论记录第 12、47 节、_VersionTreeView 泳道点击与拖动、_layout_lane 树形排布、VersionTreePanel 重整按钮与永久删除菜单、store 清布局/版本清除、purge-version 后台任务及测试"
   - id: "DEC-20260816-029"
     date: "2026-08-16"
     status: "approved-and-implemented"
@@ -422,13 +435,6 @@ recent_decisions:
     source: "用户当前会话确认推荐方案"
     supersedes: "none"
     impact: "需求讨论记录第 19.8 节、隐藏行预览索引、筛选后台任务、FunctionPanel 参数页、应用版本和端到端测试"
-  - id: "DEC-20260815-020"
-    date: "2026-08-15"
-    status: "approved"
-    summary: "下一处理功能垂直切片采用删除空白行；默认整行全空，可切换指定关键列全空，空白文本参与，公式结果为空仍不删除"
-    source: "用户当前会话确认继续推荐的删除空白行切片；具体规则来自需求讨论记录第 19.3 节"
-    supersedes: "none"
-    impact: "删除空白行预览任务、行号统计、FunctionPanel 参数页、通用版本应用和端到端测试"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
   - "需求讨论记录.md"
@@ -455,7 +461,7 @@ changed_files:
 verification:
   status: "passed-awaiting-real-machine-validation"
   commands:
-    - "uv run pytest：217 passed in 33.95s（全局画布端到端新增 1 项：双文件泳道渲染、点击 file-1 节点切换当前文件、文件列表点击视口聚焦 HEAD）"
+    - "uv run pytest：226 passed in 32.85s（本轮新增 9 项：树形排布、已删节点拖动、泳道点击与重整按钮信号、泳道顺序稳定、重整布局端到端、版本永久删除端到端与任务单测、泳道点击切换文件）"
     - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check：全部通过"
     - "uv run python scripts/capture_ui_states.py --output output/playwright：8 张截图全部生成"
     - "本轮需求记录变更仅文档更新，无代码影响；完成度评估基于对 app.py、ui/shell.py、versioning/store.py、library/widget.py、preview/edit_session.py、tasks/status_widget.py 的逐文件阅读与 git log 核对"

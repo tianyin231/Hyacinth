@@ -1302,6 +1302,7 @@ class FileVersionTree:
 
 class _VersionTreeView(QGraphicsView):
     node_selected = Signal(str, str)
+    lane_activated = Signal(str)
     position_changing = Signal(str, str, float, float)
     position_committed = Signal(str, str, float, float)
 
@@ -1313,16 +1314,18 @@ class _VersionTreeView(QGraphicsView):
         self._drag_origin_view: QPoint | None = None
         self._drag_origin_scene: QPointF | None = None
         self._dragged = False
+        self._lane_press: tuple[str, QPoint] | None = None
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         self._reset_node_drag()
+        self._lane_press = None
         if event.button() is Qt.MouseButton.LeftButton:
             item = self.itemAt(event.position().toPoint())
             while item is not None and not isinstance(item, QGraphicsProxyWidget):
                 item = item.parentItem()
             if isinstance(item, QGraphicsProxyWidget):
                 card = item.widget()
-                if card is not None and not bool(card.property("deleted")):
+                if card is not None:
                     version_id = str(card.property("version-id"))
                     file_id = str(card.property("file-id"))
                     self._drag_proxy = item
@@ -1332,8 +1335,22 @@ class _VersionTreeView(QGraphicsView):
                     self._drag_origin_scene = item.pos()
                     self.setDragMode(QGraphicsView.DragMode.NoDrag)
                     card.setFocus()
-                    self.node_selected.emit(file_id, version_id)
+                    if not bool(card.property("deleted")):
+                        self.node_selected.emit(file_id, version_id)
+            else:
+                lane_file_id = self._lane_file_at(event.position().toPoint())
+                if lane_file_id is not None:
+                    self._lane_press = (lane_file_id, event.position().toPoint())
         super().mousePressEvent(event)
+
+    def _lane_file_at(self, position: QPoint) -> str | None:
+        item = self.itemAt(position)
+        while item is not None:
+            data = str(item.data(0))
+            if data.startswith("lane:"):
+                return data.removeprefix("lane:")
+            item = item.parentItem()
+        return None
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if (
@@ -1376,9 +1393,17 @@ class _VersionTreeView(QGraphicsView):
                 position.x(),
                 position.y(),
             )
+        if (
+            event.button() is Qt.MouseButton.LeftButton
+            and self._lane_press is not None
+            and (event.position().toPoint() - self._lane_press[1]).manhattanLength()
+            < QApplication.startDragDistance()
+        ):
+            self.lane_activated.emit(self._lane_press[0])
         super().mouseReleaseEvent(event)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self._reset_node_drag()
+        self._lane_press = None
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         vertical_delta = event.angleDelta().y()
@@ -1464,6 +1489,9 @@ class VersionTreePanel(QFrame):
     version_delete_requested = Signal(str, str)
     version_restore_requested = Signal(str, str)
     version_export_requested = Signal(str, str, bool)
+    version_purge_requested = Signal(str, str)
+    lane_activated = Signal(str)
+    layout_reset_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1529,6 +1557,7 @@ class VersionTreePanel(QFrame):
         self._view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self._view.setRenderHint(QPainter.RenderHint.Antialiasing)
         self._view.node_selected.connect(self._select_version)
+        self._view.lane_activated.connect(self.lane_activated)
         self._view.position_changing.connect(self._move_version)
         self._view.position_committed.connect(self._commit_version_position)
 
@@ -1544,8 +1573,15 @@ class VersionTreePanel(QFrame):
         self._focus_button.setAccessibleName("进入版本图谱专注模式")
         self._focus_button.setToolTip("隐藏其他区域，只查看全部文件的版本图谱")
         self._focus_button.clicked.connect(self._toggle_focus_mode)
+        self._reset_layout_button = QPushButton("重整布局", header)
+        self._reset_layout_button.setObjectName("version-reset-layout-button")
+        self._reset_layout_button.setProperty("class", "tool-button")
+        self._reset_layout_button.setAccessibleName("恢复全部节点的默认排布")
+        self._reset_layout_button.setToolTip("清除所有文件的手动节点位置并恢复默认排布")
+        self._reset_layout_button.clicked.connect(lambda: self.layout_reset_requested.emit())
         header_layout = header.layout()
         assert header_layout is not None
+        header_layout.addWidget(self._reset_layout_button)
         header_layout.addWidget(self._focus_button)
 
         layout = QVBoxLayout(self)
@@ -1735,11 +1771,13 @@ class VersionTreePanel(QFrame):
             QPen(Qt.PenStyle.NoPen),
             self._lane_background_brush(is_current),
         )
+        background.setData(0, f"lane:{tree.file_id}")
         background.setZValue(-3)
         label = scene.addSimpleText(
             tree.display_name,
             QFont("Segoe UI", 10, QFont.Weight.Bold if is_current else QFont.Weight.Normal),
         )
+        label.setData(0, f"lane:{tree.file_id}")
         label.setBrush(QBrush(QColor("#0f6cbd" if is_current else "#68717e")))
         label.setPos(28.0, lane_top + 9.0)
         label.setZValue(-2)
@@ -1750,34 +1788,41 @@ class VersionTreePanel(QFrame):
         return QBrush(color)
 
     def _layout_lane(self, tree: FileVersionTree) -> tuple[dict[str, tuple[float, float]], int]:
-        depths: dict[str, int] = {}
-        version_ids = {version.version_id for version in tree.versions}
-        occupied = [
-            QRectF(layout.x, layout.y, VERSION_NODE_WIDTH, VERSION_NODE_HEIGHT)
-            for version_id, layout in tree.layouts.items()
-            if layout.fixed and version_id in version_ids
-        ]
+        """树形排布：叶子按序占行，父节点纵向居中于其子树区间。"""
+        children: dict[str | None, list[VersionRecord]] = {}
+        for version in tree.versions:
+            children.setdefault(version.parent_version_id, []).append(version)
+        fixed_ids = {version_id for version_id, layout in tree.layouts.items() if layout.fixed}
         positions: dict[str, tuple[float, float]] = {}
         max_depth = 0
-        for index, version in enumerate(tree.versions):
-            depth = (
-                0
-                if version.parent_version_id is None
-                else depths.get(version.parent_version_id, 0) + 1
-            )
-            depths[version.version_id] = depth
+        next_row = 0
+
+        def assign(version: VersionRecord, depth: int) -> tuple[int, int]:
+            nonlocal max_depth, next_row
             max_depth = max(max_depth, depth)
-            layout = tree.layouts.get(version.version_id)
-            if layout is not None and layout.fixed:
-                continue
-            x = depth * NODE_DX
-            y = index * NODE_DY
-            candidate = QRectF(x, y, VERSION_NODE_WIDTH, VERSION_NODE_HEIGHT)
-            while any(candidate.adjusted(-8, -8, 8, 8).intersects(rect) for rect in occupied):
-                y += NODE_DY
-                candidate.moveTop(y)
-            occupied.append(candidate)
-            positions[version.version_id] = (x, y)
+            auto_kids = [
+                child
+                for child in children.get(version.version_id, [])
+                if child.version_id not in fixed_ids
+            ]
+            if not auto_kids:
+                row = next_row
+                next_row += 1
+                span = (row, row)
+            else:
+                spans = [assign(child, depth + 1) for child in auto_kids]
+                span = (spans[0][0], spans[-1][1])
+            center_y = (span[0] + span[1]) / 2 * NODE_DY
+            positions[version.version_id] = (depth * NODE_DX, center_y)
+            return span
+
+        for root in children.get(None, ()):
+            if root.version_id in fixed_ids:
+                for child in children.get(root.version_id, ()):
+                    if child.version_id not in fixed_ids:
+                        assign(child, 1)
+            else:
+                assign(root, 0)
         return positions, max_depth
 
     def _version_card(
@@ -1923,6 +1968,11 @@ class VersionTreePanel(QFrame):
         if record.deleted_at is not None:
             restore = menu.addAction("恢复版本")
             restore.triggered.connect(lambda: self._request_restore(file_id, version_id))
+            menu.addSeparator()
+            purge_action = menu.addAction("永久删除该版本")
+            purge_action.triggered.connect(
+                lambda: self.version_purge_requested.emit(file_id, version_id)
+            )
         else:
             preview = menu.addAction("预览版本")
             preview.triggered.connect(lambda: self._select_version(file_id, version_id))
