@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-16T00:18:28+08:00"
+updated_at: "2026-08-16T11:59:21+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -35,9 +35,9 @@ delivery:
   next_milestone: "用户实机复验版本图谱全向平移、节点边界和专注模式"
 
 current_task:
-  id: "VERSION-TREE-CANVAS-FOCUS-001"
+  id: "STATUS-BAR-STORAGE-001"
   status: "implementation-completed-awaiting-real-machine-validation"
-  goal: "将版本图谱改为较大有界画布，支持上下左右自由平移，并增加只显示版本演化树的一键专注/恢复模式"
+  goal: "按需求第 46 节实现右下角状态栏：当前文件工作格式后缀、版本树快照总占用与当前预览节点占用"
   owner: "codex-sol"
 
 last_completed:
@@ -246,8 +246,15 @@ last_completed:
   - "版本树标题栏增加专注/退出专注按钮，可隐藏其他工作区并精确恢复进入前的显隐状态和分隔尺寸"
   - "版本图谱大画布与专注模式通过 198 项全量测试及全部质量门"
   - "版本图谱大画布与专注模式关键节点已提交本地 main：79c7a7c；未推送"
+  - "追加需求.txt 按 DEC-20260816-028 并入需求讨论记录新增第 46 节：处理触发归并到参数面板两阶段提交，新增右下角状态栏需求（工作格式后缀、版本树总占用、预览节点占用）"
+  - "修正首次并入时的决策编号冲突（原误用 025）与旧章节重排问题，历史第 43/44/45 节引用保持不变"
+  - "对照需求讨论记录 46 节逐项核实 app.py、shell.py、store.py、library、preview、processing、tasks 代码，形成完成度评估"
+  - "完成右下角状态栏：新增 version-storage-stats 后台任务统计版本树唯一快照总占用与预览节点占用，状态栏右侧显示格式徽标、版本总占用和当前预览占用，无文件时显示未选择文件"
+  - "统计任务在文件选择、预览切换、版本应用/保存/签出/删除/恢复时刷新，且先于预览索引任务提交，避免阻塞或延迟预览"
+  - "快照占用按唯一物理文件去重求和，缺失快照按 0 计入；格式徽标取内部识别的原始文件后缀（XLS/XLSX）"
 
 next_actions:
+  - "用户实机运行 uv run hyacinth，复验右下角状态栏的格式徽标、版本总占用和当前预览占用随文件与预览节点切换更新"
   - "用户实机运行 uv run hyacinth，复验版本图谱上下左右平移、边界限制和专注/恢复布局"
   - "用户实机运行 uv run hyacinth，复验节点拖动、Shift+滚轮横向滚动和 Ctrl+滚轮缩放"
   - "用户查看新品牌图标与本机 uv run hyacinth 的窗口图标，确认视觉方向"
@@ -338,6 +345,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260816-028"
+    date: "2026-08-16"
+    status: "approved"
+    summary: "追加需求并入：处理触发统一归并到左侧参数面板执行按钮（两阶段提交，等价客户'开始处理按钮'方案）；新增右下角状态栏显示工作格式后缀、版本树总占用与当前预览节点占用"
+    source: "用户当前会话指示将追加需求.txt 并入需求讨论记录.md"
+    supersedes: "none"
+    impact: "需求讨论记录.md 新增第 46 节与待复核清单第 43 条；右下角状态栏为待实现功能，占用统计需与第 40 节文件属性共用来源"
   - id: "DEC-20260816-027"
     date: "2026-08-16"
     status: "approved"
@@ -401,24 +415,25 @@ recent_decisions:
     source: "用户当前会话确认推荐方案并报告单元格输入卡死"
     supersedes: "none"
     impact: "只读表格输入事件、回归测试、删除重复行两阶段预览与版本闭环的实施顺序"
-  - id: "DEC-20260815-018"
-    date: "2026-08-15"
-    status: "approved-and-implemented"
-    summary: "在继续新增处理功能前先校正默认空状态和 Fluent 壳层，不伪造示例数据；首次启动目标改为 1440x900，并按屏幕可用区域约 90% 自适应"
-    source: "用户查看真实默认启动截图后明确确认校正方案，并补充初始窗口偏小"
-    supersedes: "none"
-    impact: "默认空状态、工具栏/面板图标与控件视觉、轻量 Fluent 层级、默认窗口尺寸和双场景截图验收"
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
   - "需求讨论记录.md"
+  - "scripts/capture_ui_states.py"
   - "src/hyacinth/app.py"
   - "src/hyacinth/ui/shell.py"
+  - "src/hyacinth/ui/__init__.py"
+  - "src/hyacinth/versioning/__init__.py"
+  - "src/hyacinth/versioning/storage_stats.py"
   - "tests/test_app.py"
-  - "tests/versioning/test_widget.py"
+  - "tests/versioning/test_storage_stats.py"
 
 verification:
   status: "passed-awaiting-real-machine-validation"
   commands:
+    - "uv run pytest：205 passed in 30.74s（新增 5 项统计任务单测与 2 项状态栏界面测试）"
+    - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check：全部通过"
+    - "uv run python scripts/capture_ui_states.py --output output/playwright：8 张截图全部生成"
+    - "本轮需求记录变更仅文档更新，无代码影响；完成度评估基于对 app.py、ui/shell.py、versioning/store.py、library/widget.py、preview/edit_session.py、tasks/status_widget.py 的逐文件阅读与 git log 核对"
     - "版本图谱与主窗口定向回归：16 passed"
     - "uv run pytest -q：198 passed"
     - "uv run ruff check .；uv run ruff format --check .；uv run mypy src；uv lock --check；uv build；git diff --check：全部通过"
@@ -551,6 +566,10 @@ verification:
     - "OpenCode DeepSeek session ses_ffb779869ffetPKJvDGwsXSdcX 导出并核验 provider/model/finish/files changed"
     - "OpenCode DeepSeek session ses_ffb6eb165ffeExum72T3S31KLf 导出并核验 provider/model/finish 与实际写入范围"
   evidence:
+    - "fluent-shell-populated.png：状态栏右侧显示 XLSX 徽标与“版本总占用 4.9 KB · 当前预览 4.9 KB”，与左侧任务状态无重叠或截断"
+    - "default-empty-state.png：无选中文件时状态栏右侧显示“未选择文件”占位，无重叠或截断"
+    - "统计任务单测覆盖唯一快照去重求和、共享物理文件只计一次、无预览版本、快照缺失按 0 和处理器注册"
+    - "界面测试覆盖选中文件后提交统计任务、事件回填标签、切换预览节点以最新 preview_version_id 重新统计和空状态不提交任务"
     - "节点布局存储、连线跟随和主窗口重开持久化定向回归：12 passed in 0.91s"
     - "version-node-dragged.png：手动移动根节点后子节点保持原位，父子连线重新连接两卡片且 HEAD/选中态不混淆"
     - "最终全量复验：161 passed in 29.47s；Ruff check/format、Mypy strict、uv lock、uv build 和 git diff --check 全部通过"
@@ -756,4 +775,4 @@ verification:
       model: "deepseek-v4-flash"
       finish: "aborted"
       result: "只读审查 Worker 连续超时且无可用文本，已中止；Codex/Sol 独立审查并修复两个行为问题"
-  last_result: "版本图谱已使用 10000×10000 有界画布支持上下左右平移，节点拖动限制在画布内；专注按钮可隐藏其他区域并恢复原布局。最终 198 项测试和全部质量门通过，关键节点提交 79c7a7c，本地 main 领先 origin/main 65 个提交且未推送"
+  last_result: "右下角状态栏已按需求第 46 节完成：后台 version-storage-stats 任务统计版本树唯一快照总占用与当前预览节点占用，状态栏右侧显示 XLSX/XLS 格式徽标与两项占用，空状态显示未选择文件。205 项测试和全部质量门通过，截图验证无重叠截断；待用户实机复验"

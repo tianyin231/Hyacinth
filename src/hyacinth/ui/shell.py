@@ -300,6 +300,17 @@ QListWidget#library-file-list::item:selected {
 }
 QListWidget#library-file-list:focus { border: 2px solid #0f6cbd; }
 QStatusBar#main-status-bar { background: #f0f2f5; border-top: 1px solid #d8dde5; }
+QFrame#version-storage-status { background: transparent; }
+QLabel#storage-format-pill {
+    color: #0b5a9d;
+    background: #e5f2fb;
+    border: 1px solid #bcd9f2;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 650;
+}
+QLabel#storage-size-text { color: #5c6370; font-size: 12px; }
 """
 
 VERSION_CANVAS_RECT = QRectF(-5000.0, -5000.0, 10000.0, 10000.0)
@@ -1893,3 +1904,42 @@ class WorkbookEditorFrame(QFrame):
 
     def set_temporary_result(self, visible: bool) -> None:
         self._temporary_banner.setVisible(visible)
+
+
+def format_byte_size(size_bytes: int) -> str:
+    if size_bytes <= 0:
+        return "0 B"
+    units = ("B", "KB", "MB", "GB", "TB")
+    value = float(size_bytes)
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} {units[-1]}"
+
+
+class VersionStorageStatus(QFrame):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("version-storage-status")
+        self._format = QLabel("未选择文件", self)
+        self._format.setObjectName("storage-format-pill")
+        self._sizes = QLabel("", self)
+        self._sizes.setObjectName("storage-size-text")
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 0, 10, 0)
+        layout.setSpacing(8)
+        layout.addWidget(self._format)
+        layout.addWidget(self._sizes)
+
+    def set_empty(self) -> None:
+        self._format.setText("未选择文件")
+        self._sizes.setText("")
+
+    def set_stats(self, file_format: str, total_bytes: int, preview_bytes: int) -> None:
+        self._format.setText(file_format)
+        self._sizes.setText(
+            f"版本总占用 {format_byte_size(total_bytes)}"
+            f" · 当前预览 {format_byte_size(preview_bytes)}"
+        )

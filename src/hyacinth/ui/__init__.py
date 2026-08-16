@@ -3,8 +3,10 @@ from hyacinth.ui.shell import (
     ApplicationHeader,
     CommandBar,
     FunctionPanel,
+    VersionStorageStatus,
     VersionTreePanel,
     WorkbookEditorFrame,
+    format_byte_size,
 )
 
 __all__ = [
@@ -12,6 +14,8 @@ __all__ = [
     "ApplicationHeader",
     "CommandBar",
     "FunctionPanel",
+    "VersionStorageStatus",
     "VersionTreePanel",
     "WorkbookEditorFrame",
+    "format_byte_size",
 ]

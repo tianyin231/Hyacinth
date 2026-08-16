@@ -21,14 +21,16 @@ from PySide6.QtWidgets import (
 
 from hyacinth.app import ApplicationTaskQueue, create_main_window
 from hyacinth.excel.contracts import EngineName
-from hyacinth.preview import run_preview_index_task
+from hyacinth.preview import BUILD_PREVIEW_INDEX_OPERATION, run_preview_index_task
 from hyacinth.tasks import TaskEvent, TaskRequest, TaskState
 from hyacinth.ui import VersionTreePanel
 from hyacinth.versioning import (
+    VERSION_STORAGE_STATS_OPERATION,
     ImportedWorkbook,
     MetadataStore,
     VersionRecord,
     run_delete_version_task,
+    run_version_storage_stats_task,
 )
 
 
@@ -68,6 +70,30 @@ class CaptureTaskContext:
     @contextmanager
     def critical_section(self, message: str = "") -> Iterator[None]:
         yield
+
+
+def _preview_request(task_queue: CaptureTaskQueue) -> TaskRequest:
+    return next(
+        request
+        for request in task_queue.submitted
+        if request.operation == BUILD_PREVIEW_INDEX_OPERATION
+    )
+
+
+def _run_storage_stats(task_queue: CaptureTaskQueue) -> None:
+    for request in task_queue.submitted:
+        if request.operation != VERSION_STORAGE_STATS_OPERATION:
+            continue
+        task_queue.events.append(
+            TaskEvent(
+                request.task_id,
+                TaskState.SUCCEEDED,
+                request.name,
+                request.file_id,
+                None,
+                result=run_version_storage_stats_task(request, CaptureTaskContext()),
+            )
+        )
 
 
 def _seed_workbook(library_root: Path) -> None:
@@ -178,7 +204,7 @@ def capture_ui_states(
         )
         populated_window.show()
         app.processEvents()
-        request = task_queue.submitted[0]
+        request = _preview_request(task_queue)
         preview = run_preview_index_task(request, CaptureTaskContext())
         task_queue.events.append(
             TaskEvent(
@@ -190,6 +216,7 @@ def capture_ui_states(
                 result=preview,
             )
         )
+        _run_storage_stats(task_queue)
         _wait(150)
         app.processEvents()
         populated_path = output_directory / "fluent-shell-populated.png"
@@ -262,7 +289,7 @@ def capture_ui_states(
         if splitter is None:
             raise RuntimeError("找不到主界面分隔器")
         splitter.setSizes([260, 600, 580])
-        initial_request = branch_queue.submitted[0]
+        initial_request = _preview_request(branch_queue)
         initial_preview = run_preview_index_task(initial_request, CaptureTaskContext())
         branch_queue.events.append(
             TaskEvent(
@@ -274,6 +301,7 @@ def capture_ui_states(
                 result=initial_preview,
             )
         )
+        _run_storage_stats(branch_queue)
         _wait(150)
         view = branch_window.findChild(QGraphicsView, "version-tree-view")
         if view is None:
@@ -301,6 +329,7 @@ def capture_ui_states(
                 result=historical_preview,
             )
         )
+        _run_storage_stats(branch_queue)
         _wait(150)
         branch_path = output_directory / "version-history-selected.png"
         if not branch_window.grab().save(str(branch_path)):

@@ -24,6 +24,13 @@ from hyacinth.versioning.models import (
     VersionLayout,
     VersionRecord,
 )
+from hyacinth.versioning.storage_stats import (
+    VERSION_STORAGE_STATS_OPERATION,
+    VersionStorageStats,
+    run_version_storage_stats_task,
+    version_storage_stats_handlers,
+    version_storage_stats_task,
+)
 from hyacinth.versioning.store import (
     MetadataStore,
     read_recovery_manifest,
@@ -34,12 +41,14 @@ __all__ = [
     "CHECKOUT_VERSION_OPERATION",
     "DELETE_VERSION_OPERATION",
     "EXPORT_VERSION_OPERATION",
+    "VERSION_STORAGE_STATS_OPERATION",
     "ExportedVersion",
     "ImportedWorkbook",
     "MetadataStore",
     "VersionDeletionPlan",
     "VersionLayout",
     "VersionRecord",
+    "VersionStorageStats",
     "checkout_version_handlers",
     "checkout_version_task",
     "delete_version_handlers",
@@ -50,6 +59,9 @@ __all__ = [
     "run_checkout_version_task",
     "run_delete_version_task",
     "run_export_version_task",
+    "run_version_storage_stats_task",
     "suggested_export_filename",
+    "version_storage_stats_handlers",
+    "version_storage_stats_task",
     "write_recovery_manifest",
 ]

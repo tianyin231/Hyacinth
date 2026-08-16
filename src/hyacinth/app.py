@@ -68,6 +68,7 @@ from hyacinth.ui import (
     ApplicationHeader,
     CommandBar,
     FunctionPanel,
+    VersionStorageStatus,
     VersionTreePanel,
     WorkbookEditorFrame,
 )
@@ -75,13 +76,16 @@ from hyacinth.versioning import (
     CHECKOUT_VERSION_OPERATION,
     DELETE_VERSION_OPERATION,
     EXPORT_VERSION_OPERATION,
+    VERSION_STORAGE_STATS_OPERATION,
     ExportedVersion,
     MetadataStore,
     VersionRecord,
+    VersionStorageStats,
     checkout_version_handlers,
     delete_version_handlers,
     export_version_handlers,
     suggested_export_filename,
+    version_storage_stats_handlers,
 )
 
 
@@ -175,6 +179,7 @@ class HyacinthMainWindow(QMainWindow):
         self._previewed_version_id: str | None = None
         self._close_after_manual_save = False
         self._export_task_id: str | None = None
+        self._storage_stats_task_id: str | None = None
         self._focus_restore_main_sizes: list[int] | None = None
         self._focus_restore_left_sizes: list[int] | None = None
         self._focus_restore_hidden: tuple[bool, ...] | None = None
@@ -249,6 +254,7 @@ class HyacinthMainWindow(QMainWindow):
         self._task_bridge.event_received.connect(self._apply_checkout_event)
         self._task_bridge.event_received.connect(self._apply_delete_event)
         self._task_bridge.event_received.connect(self._apply_export_event)
+        self._task_bridge.event_received.connect(self._apply_storage_stats_event)
         self._task_status.cancel_requested.connect(self._task_bridge.cancel)
 
         status_bar = self.statusBar()
@@ -256,6 +262,8 @@ class HyacinthMainWindow(QMainWindow):
         status_bar.setSizeGripEnabled(False)
         status_bar.setContentsMargins(0, 0, 0, 0)
         status_bar.addWidget(self._task_status, 1)
+        self._storage_status = VersionStorageStatus()
+        status_bar.addPermanentWidget(self._storage_status)
         self._task_bridge.start()
         current_workbook = self._file_library.current_workbook()
         if current_workbook is not None:
@@ -770,6 +778,7 @@ class HyacinthMainWindow(QMainWindow):
         self._function_panel.setEnabled(
             workbook.head_version is not None and version_id == workbook.head_version.version_id
         )
+        self._refresh_storage_stats()
         self._load_preview(version.snapshot_path, workbook.display_name, temporary=False)
 
     def _continue_from_version(self, version_id: str) -> None:
@@ -1043,6 +1052,7 @@ class HyacinthMainWindow(QMainWindow):
         self._temporary_preview = None
 
     def _show_versions(self, workbook: ImportedWorkbook) -> None:
+        self._refresh_storage_stats()
         head = workbook.head_version
         if head is None:
             self._command_bar.set_version_available(False)
@@ -1126,6 +1136,46 @@ class HyacinthMainWindow(QMainWindow):
                 event.message
                 or ("导出已取消" if event.state is TaskState.CANCELLED else "导出失败"),
             )
+
+    def _refresh_storage_stats(self) -> None:
+        workbook = self._current_workbook
+        if workbook is None:
+            self._storage_status.set_empty()
+            return
+        task_id = uuid4().hex
+        self._storage_stats_task_id = task_id
+        self._task_queue.submit(
+            TaskRequest(
+                task_id=task_id,
+                name="统计版本占用",
+                file_id=workbook.file_id,
+                engine=None,
+                operation=VERSION_STORAGE_STATS_OPERATION,
+                payload={
+                    "library_root": str(self._library_root),
+                    "preview_version_id": self._previewed_version_id,
+                },
+            )
+        )
+
+    def _apply_storage_stats_event(self, event: TaskEvent) -> None:
+        if event.task_id != self._storage_stats_task_id:
+            return
+        if event.state is TaskState.SUCCEEDED and isinstance(event.result, VersionStorageStats):
+            workbook = self._current_workbook
+            file_format = (
+                workbook.original_path.suffix.removeprefix(".").upper()
+                if workbook is not None
+                else ""
+            )
+            self._storage_status.set_stats(
+                file_format,
+                event.result.total_bytes,
+                event.result.preview_bytes,
+            )
+            self._storage_stats_task_id = None
+        elif event.state in {TaskState.FAILED, TaskState.CANCELLED}:
+            self._storage_stats_task_id = None
 
     def _save_version_position(self, version_id: str, x: float, y: float) -> None:
         workbook = self._current_workbook
@@ -1237,6 +1287,7 @@ def create_main_window(
     handlers.update(checkout_version_handlers())
     handlers.update(delete_version_handlers())
     handlers.update(export_version_handlers())
+    handlers.update(version_storage_stats_handlers())
     return HyacinthMainWindow(
         task_queue or TaskQueue(handlers),
         library_root or default_library_root(),

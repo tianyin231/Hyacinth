@@ -53,16 +53,18 @@ from hyacinth.processing import (
     run_sort_preview_task,
 )
 from hyacinth.tasks import TaskEvent, TaskRequest, TaskState, TaskStatusWidget
-from hyacinth.ui import VersionTreePanel
+from hyacinth.ui import VersionTreePanel, format_byte_size
 from hyacinth.versioning import (
     CHECKOUT_VERSION_OPERATION,
     DELETE_VERSION_OPERATION,
     EXPORT_VERSION_OPERATION,
+    VERSION_STORAGE_STATS_OPERATION,
     MetadataStore,
     VersionRecord,
     run_checkout_version_task,
     run_delete_version_task,
     run_export_version_task,
+    run_version_storage_stats_task,
 )
 
 
@@ -97,6 +99,20 @@ class FakeApplicationTaskQueue:
     def shutdown(self, timeout: float = 1.0) -> bool:
         self.shutdown_called = True
         return True
+
+
+def _preview_request_of(queue: FakeApplicationTaskQueue) -> TaskRequest:
+    return next(
+        request for request in queue.submitted if request.operation == BUILD_PREVIEW_INDEX_OPERATION
+    )
+
+
+def _submitted_without_storage_stats(queue: FakeApplicationTaskQueue) -> list[TaskRequest]:
+    return [
+        request
+        for request in queue.submitted
+        if request.operation != VERSION_STORAGE_STATS_OPERATION
+    ]
 
 
 class PreviewTaskContext:
@@ -345,7 +361,7 @@ def test_empty_preview_import_button_uses_normal_import_flow(
         Qt.MouseButton.LeftButton,
     )
 
-    assert len(task_queue.submitted) == 1
+    assert len(_submitted_without_storage_stats(task_queue)) == 1
     assert task_queue.submitted[0].operation == IMPORT_WORKBOOK_OPERATION
 
 
@@ -358,7 +374,7 @@ def test_manual_cell_edit_saves_new_child_version(qtbot: QtBot, tmp_path: Path) 
     window = create_main_window(task_queue=task_queue, library_root=library_root)
     qtbot.addWidget(window)
     window.show()
-    preview_request = task_queue.submitted[0]
+    preview_request = _preview_request_of(task_queue)
     preview = run_preview_index_task(preview_request, PreviewTaskContext())
     task_queue.push_event(
         TaskEvent(
@@ -422,7 +438,7 @@ def test_unsaved_cell_edits_block_close_until_discarded(qtbot: QtBot, tmp_path: 
     )
     qtbot.addWidget(window)
     window.show()
-    preview_request = task_queue.submitted[0]
+    preview_request = _preview_request_of(task_queue)
     preview = run_preview_index_task(preview_request, PreviewTaskContext())
     task_queue.push_event(
         TaskEvent(
@@ -575,7 +591,7 @@ def test_import_button_submits_task_and_lists_successful_result(
         Qt.MouseButton.LeftButton,
     )
 
-    assert len(task_queue.submitted) == 1
+    assert len(_submitted_without_storage_stats(task_queue)) == 1
     request = task_queue.submitted[0]
     assert request.operation == IMPORT_WORKBOOK_OPERATION
     assert request.payload == {
@@ -643,7 +659,7 @@ def test_failed_import_shows_reason_and_keeps_import_available(
     qtbot.waitUntil(lambda: errors == ["工作簿无法打开"], timeout=500)
     qtbot.mouseClick(button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
 
-    assert len(task_queue.submitted) == 2
+    assert len(_submitted_without_storage_stats(task_queue)) == 2
 
 
 def test_existing_file_loads_working_copy_and_renders_selected_sheet(
@@ -673,9 +689,8 @@ def test_existing_file_loads_working_copy_and_renders_selected_sheet(
     qtbot.addWidget(window)
     window.show()
 
-    assert len(task_queue.submitted) == 1
-    request = task_queue.submitted[0]
-    assert request.operation == BUILD_PREVIEW_INDEX_OPERATION
+    assert len(_submitted_without_storage_stats(task_queue)) == 1
+    request = _preview_request_of(task_queue)
     assert request.payload["working_path"] == str(working)
     assert _child(window, QLabel, "document-title").text() == "销售.xlsx"
     assert window.windowTitle() == "风信子 — 销售.xlsx"
@@ -729,12 +744,12 @@ def test_switching_files_cancels_old_preview_and_ignores_its_result(
     window = create_main_window(task_queue=task_queue, library_root=library_root)
     qtbot.addWidget(window)
     window.show()
-    first_request = task_queue.submitted[0]
+    first_request = _preview_request_of(task_queue)
     stale_preview = run_preview_index_task(first_request, PreviewTaskContext())
     file_list = _child(window, QListWidget, "library-file-list")
     file_list.setCurrentRow(1)
 
-    assert len(task_queue.submitted) == 2
+    assert len(_submitted_without_storage_stats(task_queue)) == 2
     assert task_queue.cancelled == [first_request.task_id]
     task_queue.push_event(
         TaskEvent(
@@ -764,7 +779,7 @@ def test_sort_preview_apply_creates_child_and_refreshes_tree(
     window = create_main_window(task_queue=task_queue, library_root=library_root)
     qtbot.addWidget(window)
     window.show()
-    initial_request = task_queue.submitted[0]
+    initial_request = _preview_request_of(task_queue)
     base_preview = run_preview_index_task(initial_request, PreviewTaskContext())
     task_queue.push_event(
         TaskEvent(
@@ -800,7 +815,7 @@ def test_sort_preview_apply_creates_child_and_refreshes_tree(
             result=sort_result,
         )
     )
-    qtbot.waitUntil(lambda: len(task_queue.submitted) == 3, timeout=500)
+    qtbot.waitUntil(lambda: len(_submitted_without_storage_stats(task_queue)) == 3, timeout=500)
     temporary_index_request = task_queue.submitted[-1]
     temporary_preview = run_preview_index_task(temporary_index_request, PreviewTaskContext())
     task_queue.push_event(
@@ -838,7 +853,7 @@ def test_sort_preview_apply_creates_child_and_refreshes_tree(
             result=applied,
         )
     )
-    qtbot.waitUntil(lambda: len(task_queue.submitted) == 5, timeout=500)
+    qtbot.waitUntil(lambda: len(_submitted_without_storage_stats(task_queue)) == 5, timeout=500)
     tree = _child(window, QGraphicsView, "version-tree-view")
     proxies = [item for item in tree.scene().items() if isinstance(item, QGraphicsProxyWidget)]
     head = MetadataStore(library_root).get_workbook("file-1").head_version
@@ -870,7 +885,7 @@ def test_deduplicate_preview_apply_creates_child_and_shows_statistics(
     window = create_main_window(task_queue=task_queue, library_root=library_root)
     qtbot.addWidget(window)
     window.show()
-    initial_request = task_queue.submitted[0]
+    initial_request = _preview_request_of(task_queue)
     base_preview = run_preview_index_task(initial_request, PreviewTaskContext())
     task_queue.push_event(
         TaskEvent(
@@ -911,7 +926,7 @@ def test_deduplicate_preview_apply_creates_child_and_shows_statistics(
             result=result,
         )
     )
-    qtbot.waitUntil(lambda: len(task_queue.submitted) == 3, timeout=500)
+    qtbot.waitUntil(lambda: len(_submitted_without_storage_stats(task_queue)) == 3, timeout=500)
     temporary_index_request = task_queue.submitted[-1]
     temporary_preview = run_preview_index_task(temporary_index_request, PreviewTaskContext())
     task_queue.push_event(
@@ -947,7 +962,7 @@ def test_deduplicate_preview_apply_creates_child_and_shows_statistics(
             result=applied,
         )
     )
-    qtbot.waitUntil(lambda: len(task_queue.submitted) == 5, timeout=500)
+    qtbot.waitUntil(lambda: len(_submitted_without_storage_stats(task_queue)) == 5, timeout=500)
     head = MetadataStore(library_root).get_workbook("file-1").head_version
     tree = _child(window, QGraphicsView, "version-tree-view")
     proxies = [item for item in tree.scene().items() if isinstance(item, QGraphicsProxyWidget)]
@@ -978,7 +993,7 @@ def test_delete_blank_rows_preview_apply_creates_child_and_shows_original_rows(
     window = create_main_window(task_queue=task_queue, library_root=library_root)
     qtbot.addWidget(window)
     window.show()
-    initial_request = task_queue.submitted[0]
+    initial_request = _preview_request_of(task_queue)
     base_preview = run_preview_index_task(initial_request, PreviewTaskContext())
     task_queue.push_event(
         TaskEvent(
@@ -1017,7 +1032,7 @@ def test_delete_blank_rows_preview_apply_creates_child_and_shows_original_rows(
             result=result,
         )
     )
-    qtbot.waitUntil(lambda: len(task_queue.submitted) == 3, timeout=500)
+    qtbot.waitUntil(lambda: len(_submitted_without_storage_stats(task_queue)) == 3, timeout=500)
     temporary_index_request = task_queue.submitted[-1]
     temporary_preview = run_preview_index_task(temporary_index_request, PreviewTaskContext())
     task_queue.push_event(
@@ -1052,7 +1067,7 @@ def test_delete_blank_rows_preview_apply_creates_child_and_shows_original_rows(
             result=applied,
         )
     )
-    qtbot.waitUntil(lambda: len(task_queue.submitted) == 5, timeout=500)
+    qtbot.waitUntil(lambda: len(_submitted_without_storage_stats(task_queue)) == 5, timeout=500)
     head = MetadataStore(library_root).get_workbook("file-1").head_version
     tree = _child(window, QGraphicsView, "version-tree-view")
     proxies = [item for item in tree.scene().items() if isinstance(item, QGraphicsProxyWidget)]
@@ -1083,7 +1098,7 @@ def test_filter_preview_apply_creates_child_and_only_shows_matching_rows(
     window = create_main_window(task_queue=task_queue, library_root=library_root)
     qtbot.addWidget(window)
     window.show()
-    initial_request = task_queue.submitted[0]
+    initial_request = _preview_request_of(task_queue)
     base_preview = run_preview_index_task(initial_request, PreviewTaskContext())
     task_queue.push_event(
         TaskEvent(
@@ -1148,7 +1163,7 @@ def test_filter_preview_apply_creates_child_and_only_shows_matching_rows(
             result=result,
         )
     )
-    qtbot.waitUntil(lambda: len(task_queue.submitted) == 3, timeout=500)
+    qtbot.waitUntil(lambda: len(_submitted_without_storage_stats(task_queue)) == 3, timeout=500)
     temporary_index_request = task_queue.submitted[-1]
     temporary_preview = run_preview_index_task(temporary_index_request, PreviewTaskContext())
     task_queue.push_event(
@@ -1187,7 +1202,7 @@ def test_filter_preview_apply_creates_child_and_only_shows_matching_rows(
             result=applied,
         )
     )
-    qtbot.waitUntil(lambda: len(task_queue.submitted) == 5, timeout=500)
+    qtbot.waitUntil(lambda: len(_submitted_without_storage_stats(task_queue)) == 5, timeout=500)
     head = MetadataStore(library_root).get_workbook("file-1").head_version
     tree = _child(window, QGraphicsView, "version-tree-view")
     proxies = [item for item in tree.scene().items() if isinstance(item, QGraphicsProxyWidget)]
@@ -1244,7 +1259,7 @@ def test_historical_preview_checkout_and_processing_create_branch(
     window = create_main_window(task_queue=task_queue, library_root=library_root)
     qtbot.addWidget(window)
     window.show()
-    initial_request = task_queue.submitted[0]
+    initial_request = _preview_request_of(task_queue)
     initial_preview = run_preview_index_task(initial_request, PreviewTaskContext())
     task_queue.push_event(
         TaskEvent(
@@ -1266,7 +1281,7 @@ def test_historical_preview_checkout_and_processing_create_branch(
     }
     qtbot.mouseClick(cards[root.version_id], Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
 
-    qtbot.waitUntil(lambda: len(task_queue.submitted) == 2, timeout=500)
+    qtbot.waitUntil(lambda: len(_submitted_without_storage_stats(task_queue)) == 2, timeout=500)
     historical_request = task_queue.submitted[-1]
     assert historical_request.operation == BUILD_PREVIEW_INDEX_OPERATION
     assert historical_request.payload["working_path"] == str(root.snapshot_path)
@@ -1304,7 +1319,7 @@ def test_historical_preview_checkout_and_processing_create_branch(
             result=checked_out,
         )
     )
-    qtbot.waitUntil(lambda: len(task_queue.submitted) == 4, timeout=500)
+    qtbot.waitUntil(lambda: len(_submitted_without_storage_stats(task_queue)) == 4, timeout=500)
     checked_out_preview_request = task_queue.submitted[-1]
     checked_out_preview = run_preview_index_task(
         checked_out_preview_request,
@@ -1339,7 +1354,7 @@ def test_historical_preview_checkout_and_processing_create_branch(
             result=sort_result,
         )
     )
-    qtbot.waitUntil(lambda: len(task_queue.submitted) == 6, timeout=500)
+    qtbot.waitUntil(lambda: len(_submitted_without_storage_stats(task_queue)) == 6, timeout=500)
     temporary_index_request = task_queue.submitted[-1]
     temporary_preview = run_preview_index_task(temporary_index_request, PreviewTaskContext())
     task_queue.push_event(
@@ -1368,7 +1383,7 @@ def test_historical_preview_checkout_and_processing_create_branch(
             result=applied,
         )
     )
-    qtbot.waitUntil(lambda: len(task_queue.submitted) == 8, timeout=500)
+    qtbot.waitUntil(lambda: len(_submitted_without_storage_stats(task_queue)) == 8, timeout=500)
     versions = store.list_versions(record.file_id)
     head = store.get_workbook(record.file_id).head_version
 
@@ -1393,7 +1408,7 @@ def test_dragged_version_position_persists_after_reopening_tree(
     first_window = create_main_window(task_queue=first_queue, library_root=library_root)
     qtbot.addWidget(first_window)
     first_window.show()
-    request = first_queue.submitted[0]
+    request = _preview_request_of(first_queue)
     preview = run_preview_index_task(request, PreviewTaskContext())
     first_queue.push_event(
         TaskEvent(
@@ -1446,3 +1461,81 @@ def test_dragged_version_position_persists_after_reopening_tree(
 
     assert reopened_proxy.pos().x() == layouts[root.version_id].x
     assert reopened_proxy.pos().y() == layouts[root.version_id].y
+
+
+def test_storage_status_shows_format_and_sizes_for_selected_and_previewed_version(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    record = _seed_versioned_workbook(library_root)
+    root = record.head_version
+    assert root is not None
+    child_snapshot = library_root / "files/file-1/versions/version-2/snapshot.xlsx"
+    child_snapshot.parent.mkdir(parents=True)
+    child_snapshot.write_bytes(record.working_path.read_bytes() + b"extra-manual-edit-content")
+    child = VersionRecord(
+        "version-2",
+        record.file_id,
+        root.version_id,
+        "手动编辑",
+        datetime(2026, 8, 16, 9, 0, tzinfo=UTC),
+        "manual-edit",
+        None,
+        child_snapshot,
+        sha256(child_snapshot.read_bytes()).hexdigest(),
+    )
+    MetadataStore(library_root).record_child_version(child, root.version_id)
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=library_root)
+    qtbot.addWidget(window)
+    window.show()
+    format_label = _child(window, QLabel, "storage-format-pill")
+    sizes_label = _child(window, QLabel, "storage-size-text")
+
+    stats_request = task_queue.submitted[0]
+    assert stats_request.operation == VERSION_STORAGE_STATS_OPERATION
+    assert stats_request.payload["preview_version_id"] == child.version_id
+    stats = run_version_storage_stats_task(stats_request, PreviewTaskContext())
+    task_queue.push_event(
+        TaskEvent(
+            stats_request.task_id,
+            TaskState.SUCCEEDED,
+            stats_request.name,
+            stats_request.file_id,
+            None,
+            result=stats,
+        )
+    )
+
+    qtbot.waitUntil(lambda: "版本总占用" in sizes_label.text(), timeout=2000)
+    expected_total = root.snapshot_path.stat().st_size + child_snapshot.stat().st_size
+    assert format_label.text() == "XLSX"
+    assert format_byte_size(expected_total) in sizes_label.text()
+    assert format_byte_size(child_snapshot.stat().st_size) in sizes_label.text()
+
+    tree_panel = _child(window, VersionTreePanel, "version-tree-panel")
+    tree_panel.version_preview_requested.emit(root.version_id)
+
+    switch_stats_request = task_queue.submitted[-2]
+    assert switch_stats_request.operation == VERSION_STORAGE_STATS_OPERATION
+    assert switch_stats_request.payload["preview_version_id"] == root.version_id
+
+
+def test_storage_status_empty_state_without_selected_file(qtbot: QtBot, tmp_path: Path) -> None:
+    task_queue = FakeApplicationTaskQueue([])
+    from hyacinth.app import create_main_window
+
+    window = create_main_window(task_queue=task_queue, library_root=tmp_path / "library")
+    qtbot.addWidget(window)
+
+    format_label = _child(window, QLabel, "storage-format-pill")
+    sizes_label = _child(window, QLabel, "storage-size-text")
+
+    assert format_label.text() == "未选择文件"
+    assert sizes_label.text() == ""
+    assert not any(
+        request.operation == VERSION_STORAGE_STATS_OPERATION for request in task_queue.submitted
+    )
