@@ -1607,6 +1607,7 @@ class VersionTreePanel(QFrame):
         # 固定节点保存泳道内相对坐标，泳道高度变化时节点随泳道移动。
         self._lane_content_tops: dict[str, float] = {}
         self._single_file_mode = False
+        self._items_by_file: dict[str, list[QGraphicsItem]] = {}
         self._last_trees: tuple[FileVersionTree, ...] = ()
         self._last_current_file_id: str | None = None
         self._records: dict[tuple[str, str], VersionRecord] = {}
@@ -1698,6 +1699,7 @@ class VersionTreePanel(QFrame):
         self._edge_relations = []
         self._lane_decorations = []
         self._lane_content_tops = {}
+        self._items_by_file = {}
         render_trees: tuple[FileVersionTree, ...] = trees
         if (
             self._single_file_mode
@@ -1716,7 +1718,10 @@ class VersionTreePanel(QFrame):
                 lane_rows = max(lane_rows, int(local_y // NODE_DY) + 1)
             lane_height = LANE_HEADER_HEIGHT + lane_rows * NODE_DY + 10.0
             is_current = tree.file_id == current_file_id
-            self._render_lane_header(scene, tree, lane_top, lane_width, lane_height, is_current)
+            lane_items = self._render_lane_header(
+                scene, tree, lane_top, lane_width, lane_height, is_current
+            )
+            self._items_by_file[tree.file_id] = list(lane_items)
             self._lane_content_tops[tree.file_id] = lane_top + LANE_HEADER_HEIGHT
             for version in tree.versions:
                 layout = tree.layouts.get(version.version_id)
@@ -1754,6 +1759,7 @@ class VersionTreePanel(QFrame):
                     proxy.setOpacity(0.78)
                 self._proxies[key] = proxy
                 self._cards[key] = card
+                self._items_by_file[tree.file_id].append(proxy)
                 if first_proxy is None:
                     first_proxy = proxy
                 if key == focus_key:
@@ -1777,6 +1783,7 @@ class VersionTreePanel(QFrame):
                 )
                 line.setZValue(-1)
                 self._edge_relations.append((tree.file_id, parent_id, version.version_id, line))
+                self._items_by_file[tree.file_id].append(line)
             lane_top += lane_height + LANE_GAP
         self._view.setScene(scene)
         self._scene = scene
@@ -1786,7 +1793,11 @@ class VersionTreePanel(QFrame):
             self._view.centerOn(anchor)
         elif first_proxy is not None:
             self._view.centerOn(first_proxy)
+        self._apply_view_mode_visibility()
         self._retired_scenes.append(previous_scene)
+        # 只保留少量退役场景防止长会话累积拖垮内存；隔多轮再销毁
+        # 可避开 QGraphicsProxyWidget 延迟销毁的原生竞态窗口。
+        del self._retired_scenes[:-3]
 
     def _render_lane_header(
         self,
@@ -1796,7 +1807,7 @@ class VersionTreePanel(QFrame):
         lane_width: float,
         lane_height: float,
         is_current: bool,
-    ) -> None:
+    ) -> tuple[QGraphicsItem, QGraphicsItem]:
         background = scene.addRect(
             QRectF(16.0, lane_top, lane_width, lane_height),
             QPen(Qt.PenStyle.NoPen),
@@ -1814,6 +1825,7 @@ class VersionTreePanel(QFrame):
         self._lane_decorations.append(label)
         label.setPos(28.0, lane_top + 9.0)
         label.setZValue(-2)
+        return background, label
 
     @staticmethod
     def _lane_background_brush(is_current: bool) -> QBrush:
@@ -1821,18 +1833,27 @@ class VersionTreePanel(QFrame):
         return QBrush(color)
 
     def _layout_lane(self, tree: FileVersionTree) -> tuple[dict[str, tuple[float, float]], int]:
-        """树形排布：叶子按序占行，父节点纵向居中于其子树区间。"""
+        """树形排布：叶子按序占行，父节点纵向居中于其子树区间。
+
+        固定节点不参与自动排布；以“最近的固定祖先”为边界，
+        每棵自动子树独立分配行，保证所有非固定节点（含固定节点的后代）都被排布。
+        """
         children: dict[str | None, list[VersionRecord]] = {}
         for version in tree.versions:
             children.setdefault(version.parent_version_id, []).append(version)
         fixed_ids = {version_id for version_id, layout in tree.layouts.items() if layout.fixed}
+        depth_of: dict[str, int] = {}
+        for version in tree.versions:
+            depth_of[version.version_id] = (
+                0
+                if version.parent_version_id is None
+                else depth_of.get(version.parent_version_id, 0) + 1
+            )
         positions: dict[str, tuple[float, float]] = {}
-        max_depth = 0
         next_row = 0
 
         def assign(version: VersionRecord, depth: int) -> tuple[int, int]:
-            nonlocal max_depth, next_row
-            max_depth = max(max_depth, depth)
+            nonlocal next_row
             auto_kids = [
                 child
                 for child in children.get(version.version_id, [])
@@ -1849,13 +1870,13 @@ class VersionTreePanel(QFrame):
             positions[version.version_id] = (depth * NODE_DX, center_y)
             return span
 
-        for root in children.get(None, ()):
-            if root.version_id in fixed_ids:
-                for child in children.get(root.version_id, ()):
-                    if child.version_id not in fixed_ids:
-                        assign(child, 1)
-            else:
-                assign(root, 0)
+        for version in tree.versions:
+            is_auto_root = version.version_id not in fixed_ids and (
+                version.parent_version_id is None or version.parent_version_id in fixed_ids
+            )
+            if is_auto_root:
+                assign(version, depth_of[version.version_id])
+        max_depth = max(depth_of.values(), default=0)
         return positions, max_depth
 
     def _version_card(
@@ -2053,24 +2074,20 @@ class VersionTreePanel(QFrame):
         self.version_position_changed.emit(file_id, version_id, x, relative_y)
 
     def _toggle_view_mode(self) -> None:
-        anchor = self._view.mapToScene(self._view.viewport().rect().center())
-        lane_top = self._lane_content_tops.get(self._current_file_id or "")
-        relative = anchor - QPointF(0.0, lane_top) if lane_top is not None else None
         self._single_file_mode = not self._single_file_mode
         if self._single_file_mode:
             self._mode_button.setText("查看全部文件")
         else:
             self._mode_button.setText("仅看当前文件")
-        self._render_workbooks(
-            self._last_trees,
-            self._last_current_file_id,
-            focus_key=None,
-        )
-        new_lane_top = self._lane_content_tops.get(self._current_file_id or "")
-        if relative is not None and new_lane_top is not None:
-            self._view.centerOn(QPointF(0.0, new_lane_top) + relative)
-        else:
-            self._view.centerOn(anchor)
+        # 只切换泳道显隐，不重建场景：节点、连线与视口位置原样保持。
+        self._apply_view_mode_visibility()
+
+    def _apply_view_mode_visibility(self) -> None:
+        single = self._single_file_mode and self._current_file_id is not None
+        for file_id, items in self._items_by_file.items():
+            visible = (not single) or file_id == self._current_file_id
+            for item in items:
+                item.setVisible(visible)
 
     def _toggle_focus_mode(self, enabled: bool) -> None:
         if enabled:

@@ -938,11 +938,13 @@ def test_view_mode_toggle_filters_current_file_and_keeps_position(
     view = panel.findChild(QGraphicsView, "version-tree-view")
     assert view is not None
 
-    def file_ids() -> set[str]:
+    def visible_file_ids() -> set[str]:
         return {
             str(proxy.widget().property("file-id"))
             for proxy in view.scene().items()
-            if isinstance(proxy, QGraphicsProxyWidget) and proxy.widget() is not None
+            if isinstance(proxy, QGraphicsProxyWidget)
+            and proxy.widget() is not None
+            and proxy.isVisible()
         }
 
     proxy_a = next(
@@ -954,12 +956,13 @@ def test_view_mode_toggle_filters_current_file_and_keeps_position(
     )
     view.centerOn(proxy_a)
     center_before = view.mapToScene(view.viewport().rect().center())
+    retired_before = len(panel._retired_scenes)
 
     mode_button = panel.findChild(QPushButton, "version-mode-toggle-button")
     assert mode_button is not None
     qtbot.mouseClick(mode_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
 
-    assert file_ids() == {"file-a"}
+    assert visible_file_ids() == {"file-a"}
     assert mode_button.text() == "查看全部文件"
     proxy_a_after = next(
         proxy
@@ -969,10 +972,15 @@ def test_view_mode_toggle_filters_current_file_and_keeps_position(
         and str(proxy.widget().property("version-id")) == "root-a"
     )
     center_after = view.mapToScene(view.viewport().rect().center())
-    assert abs(center_after.y() - center_before.y()) < 5.0
-    assert proxy_a_after.pos().y() == proxy_a.pos().y()
+    # 模式切换只显隐泳道：场景未重建、视口零位移。
+    assert proxy_a_after is proxy_a
+    assert abs(center_after.y() - center_before.y()) < 0.1
+    assert abs(center_after.x() - center_before.x()) < 0.1
+    assert len(panel._retired_scenes) == retired_before
 
-    qtbot.mouseClick(mode_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    for _ in range(7):
+        qtbot.mouseClick(mode_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
 
-    assert file_ids() == {"file-a", "file-b"}
+    assert len(panel._retired_scenes) == retired_before
+    assert visible_file_ids() == {"file-a", "file-b"}
     assert mode_button.text() == "仅看当前文件"
