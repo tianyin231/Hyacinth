@@ -266,6 +266,39 @@ class MetadataStore:
             raise ValueError(f"找不到版本记录：{version_id}")
         return self._version_from_row(row)
 
+    def version_has_children(self, file_id: str, version_id: str) -> bool:
+        """判断版本是否已有子节点（含已删除占位节点），用于就地修改的守卫。"""
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) FROM versions
+                WHERE file_id = ? AND parent_version_id = ?
+                """,
+                (file_id, version_id),
+            ).fetchone()
+        return bool(row and row[0])
+
+    def update_version_content(
+        self,
+        file_id: str,
+        version_id: str,
+        *,
+        expected_hash: str,
+        new_hash: str,
+    ) -> None:
+        """就地修改叶节点内容：只更新内容哈希，节点 id、名称与父子关系不变。"""
+        with self._connection() as connection:
+            updated = connection.execute(
+                """
+                UPDATE versions
+                SET content_hash = ?
+                WHERE file_id = ? AND version_id = ? AND content_hash = ?
+                """,
+                (new_hash, file_id, version_id, expected_hash),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("版本内容已变化，就地修改未生效，请重试")
+
     def switch_head(
         self,
         file_id: str,

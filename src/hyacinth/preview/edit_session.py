@@ -36,6 +36,7 @@ class _CellEditCommand(QUndoCommand):
 class EditSession(QObject):
     cell_changed = Signal(str, int, int)
     state_changed = Signal(bool, bool, bool)
+    edits_count_changed = Signal(int)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -87,6 +88,7 @@ class EditSession(QObject):
         self._undo_stack.clear()
         for sheet_name, row, column in changed_cells:
             self.cell_changed.emit(sheet_name, row, column)
+        self.edits_count_changed.emit(0)
         self._emit_state()
 
     def _apply_value(self, key: tuple[str, int, int], value: object) -> None:
@@ -95,6 +97,7 @@ class EditSession(QObject):
         else:
             self._edits[key] = value
         self.cell_changed.emit(*key)
+        self.edits_count_changed.emit(len(self._edits))
         self._emit_state()
 
     def _emit_state(self, _value: bool | None = None) -> None:

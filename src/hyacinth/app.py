@@ -56,6 +56,7 @@ from hyacinth.processing import (
     SAVE_MANUAL_EDITS_OPERATION,
     SORT_PREVIEW_OPERATION,
     TRIM_PREVIEW_OPERATION,
+    UPDATE_VERSION_IN_PLACE_OPERATION,
     DeduplicatePreviewResult,
     DeleteBlankRowsPreviewResult,
     FilterPreviewResult,
@@ -127,7 +128,7 @@ FilePicker = Callable[[QWidget], Path | None]
 ErrorPresenter = Callable[[QWidget, str], None]
 ConfirmationPresenter = Callable[[QWidget, str, str], bool]
 VersionChoicePresenter = Callable[[QWidget, tuple[VersionRecord, ...]], str | None]
-UnsavedChangesPresenter = Callable[[QWidget, str], str]
+UnsavedChangesPresenter = Callable[[QWidget, str, bool], str]
 SaveAsPicker = Callable[[QWidget, str], Path | None]
 ExportPresenter = Callable[[QWidget, Path], None]
 
@@ -219,6 +220,8 @@ class HyacinthMainWindow(QMainWindow):
         self._previewed_version_id: str | None = None
         self._close_after_manual_save = False
         self._close_after_apply = False
+        self._in_place_task_id: str | None = None
+        self._close_after_in_place = False
         self._export_task_id: str | None = None
         self._storage_stats_task_id: str | None = None
         self._purge_task_id: str | None = None
@@ -257,6 +260,7 @@ class HyacinthMainWindow(QMainWindow):
         self._workbook_preview = WorkbookPreviewWidget(workspace_root)
         self._workbook_preview.import_requested.connect(self._choose_import_file)
         self._workbook_preview.edit_state_changed.connect(self._apply_edit_state)
+        self._workbook_preview.pending_edits_changed.connect(self._apply_pending_edit_count)
         self._workbook_preview.header_sort_requested.connect(self._quick_sort_from_table)
         self._workbook_preview.header_multi_sort_requested.connect(self._open_sort_dialog)
         self._workbook_preview.header_filter_requested.connect(
@@ -302,6 +306,7 @@ class HyacinthMainWindow(QMainWindow):
         self._task_bridge.event_received.connect(self._apply_processing_event)
         self._task_bridge.event_received.connect(self._apply_apply_event)
         self._task_bridge.event_received.connect(self._apply_manual_save_event)
+        self._task_bridge.event_received.connect(self._apply_in_place_event)
         self._task_bridge.event_received.connect(self._apply_checkout_event)
         self._task_bridge.event_received.connect(self._apply_delete_event)
         self._task_bridge.event_received.connect(self._apply_export_event)
@@ -719,28 +724,27 @@ class HyacinthMainWindow(QMainWindow):
         if workbook is None or parent is None:
             self._editor.set_error("当前文件尚未建立可处理的根版本")
             return
-        # 已有临时结果时进入链式模式：新操作以临时结果为源，可继续叠加，
-        # 未保存的单元格编辑随任务烘焙进新的临时文件（需求第 17 节扩展）。
+        # 已有临时结果时进入链式模式：新操作以临时结果为源，可继续叠加；
+        # 首个操作以 HEAD 快照为源。两种情况下未保存的单元格编辑都随任务
+        # 烘焙进新的临时文件（DEC-20260816-039），处理操作永不丢编辑。
         chained = self._processing_result is not None
+        pending_edits = [
+            {
+                "sheet_name": edit.sheet_name,
+                "row": edit.row,
+                "column": edit.column,
+                "value": edit.value,
+            }
+            for edit in self._workbook_preview.pending_edits()
+        ]
         if not chained:
-            self._discard_processing_result()
+            # 编辑已捕获进 payload，丢弃旧临时结果时保留编辑会话；
+            # 任务失败或用户取消时编辑仍然在网格里，不会无声丢失。
+            self._discard_processing_result(clear_edits=False)
         source_path = (
             self._processing_result.preview_path
             if chained and self._processing_result is not None
             else parent.snapshot_path
-        )
-        pending_edits = (
-            [
-                {
-                    "sheet_name": edit.sheet_name,
-                    "row": edit.row,
-                    "column": edit.column,
-                    "value": edit.value,
-                }
-                for edit in self._workbook_preview.pending_edits()
-            ]
-            if chained
-            else []
         )
         base_version_id = (
             self._processing_base_version_id if chained else parent.version_id
@@ -1009,6 +1013,9 @@ class HyacinthMainWindow(QMainWindow):
             can_undo,
             can_redo,
         )
+
+    def _apply_pending_edit_count(self, count: int) -> None:
+        self._editor.set_pending_edit_count(count)
 
     def _submit_manual_save(self) -> None:
         workbook = self._current_workbook
@@ -1474,15 +1481,23 @@ class HyacinthMainWindow(QMainWindow):
             self._editor.set_busy("正在请求取消临时结果加载…")
             return
         workbook = self._current_workbook
+        # 取消会丢弃临时结果上尚未保存的单元格编辑，先让用户选择（DEC-20260816-039）。
+        if self._workbook_preview.pending_edits() and not self._resolve_unsaved_changes(
+            "取消临时结果"
+        ):
+            return
         self._discard_processing_result()
         if reload_base and workbook is not None:
             self._load_preview(workbook.working_path, workbook.display_name, temporary=False)
 
-    def _discard_processing_result(self) -> None:
+    def _discard_processing_result(self, *, clear_edits: bool = True) -> None:
         # 临时结果连同其上的未提交编辑一起废弃，避免残留编辑污染下一次预览。
         # 没有临时结果时（如只查找）不动网格，避免把数据预览误清成导入空状态。
+        # clear_edits=False 用于编辑已随新任务提交的场合（如首个处理操作），
+        # 失败/取消时编辑仍留在网格中。
         had_temporary = self._processing_result is not None
-        self._workbook_preview.clear_edits()
+        if clear_edits:
+            self._workbook_preview.clear_edits()
         if had_temporary:
             self._workbook_preview.clear_preview("正在处理…")
         self._editor.clear_banner()
@@ -1916,7 +1931,9 @@ class HyacinthMainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._workbook_preview.pending_edits():
-            choice = self._unsaved_changes_presenter(self, "退出软件")
+            choice = self._unsaved_changes_presenter(
+                self, "退出软件", self._can_update_version_in_place()
+            )
             if choice == "cancel":
                 event.ignore()
                 return
@@ -1929,6 +1946,11 @@ class HyacinthMainWindow(QMainWindow):
                     self._submit_manual_save()
                 event.ignore()
                 return
+            if choice == "save_in_place":
+                self._close_after_in_place = True
+                self._submit_update_in_place()
+                event.ignore()
+                return
             self._workbook_preview.clear_edits()
         if self._task_bridge.shutdown(timeout=1.0):
             self._discard_processing_result()
@@ -1937,14 +1959,91 @@ class HyacinthMainWindow(QMainWindow):
         else:
             event.ignore()
 
+    def _can_update_version_in_place(self) -> bool:
+        """就地修改仅限：正在预览当前 HEAD、无临时结果、且该节点没有子节点。"""
+        if self._processing_result is not None or self._in_place_task_id is not None:
+            return False
+        workbook = self._current_workbook
+        head = workbook.head_version if workbook is not None else None
+        if workbook is None or head is None or self._previewed_version_id != head.version_id:
+            return False
+        return not MetadataStore(self._library_root).version_has_children(
+            workbook.file_id, head.version_id
+        )
+
+    def _submit_update_in_place(self) -> None:
+        """把未保存编辑就地写入当前叶节点（DEC-20260816-039），不生成新节点。"""
+        workbook = self._current_workbook
+        head = workbook.head_version if workbook is not None else None
+        edits = self._workbook_preview.pending_edits()
+        if workbook is None or head is None or not edits or self._in_place_task_id is not None:
+            return
+        task_id = uuid4().hex
+        self._in_place_task_id = task_id
+        self._set_processing_navigation_enabled(False)
+        self._editor.set_busy("正在就地更新版本内容…")
+        self._task_queue.submit(
+            TaskRequest(
+                task_id=task_id,
+                name="就地更新版本内容",
+                file_id=workbook.file_id,
+                engine=None,
+                operation=UPDATE_VERSION_IN_PLACE_OPERATION,
+                payload={
+                    "library_root": str(self._library_root),
+                    "version_id": head.version_id,
+                    "expected_hash": head.content_hash,
+                    "edits": [
+                        {
+                            "sheet_name": edit.sheet_name,
+                            "row": edit.row,
+                            "column": edit.column,
+                            "value": edit.value,
+                        }
+                        for edit in edits
+                    ],
+                },
+            )
+        )
+
+    def _apply_in_place_event(self, event: TaskEvent) -> None:
+        if event.task_id != self._in_place_task_id:
+            return
+        if event.state is TaskState.SUCCEEDED and isinstance(event.result, ImportedWorkbook):
+            self._in_place_task_id = None
+            self._workbook_preview.clear_edits()
+            self._set_processing_navigation_enabled(True)
+            self._current_workbook = event.result
+            head = event.result.head_version
+            self._previewed_version_id = head.version_id if head is not None else None
+            self._file_library.replace_workbook(event.result)
+            self._refresh_version_canvas()
+            self._load_preview(
+                event.result.working_path,
+                event.result.display_name,
+                temporary=False,
+            )
+            if self._close_after_in_place:
+                self._close_after_in_place = False
+                self.close()
+        elif event.state in {TaskState.FAILED, TaskState.CANCELLED}:
+            self._in_place_task_id = None
+            self._close_after_in_place = False
+            self._set_processing_navigation_enabled(True)
+            self._editor.set_error(event.message or "就地更新未完成，编辑仍保留在表格中")
+
     def _resolve_unsaved_changes(self, action: str) -> bool:
         if not self._workbook_preview.pending_edits():
             return True
-        choice = self._unsaved_changes_presenter(self, action)
+        allow_in_place = self._can_update_version_in_place()
+        choice = self._unsaved_changes_presenter(self, action, allow_in_place)
         if choice == "discard":
             self._workbook_preview.clear_edits()
             return True
-        if choice == "save":
+        if choice == "save_in_place":
+            # 就地修改当前叶节点：不生成新节点，节点 id 与父子关系不变。
+            self._submit_update_in_place()
+        elif choice == "save":
             # 临时结果上的编辑只能随“应用生成版本”提交。
             if self._processing_result is not None:
                 self._submit_apply_processing_preview()
@@ -2080,18 +2179,33 @@ def choose_replacement_version(
     return candidates[labels.index(selected)].version_id
 
 
-def ask_unsaved_changes(parent: QWidget, action: str) -> str:
+def ask_unsaved_changes(parent: QWidget, action: str, allow_in_place: bool = False) -> str:
     dialog = QMessageBox(parent)
     dialog.setWindowTitle("有未保存的修改")
-    dialog.setText(f"{action}前，是否将当前单元格修改保存为新版本？")
-    dialog.setInformativeText("选择“放弃”会丢弃本次尚未保存的编辑。")
+    if allow_in_place:
+        dialog.setText(f"{action}前，如何处理当前未保存的单元格修改？")
+        dialog.setInformativeText(
+            "“就地更新此节点”会直接修改当前版本内容，不生成新节点；"
+            "“保存为新版本”会在版本树中新增一个子节点。选择“放弃”会丢弃未保存的编辑。"
+        )
+    else:
+        dialog.setText(f"{action}前，是否将当前单元格修改保存为新版本？")
+        dialog.setInformativeText("选择“放弃”会丢弃本次尚未保存的编辑。")
     dialog.setIcon(QMessageBox.Icon.Warning)
-    save_button = dialog.addButton("保存", QMessageBox.ButtonRole.AcceptRole)
+    if allow_in_place:
+        in_place_button = dialog.addButton("就地更新此节点", QMessageBox.ButtonRole.AcceptRole)
+        save_button = dialog.addButton("保存为新版本", QMessageBox.ButtonRole.AcceptRole)
+        dialog.setDefaultButton(in_place_button)
+    else:
+        save_button = dialog.addButton("保存", QMessageBox.ButtonRole.AcceptRole)
+        in_place_button = None
+        dialog.setDefaultButton(save_button)
     discard_button = dialog.addButton("放弃", QMessageBox.ButtonRole.DestructiveRole)
     dialog.addButton("取消", QMessageBox.ButtonRole.RejectRole)
-    dialog.setDefaultButton(save_button)
     dialog.exec()
     clicked = dialog.clickedButton()
+    if clicked is in_place_button and in_place_button is not None:
+        return "save_in_place"
     if clicked is save_button:
         return "save"
     if clicked is discard_button:

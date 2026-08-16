@@ -19,6 +19,7 @@ from hyacinth.processing import (
     APPLY_SORT_PREVIEW_OPERATION,
     APPLY_TRIM_PREVIEW_OPERATION,
     SAVE_MANUAL_EDITS_OPERATION,
+    UPDATE_VERSION_IN_PLACE_OPERATION,
     apply_chained_preview_task,
     apply_deduplicate_preview_task,
     apply_delete_blank_rows_preview_task,
@@ -32,7 +33,9 @@ from hyacinth.processing import (
     run_apply_filter_preview_task,
     run_apply_sort_preview_task,
     run_save_manual_edits_task,
+    run_update_version_in_place_task,
     save_manual_edits_task,
+    update_version_in_place_task,
 )
 from hyacinth.tasks import TaskEvent, TaskQueue, TaskRequest, TaskState
 from hyacinth.versioning import ImportedWorkbook, MetadataStore, VersionRecord
@@ -206,6 +209,7 @@ def _filter_request(root: Path, preview: Path) -> TaskRequest:
 def test_apply_handler_is_registered() -> None:
     assert apply_version_handlers() == {
         APPLY_CHAINED_PREVIEW_OPERATION: apply_chained_preview_task,
+        UPDATE_VERSION_IN_PLACE_OPERATION: update_version_in_place_task,
         APPLY_SORT_PREVIEW_OPERATION: apply_sort_preview_task,
         APPLY_DEDUPLICATE_PREVIEW_OPERATION: apply_deduplicate_preview_task,
         APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION: apply_delete_blank_rows_preview_task,
@@ -426,6 +430,24 @@ def test_metadata_failure_preserves_child_manifest_for_recovery(tmp_path: Path) 
         def get_workbook(self, file_id: str) -> ImportedWorkbook:
             return store.get_workbook(file_id)
 
+        def get_version(self, file_id: str, version_id: str) -> VersionRecord:
+            return store.get_version(file_id, version_id)
+
+        def version_has_children(self, file_id: str, version_id: str) -> bool:
+            return store.version_has_children(file_id, version_id)
+
+        def update_version_content(
+            self,
+            file_id: str,
+            version_id: str,
+            *,
+            expected_hash: str,
+            new_hash: str,
+        ) -> None:
+            store.update_version_content(
+                file_id, version_id, expected_hash=expected_hash, new_hash=new_hash
+            )
+
         def record_child_version(
             self,
             version: VersionRecord,
@@ -514,3 +536,106 @@ def test_task_queue_saves_manual_edits_in_worker_process(tmp_path: Path) -> None
         assert _value(succeeded[0].result.working_path, "A2") == "pear"
     finally:
         assert queue.shutdown(timeout=5.0) is True
+
+
+def test_update_version_in_place_rewrites_leaf_snapshot(tmp_path: Path) -> None:
+    """就地修改叶节点：同一 version_id、哈希更新、快照与工作副本同步改写。"""
+    root = tmp_path / "library"
+    record = _seed_library(root)
+    version = record.head_version
+    assert version is not None
+    request = TaskRequest(
+        task_id="inplace-1",
+        name="就地更新版本内容",
+        file_id="file-1",
+        engine=None,
+        operation=UPDATE_VERSION_IN_PLACE_OPERATION,
+        payload={
+            "library_root": str(root),
+            "version_id": version.version_id,
+            "expected_hash": version.content_hash,
+            "edits": [{"sheet_name": "销售", "row": 1, "column": 0, "value": "樱桃"}],
+        },
+    )
+    result = run_update_version_in_place_task(request, RecordingContext())
+    head = result.head_version
+    assert head is not None
+    # 同一节点，不生成新版本；内容哈希更新
+    assert head.version_id == version.version_id
+    assert head.content_hash != version.content_hash
+    assert _value(head.snapshot_path, "A2") == "樱桃"
+    assert _value(record.working_path, "A2") == "樱桃"
+    refreshed = MetadataStore(root).get_version("file-1", version.version_id)
+    assert refreshed.content_hash == head.content_hash
+    # 快照目录中不留临时文件
+    leftovers = [p.name for p in head.snapshot_path.parent.iterdir() if p.name != "snapshot.xlsx"]
+    assert leftovers == []
+
+
+def test_update_version_in_place_rejects_parent_node(tmp_path: Path) -> None:
+    """已有子节点的版本不能就地修改，必须生成新分支。"""
+    root = tmp_path / "library"
+    record = _seed_library(root)
+    parent_version = record.head_version
+    assert parent_version is not None
+    child = VersionRecord(
+        "version-2",
+        "file-1",
+        parent_version.version_id,
+        "排序结果",
+        datetime(2026, 8, 15, 9, 0, tzinfo=UTC),
+        "sort",
+        EngineName.PYTHON,
+        parent_version.snapshot_path,
+        parent_version.content_hash,
+        "",
+    )
+    MetadataStore(root).record_child_version(child, parent_version.version_id)
+    request = TaskRequest(
+        task_id="inplace-2",
+        name="就地更新版本内容",
+        file_id="file-1",
+        engine=None,
+        operation=UPDATE_VERSION_IN_PLACE_OPERATION,
+        payload={
+            "library_root": str(root),
+            "version_id": parent_version.version_id,
+            "expected_hash": parent_version.content_hash,
+            "edits": [{"sheet_name": "销售", "row": 1, "column": 0, "value": "樱桃"}],
+        },
+    )
+    try:
+        run_update_version_in_place_task(request, RecordingContext())
+    except ValueError as error:
+        assert "子节点" in str(error)
+    else:
+        raise AssertionError("已有子节点的版本不应允许就地修改")
+    # 父节点内容未被改动
+    assert _value(parent_version.snapshot_path, "A2") == "apple"
+
+
+def test_update_version_in_place_rejects_stale_hash(tmp_path: Path) -> None:
+    """哈希与记录不一致（并发修改）时拒绝写入。"""
+    root = tmp_path / "library"
+    record = _seed_library(root)
+    version = record.head_version
+    assert version is not None
+    request = TaskRequest(
+        task_id="inplace-3",
+        name="就地更新版本内容",
+        file_id="file-1",
+        engine=None,
+        operation=UPDATE_VERSION_IN_PLACE_OPERATION,
+        payload={
+            "library_root": str(root),
+            "version_id": version.version_id,
+            "expected_hash": "0" * 64,
+            "edits": [{"sheet_name": "销售", "row": 1, "column": 0, "value": "樱桃"}],
+        },
+    )
+    try:
+        run_update_version_in_place_task(request, RecordingContext())
+    except ValueError as error:
+        assert "已变化" in str(error)
+    else:
+        raise AssertionError("哈希不匹配时不应写入")

@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-16T21:12:30+08:00"
+updated_at: "2026-08-16T21:27:38+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -36,8 +36,8 @@ delivery:
 
 current_task:
   id: "P1-BATCH-001"
-  status: "pytest-round2-fixes-done-awaiting-user-rerun"
-  goal: "用户 pytest 第一轮 4 failed 全部处置完毕：① 真 bug——_apply_replace 不区分大小写分支用原始大小写 find_text 在小写文本中定位（含大写字母的查找永不命中，即用户实机『搜不到』的残余根因），已修（needle 小写化）；② show_preview 记表名改用 tabs.tabText（set_loading 清 _preview 导致 current_sheet_name 属性返回 None、恢复失效）；③ 链式测试补『等临时预览上屏』时序；④ handler 注册断言补 apply-chained-preview。三场景离屏验证 + 静态门全绿，待用户 uv run pytest 复跑（预期 252 passed）后提交；随后子批 B：版本名称/备注+里程碑（14）、恢复到此版本（12/31）、窗口与工作区状态持久化（32）"
+  status: "p1c-test-data-fixed-awaiting-user-pytest-rerun"
+  goal: "P1c 编辑保护批（DEC-20260816-039 四项）实现完毕；用户 pytest 257 passed 1 failed——失败为 test_first_operation_bakes_pending_edits 测试数据自身无空格（trim 任务正确拒绝‘选区中没有需要清理的文本空格’），已改数据为带空格（离屏冒烟同款场景已验证 PASS），产品代码零改动；待用户复跑 uv run pytest（预期 258 passed）后提交 P1c；随后子批 B：版本名称/备注+里程碑（14）、恢复到此版本（12/31）、窗口与工作区状态持久化（32）"
   owner: "codex-sol"
 
 last_completed:
@@ -303,10 +303,12 @@ last_completed:
   - "2026-08-16 P1 子批 A 完成（未提交）：① SortDialog 多列排序对话框（两键+同列守卫+整行排序提示），入口=功能区条‘多列排序…’按钮（bar-sort-multi-button，纳入 set_actions_enabled）与列头菜单；② FindReplaceDialog 内嵌匹配列表（_FindMatchModel：位置/当前内容/替换为/状态）+‘替换选中项’逐项替换（find-replace-one-button，仅值模式），逐项写入 WorkbookPreviewWidget 新增 apply_cell_edit（源行坐标直写编辑会话，可撤销），临时预览与只读预览下禁用并提示；移除死代码 _details_button；app.py 接线 _open_sort_dialog/_submit_multi_sort/_apply_single_find_replace，find-only 结果改经 set_matches 回填对话框"
   - "2026-08-16 用户 pytest 1 failed（逐项替换写入‘ 销售’而非‘橙子 销售’）+ 实机反馈‘查找和替换都搜不到’；定位三个根因并全部修复：① find_replace_preview._find_only 把 replace_text 硬编码为空串，find-only 的 after 变成删除匹配而非替换预览（测试失败根因）；② app.py _current_sheet_name/_headers_for_current_sheet 永远取 sheets[0]，用户切换工作表后查找/筛选/排序仍作用于第一张表（实机搜不到主因）——新增 WorkbookPreviewWidget.current_sheet_name（按 tabs 当前索引），两处入口改用之，Find/Sort 对话框加 set_sheet 每次打开刷新、FilterDialog 改为每次按当前表重建、_submit_find_replace_preview 在‘当前工作表’范围时以提交瞬间显示的工作表为准；③ _matches 原来只接受 str，数字/日期单元格在值与文本模式永不匹配——改为非公式标量按 str(value) 显示文本匹配（对齐 Excel 查找习惯，替换后数字变文本与 Excel 一致）；新增 2 项回归测试（数字匹配、多工作表当前表定位），合计新增 5 测试待 pytest"
   - "2026-08-16 用户再报两项：查找后预览显示异常 + 单操作强制应用/取消没有多次操作空间。修复与实现：① _discard_processing_result 无条件 clear_preview() 把网格清成导入空状态卡（find-only 主因）——改为仅当确有临时结果才清且用‘正在处理…’过渡消息；② show_preview 重建标签后记录并恢复当前工作表名，多表文件不再跳回第一张；③ DEC-20260816-038 链式多步处理：新增 processing/cell_edits.py（解析/值转换/就地写入共享模块，apply_version 去重改用之），六项预览任务复制后烘焙 edits（bake_pending_edits，编辑跟随数据行如排序随行迁移），apply-chained-preview 新任务（multi-step 节点、steps 参数），app.py 链式状态机（_processing_steps/_base_version_id/_previous_path/_edits_baked：链式提交以上环临时文件为源、成功后清理上环目录并在新预览加载后清会话、find-only 不动链、失败保留上一环、取消回退整链），横幅显示‘已连续 N 步处理’；新增 3 测试（find-only 保网格、链式两步一节点、重载保持工作表），累计待 pytest 8 个新测试（预期 252）"
-  - "2026-08-16 用户 pytest 第一轮 4 failed（248 passed）全部处置：① test_find_replace_targets_currently_displayed_sheet 暴露真 bug——_apply_replace 不区分大小写分支在 value.lower() 文本里用原始大小写 find_text 做 find 永远 -1，after==before 全部丢弃→‘未找到匹配内容’；find_text 含大写字母时查找/替换全部落空（全小写/中文不受影响故既有测试未拦截，也是用户实机『搜不到』的残余根因），修复为 needle=find_text.lower()；② test_preview_reload_preserves_current_sheet 暴露 show_preview 用 current_sheet_name 属性记表名但 set_loading 已清 _preview→属性返回 None，改用 tabs.tabText(currentIndex)（不依赖 _preview）；③ test_chained_operations_create_single_version 是测试时序问题（Fake 队列轮询派发，push preview-index 后未等上屏就发起第二步），补 waitUntil(table.model())；④ test_apply_handler_is_registered 断言补 APPLY_CHAINED_PREVIEW_OPERATION。修复后三场景离屏验证（含大写不区分大小写两处命中、区分大小写精确命中、全部替换写盘 Banana apple→Banana 橙子）+ ruff/mypy 94 文件全绿"
+  - "2026-08-16 用户 pytest 第一轮 4 failed（248 passed）全部处置：① 真 bug——_apply_replace 不区分大小写分支在 value.lower() 文本里用原始大小写 find_text 定位永远 -1，含大写查找词永不命中（用户实机『搜不到』残余根因），修为 needle 小写化；② show_preview 记表名改用 tabs.tabText（set_loading 清 _preview 致 current_sheet_name 返回 None）；③ 链式测试补等临时预览上屏时序；④ handler 注册断言补 apply-chained-preview。三场景离屏验证+ruff/mypy 全绿，用户复跑通过后随 3777c84 提交"
+  - "2026-08-16 用户确认链式批次通过（可多次编辑）并提交 3777c84；随即报编辑保护缺口：内容不实时保存、无丢失提示，要求下一步不能保存编辑时弹窗自选、‘保存但不生成新节点’时改节点。方案四项获确认（四项全做），节点语义按用户裁定落地：只就地改无子节点的节点、有子节点生成新分支（否决工作副本/草稿解释）。实现：store.py version_has_children/update_version_content；apply_version.py update-version-in-place 任务（parse_optional_edits+空编辑拒绝+哈希双重校验+原子替换+工作副本同步+临时文件 .tmp.xlsx 后缀——冒烟抓到 openpyxl 后缀校验 bug）；app.py 首个操作烘焙（pending_edits 先捕获再 discard(clear_edits=False)，失败/取消编辑留在网格）、取消前 _resolve_unsaved_changes(‘取消临时结果’)、_can_update_version_in_place/_submit_update_in_place/_apply_in_place_event（连 closeEvent 的 _close_after_in_place）、ask_unsaved_changes 四按钮（allow_in_place 时默认‘就地更新此节点’）；edit_session edits_count_changed → widget pending_edits_changed → app _apply_pending_edit_count → editor set_pending_edit_count（dirty-edits-label，功能区条右端，琥珀色徽标）；UnsavedChangesPresenter 加第三参（test_app 注入函数已适配）。新增 6 测试（任务级 3：叶节点改写/父节点拒绝/陈旧哈希拒绝；app 级 3：首操作烘焙+脏标记、取消弹窗保留链、就地更新无新节点）待 pytest"
 
 next_actions:
-  - "用户复跑 uv run pytest（预期 252 passed）通过后提交 P1 子批 A + 两轮报障修复 + 链式多步；用户实机复验重点：查找内容含大写字母（如 Apple）能否命中并替换、多表文件切表查找、连续多步处理（清空格→排序→再筛选）一次应用生成单节点、取消整链回退、切表后预览不跳回第一张"
+  - "用户复跑 uv run pytest（预期 258 passed）通过后提交 P1c 编辑保护批；实机复验重点：改几个单元格后功能区条出现‘N 处未保存编辑’徽标→直接做处理操作（编辑应跟着进临时结果不丢）→取消临时结果时弹窗→选‘就地更新此节点’（版本树不出新节点、内容已改）→切文件/退出时弹窗四按钮"
+  - "P1 子批 B（pytest 通过后开工）：版本名称/备注编辑+里程碑标记（versions 表加 note/milestone 列 + store.update_version_meta + 右键菜单对话框，第 14/41 节）、恢复到此版本生成恢复子节点（复制目标快照为 HEAD 子版本，operation=restore，第 12/31 节）、窗口与工作区状态持久化（SQLite 键值表：窗口几何/最大化/分隔比例/当前文件/当前表，第 32 节）"
   - "P1 子批 B（pytest 通过后开工）：版本名称/备注编辑+里程碑标记（versions 表加 note/milestone 列 + store.update_version_meta + 右键菜单对话框，第 14/41 节）、恢复到此版本生成恢复子节点（复制目标快照为 HEAD 子版本，operation=restore，第 12/31 节）、窗口与工作区状态持久化（SQLite 键值表：窗口几何/最大化/分隔比例/当前文件/当前表，第 32 节）"
   - "P2 编辑器深化：剪贴板复制/剪切/粘贴/仅粘贴值/清空（3/11）→ 会话内插入/删除行列并入撤销栈（3，顺带以会话结构操作复活 19.6 删除列）→ 工作表新建/重命名/删除/排序（10）→ 字体/颜色/对齐/数字格式/行高列宽（3）→ 自动列宽与表头样式（19.7）"
   - "P3 文件管理面板：重命名 F2（39/42）、文件属性对话框（40）、重复导入提示（22）、列表搜索过滤（27）、拖动排序（28）"
@@ -401,6 +403,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260816-039"
+    date: "2026-08-16"
+    status: "approved-and-implemented"
+    summary: "编辑保护与就地修改叶节点：① 任何处理操作（含链式首步）烘焙未保存编辑进临时结果，操作永不丢编辑；② 取消临时结果/切文件/切版本/退出时有未保存编辑必弹窗；③ 弹窗新增‘就地更新此节点’选项——仅限无子节点的版本，写入节点快照只更新哈希不生成新节点，有子节点则只能保存为新版本分支；④ 功能区条常驻‘N 处未保存编辑’脏标记"
+    source: "用户实机反馈：表格内容不实时保存且无编辑丢失提示；要求下一步不能保存编辑时弹窗自选，选‘保存但不生成新节点’时改节点——用户裁定只改无子节点的节点防追溯失败，有子节点生成新分支"
+    supersedes: "第 12 节版本快照绝对不可变的表述（叶节点就地修改为显式例外）；曾提议的工作副本/草稿方案被用户否决"
+    impact: "需求讨论记录第 12 节补充；store.py 新增 version_has_children/update_version_content；apply_version.py 新增 update-version-in-place 任务（哈希乐观校验+原子替换+工作副本同步）；app.py 首个操作烘焙编辑、取消前提示、_submit_update_in_place/_apply_in_place_event、四按钮弹窗（UnsavedChangesPresenter 加第三参）；edit_session/widget 新增 edits_count_changed/pending_edits_changed 信号；功能区条新增 dirty-edits-label"
   - id: "DEC-20260816-038"
     date: "2026-08-16"
     status: "approved-and-implemented"
@@ -516,19 +525,14 @@ recent_decisions:
 changed_files:
   - ".agents/skills/excelsorf-continuity/references/project-state.yaml"
   - "src/hyacinth/app.py"
+  - "src/hyacinth/preview/edit_session.py"
   - "src/hyacinth/preview/widget.py"
   - "src/hyacinth/processing/__init__.py"
   - "src/hyacinth/processing/apply_version.py"
-  - "src/hyacinth/processing/cell_edits.py"
-  - "src/hyacinth/processing/find_replace_preview.py"
-  - "src/hyacinth/processing/sort_preview.py"
-  - "src/hyacinth/processing/deduplicate_preview.py"
-  - "src/hyacinth/processing/blank_rows_preview.py"
-  - "src/hyacinth/processing/filter_preview.py"
-  - "src/hyacinth/processing/trim_preview.py"
-  - "tests/processing/test_apply_version.py"
-  - "src/hyacinth/ui/__init__.py"
+  - "src/hyacinth/versioning/store.py"
   - "src/hyacinth/ui/shell.py"
+  - "tests/test_app.py"
+  - "tests/processing/test_apply_version.py"
   - "tests/test_processing_entries.py"
   - "需求讨论记录.md"
   - "scripts/capture_ui_states.py"
@@ -552,12 +556,12 @@ changed_files:
   - "tests/versioning/test_store.py"
 
 verification:
-  status: "pytest-round2-static-and-offscreen-green-awaiting-user-rerun"
+  status: "p1c-edit-protection-static-and-smoke-green-pytest-round2-pending-user"
   commands:
-    - "本轮（pytest 第一轮 4 failed 修复）：ruff check/format 全绿；mypy strict 94 文件 0 错误；git diff --check 干净（仅 CRLF 提示非错误）"
-    - "离屏验证 _apply_replace 修复三场景：PASS1 不区分大小写+find_text 含大写（'Apple'）两处命中且替换预览正确（此前该场景 0 命中——用户实机 bug）；PASS2 区分大小写仅精确命中；PASS3 全部替换写盘 Apple→橙子、Banana apple→Banana 橙子"
-    - "任务层链式全链路冒烟（上轮）：trim → 链式排序+烘焙编辑（编辑随数据行迁移）→ apply-chained 生成 multi-step 节点、steps=2、快照内容正确"
-    - "用户 pytest 第一轮：4 failed 248 passed（4 个失败本轮全部处置：1 真 bug + 1 widget 状态时机 + 1 测试时序 + 1 断言过期）；请用户复跑 uv run pytest（预期 252 passed）"
+    - "本轮（P1c 编辑保护批）：ruff check/format 全绿；mypy strict 94 文件 0 错误；git diff --check 干净"
+    - "离屏冒烟 5 场景（工作区临时目录）：PASS1 脏标记‘1 处未保存编辑’显示；PASS2 首个处理操作把未保存编辑烘焙进 payload；PASS3 烘焙后编辑会话清空、脏标记消失；PASS4 临时结果上编辑后取消→弹窗（选取消则链保留）；PASS5 就地更新——同一 version_id、哈希更新、A2 内容写入、工作副本同步、脏标记消失（并抓到 .tmp 后缀真 bug 已修）"
+    - "任务级测试覆盖：叶节点就地改写（无残留临时文件）、有子节点拒绝、陈旧哈希拒绝；app 级测试覆盖：首操作烘焙+脏标记、取消弹窗保留链、就地更新无新节点"
+    - "用户 pytest 第一轮：257 passed 1 failed——失败是测试数据问题（数据无空格，trim 任务正确报‘没有需要清理的文本空格’），产品代码零改动；已把该测试数据改为带空格（与离屏冒烟 PASS2/PASS3 同款场景）；请用户复跑（预期 258 passed）"
     - "DSH 会话沙箱会锁定 pytest 临时目录（pytest-of-<user> 触发 WinError 5），本会话内只能跑 ruff/mypy/离屏与任务层冒烟，pytest 需用户在普通终端执行"
 
 params-panel-proposal:

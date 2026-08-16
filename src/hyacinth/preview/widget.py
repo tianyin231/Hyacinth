@@ -80,6 +80,7 @@ class ReadOnlyWorkbookTableView(QTableView):
 class WorkbookPreviewWidget(QFrame):
     import_requested = Signal()
     edit_state_changed = Signal(bool, bool, bool)
+    pending_edits_changed = Signal(int)
     header_sort_requested = Signal(int, str)
     header_multi_sort_requested = Signal(int)
     header_filter_requested = Signal(int)
@@ -95,6 +96,7 @@ class WorkbookPreviewWidget(QFrame):
         self._edit_session = EditSession(self)
         self._edit_session.state_changed.connect(self.edit_state_changed)
         self._edit_session.cell_changed.connect(self._refresh_edited_cell)
+        self._edit_session.edits_count_changed.connect(self.pending_edits_changed)
         self._retired_sources: dict[
             int,
             tuple[QAbstractItemModel, SqliteGridDataSource],

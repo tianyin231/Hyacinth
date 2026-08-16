@@ -224,6 +224,14 @@ QFrame#formula-bar, QFrame#format-bar, QFrame#editor-ribbon {
 QFrame#ribbon-group { background: transparent; }
 QLabel#ribbon-group-label { color: #6b7482; font-size: 10px; }
 QFrame#ribbon-separator { background: #e2e6ec; }
+QLabel#dirty-edits-label {
+    color: #9a6700;
+    background: #fff4ce;
+    border: 1px solid #f0d48a;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+}
 QPushButton[class="ribbon-button"] {
     min-height: 26px;
     padding: 0 10px;
@@ -2226,6 +2234,11 @@ class WorkbookEditorFrame(QFrame):
             separator.setObjectName("ribbon-separator")
             separator.setFixedSize(1, 48)
             ribbon_layout.addWidget(separator)
+        # 未保存编辑脏标记：随时提示会话里有 N 处单元格修改尚未保存。
+        self._dirty_edits = QLabel("", ribbon)
+        self._dirty_edits.setObjectName("dirty-edits-label")
+        self._dirty_edits.setVisible(False)
+        ribbon_layout.addWidget(self._dirty_edits)
         ribbon_layout.addStretch()
 
         formula = QFrame(self)
@@ -2315,6 +2328,15 @@ class WorkbookEditorFrame(QFrame):
             self._find,
         ):
             button.setEnabled(enabled)
+
+    def set_pending_edit_count(self, count: int) -> None:
+        """未保存编辑脏标记：0 隐藏，否则显示“N 处未保存编辑”。"""
+        if count <= 0:
+            self._dirty_edits.setText("")
+            self._dirty_edits.setVisible(False)
+            return
+        self._dirty_edits.setText(f"{count} 处未保存编辑")
+        self._dirty_edits.setVisible(True)
 
     def set_busy(self, message: str) -> None:
         self._banner.show_message(message, can_apply=False, can_details=False)

@@ -923,3 +923,158 @@ def test_preview_reload_preserves_current_sheet(qtbot: QtBot, tmp_path: Path) ->
     qtbot.waitUntil(lambda: table.model() is not None, timeout=2000)
     assert tabs.currentIndex() == 1
     assert tabs.tabText(tabs.currentIndex()) == "明细"
+
+
+def test_first_operation_bakes_pending_edits(qtbot: QtBot, tmp_path: Path) -> None:
+    """HEAD 预览上的未保存编辑随首个处理操作烘焙进临时结果，不再被无声清空。"""
+    _library_root, task_queue, window = _ready_window(
+        qtbot,
+        tmp_path,
+        [["名称", "数量"], [" 苹果 ", 3], [" 香蕉 ", 2]],
+    )
+    dirty_label = _child(window, QLabel, "dirty-edits-label")
+    assert not dirty_label.isVisibleTo(window)
+
+    window._workbook_preview.apply_cell_edit("数据", 1, 0, base_value="苹果", new_value="梨")
+    qtbot.waitUntil(lambda: dirty_label.isVisibleTo(window), timeout=2000)
+    assert dirty_label.text() == "1 处未保存编辑"
+
+    window._one_step_processing("trim", [0])
+    qtbot.waitUntil(
+        lambda: _child(window, QFrame, "processing-params-bar").isVisibleTo(window), timeout=500
+    )
+    qtbot.mouseClick(
+        _child(window, QPushButton, "params-confirm-button"), Qt.MouseButton.LeftButton
+    )  # type: ignore[no-untyped-call]
+    trim_request = _last_request(task_queue, TRIM_PREVIEW_OPERATION)
+    # 编辑被烘焙进首个处理操作，而不是被丢弃
+    assert trim_request.payload["edits"] == [
+        {"sheet_name": "数据", "row": 1, "column": 0, "value": "梨"}
+    ]
+    _push_success(
+        task_queue, trim_request, run_trim_preview_task(trim_request, PreviewTaskContext())
+    )
+    _wait_second_preview_request(qtbot, task_queue)
+    temporary_request = _last_request(task_queue, BUILD_PREVIEW_INDEX_OPERATION)
+    _push_success(
+        task_queue,
+        temporary_request,
+        run_preview_index_task(temporary_request, PreviewTaskContext()),
+    )
+    table = _child(window, QTableView, "preview-table")
+    qtbot.waitUntil(lambda: table.model() is not None, timeout=2000)
+    # 烘焙完成后编辑会话清空，脏标记消失
+    qtbot.waitUntil(lambda: not dirty_label.isVisibleTo(window), timeout=2000)
+    assert window._workbook_preview.pending_edits() == ()
+
+
+def test_cancel_temporary_result_prompts_when_edits_pending(qtbot: QtBot, tmp_path: Path) -> None:
+    """临时结果上有未保存编辑时，取消前必须弹窗让用户选择。"""
+    from hyacinth.app import create_main_window
+
+    library_root = tmp_path / "library"
+    _seed_file(library_root, [["名称", "数量"], [" 苹果 ", 3]])
+    actions: list[str] = []
+
+    def presenter(_parent: object, action: str, _allow_in_place: bool = False) -> str:
+        actions.append(action)
+        return "cancel"
+
+    task_queue = FakeApplicationTaskQueue([])
+    window = create_main_window(
+        task_queue=task_queue,
+        library_root=library_root,
+        unsaved_changes_presenter=presenter,
+    )
+    qtbot.addWidget(window)
+    window.show()
+    preview_request = _preview_request_of(task_queue)
+    _push_success(
+        task_queue, preview_request, run_preview_index_task(preview_request, PreviewTaskContext())
+    )
+    table = _child(window, QTableView, "preview-table")
+    qtbot.waitUntil(lambda: table.model() is not None, timeout=2000)
+
+    window._one_step_processing("trim", [0])
+    qtbot.waitUntil(
+        lambda: _child(window, QFrame, "processing-params-bar").isVisibleTo(window), timeout=500
+    )
+    qtbot.mouseClick(
+        _child(window, QPushButton, "params-confirm-button"), Qt.MouseButton.LeftButton
+    )  # type: ignore[no-untyped-call]
+    trim_request = _last_request(task_queue, TRIM_PREVIEW_OPERATION)
+    _push_success(
+        task_queue, trim_request, run_trim_preview_task(trim_request, PreviewTaskContext())
+    )
+    _wait_second_preview_request(qtbot, task_queue)
+    temporary_request = _last_request(task_queue, BUILD_PREVIEW_INDEX_OPERATION)
+    _push_success(
+        task_queue,
+        temporary_request,
+        run_preview_index_task(temporary_request, PreviewTaskContext()),
+    )
+    qtbot.waitUntil(lambda: table.model() is not None, timeout=2000)
+    assert window._processing_result is not None
+
+    # 临时结果上再敲一处编辑，然后取消：应弹窗，用户选“取消”则链保持原状
+    window._workbook_preview.apply_cell_edit("数据", 1, 0, base_value="苹果", new_value="梨")
+    window._cancel_processing_workflow()
+    assert actions == ["取消临时结果"]
+    assert window._processing_result is not None
+
+
+def test_save_in_place_updates_leaf_without_new_version(qtbot: QtBot, tmp_path: Path) -> None:
+    """“就地更新此节点”：同一 version_id、哈希更新、工作副本与快照同步。"""
+    from openpyxl import load_workbook
+
+    from hyacinth.processing import (
+        UPDATE_VERSION_IN_PLACE_OPERATION,
+        run_update_version_in_place_task,
+    )
+
+    library_root, task_queue, window = _ready_window(
+        qtbot,
+        tmp_path,
+        [["名称", "数量"], ["苹果", 3], ["香蕉", 2]],
+    )
+    head_before = _head_record(library_root)
+    assert head_before is not None
+
+    window._workbook_preview.apply_cell_edit("数据", 1, 0, base_value="苹果", new_value="梨")
+    window._submit_update_in_place()
+    request = _last_request(task_queue, UPDATE_VERSION_IN_PLACE_OPERATION)
+    assert request.payload["version_id"] == "version-1"
+    assert request.payload["expected_hash"] == head_before.content_hash
+    assert request.payload["edits"] == [
+        {"sheet_name": "数据", "row": 1, "column": 0, "value": "梨"}
+    ]
+    _push_success(
+        task_queue, request, run_update_version_in_place_task(request, PreviewTaskContext())
+    )
+
+    def _head_hash() -> str:
+        head = _head_record(library_root)
+        assert head is not None
+        return head.content_hash
+
+    qtbot.waitUntil(lambda: _head_hash() != head_before.content_hash, timeout=2000)
+    head_after = _head_record(library_root)
+    assert head_after is not None
+    assert head_after.version_id == "version-1"  # 不生成新节点
+    workbook = load_workbook(head_after.snapshot_path)
+    try:
+        assert workbook["数据"]["A2"].value == "梨"
+    finally:
+        workbook.close()
+    qtbot.waitUntil(lambda: window._workbook_preview.pending_edits() == (), timeout=2000)
+
+    # 就地更新后重载预览，脏标记消失
+    _wait_preview_request_count(qtbot, task_queue, 2)
+    reload_request = _last_request(task_queue, BUILD_PREVIEW_INDEX_OPERATION)
+    _push_success(
+        task_queue,
+        reload_request,
+        run_preview_index_task(reload_request, PreviewTaskContext()),
+    )
+    dirty_label = _child(window, QLabel, "dirty-edits-label")
+    qtbot.waitUntil(lambda: not dirty_label.isVisibleTo(window), timeout=2000)

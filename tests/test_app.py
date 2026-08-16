@@ -457,10 +457,13 @@ def test_unsaved_cell_edits_block_close_until_discarded(qtbot: QtBot, tmp_path: 
     choices = ["cancel", "discard"]
     from hyacinth.app import create_main_window
 
+    def presenter(_parent: QWidget, _action: str, _allow_in_place: bool = False) -> str:
+        return choices.pop(0)
+
     window = create_main_window(
         task_queue=task_queue,
         library_root=library_root,
-        unsaved_changes_presenter=lambda _parent, _action: choices.pop(0),
+        unsaved_changes_presenter=presenter,
     )
     qtbot.addWidget(window)
     window.show()

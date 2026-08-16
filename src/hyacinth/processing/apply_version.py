@@ -15,6 +15,7 @@ from hyacinth.processing.cell_edits import (
     excel_edit_value,
     parse_edits,
     parse_optional_edits,
+    write_edits,
 )
 from hyacinth.tasks import TaskRequest
 from hyacinth.tasks.worker import TaskContext, TaskHandler
@@ -32,6 +33,7 @@ APPLY_FILTER_PREVIEW_OPERATION = "apply-filter-preview"
 APPLY_TRIM_PREVIEW_OPERATION = "apply-trim-preview"
 APPLY_FIND_REPLACE_PREVIEW_OPERATION = "apply-find-replace-preview"
 APPLY_CHAINED_PREVIEW_OPERATION = "apply-chained-preview"
+UPDATE_VERSION_IN_PLACE_OPERATION = "update-version-in-place"
 SAVE_MANUAL_EDITS_OPERATION = "save-manual-edits"
 COPY_CHUNK_SIZE = 1024 * 1024
 
@@ -50,6 +52,19 @@ class ApplyVersionTaskContext(Protocol):
 
 class ApplyMetadataStore(Protocol):
     def get_workbook(self, file_id: str) -> ImportedWorkbook: ...
+
+    def get_version(self, file_id: str, version_id: str) -> VersionRecord: ...
+
+    def version_has_children(self, file_id: str, version_id: str) -> bool: ...
+
+    def update_version_content(
+        self,
+        file_id: str,
+        version_id: str,
+        *,
+        expected_hash: str,
+        new_hash: str,
+    ) -> None: ...
 
     def record_child_version(
         self,
@@ -506,6 +521,82 @@ def apply_chained_preview_task(request: TaskRequest, context: TaskContext) -> ob
     return run_apply_chained_preview_task(request, context)
 
 
+def run_update_version_in_place_task(
+    request: TaskRequest,
+    context: ApplyVersionTaskContext,
+    *,
+    metadata_store_factory: MetadataStoreFactory = MetadataStore,
+) -> ImportedWorkbook:
+    """就地修改叶节点：把单元格编辑写入节点快照，只更新内容哈希，不生成新节点。
+
+    守卫：仅允许没有子节点的版本（用户裁定 DEC-20260816-039），防止版本追溯失败；
+    哈希乐观校验失败时拒绝写入。
+    """
+    library_root = _payload_path(request, "library_root")
+    version_id = _payload_string(request, "version_id")
+    expected_hash = _payload_string(request, "expected_hash")
+    edits = parse_optional_edits(request.payload.get("edits"))
+    if not edits:
+        raise ValueError("没有需要保存的单元格修改")
+
+    context.set_engine(EngineName.PYTHON)
+    context.check_cancelled()
+    store = metadata_store_factory(library_root)
+    workbook_record = store.get_workbook(request.file_id)
+    version = store.get_version(request.file_id, version_id)
+    if version.content_hash != expected_hash:
+        raise ValueError("版本内容已变化，请刷新后重试")
+    if store.version_has_children(request.file_id, version_id):
+        raise ValueError("该版本已有子节点，不能就地修改；请选择“保存为新版本”生成新分支")
+    if _file_hash(version.snapshot_path, context) != expected_hash:
+        raise ValueError("版本快照与记录不一致，请刷新后重试")
+
+    temporary = version.snapshot_path.with_name(
+        f".{version.snapshot_path.stem}.{request.task_id}.tmp.xlsx"
+    )
+    working_temporary = workbook_record.working_path.with_name(
+        f".{workbook_record.working_path.name}.{request.task_id}.tmp"
+    )
+    try:
+        context.report_progress(0.1, "正在准备就地更新")
+        _copy_file(version.snapshot_path, temporary, context)
+        write_edits(
+            temporary,
+            edits,
+            context,
+            progress_start=0.3,
+            progress_end=0.6,
+            progress_message="正在写入单元格修改",
+        )
+        check = load_workbook(temporary, read_only=True)
+        check.close()
+        new_hash = _file_hash(temporary, context)
+        if new_hash == expected_hash:
+            raise ValueError("单元格修改未改变内容，无需保存")
+        _copy_file(temporary, working_temporary, context)
+        context.check_cancelled()
+        with context.critical_section("正在安全更新版本内容"):
+            context.commit()
+            os.replace(temporary, version.snapshot_path)
+            store.update_version_content(
+                request.file_id,
+                version_id,
+                expected_hash=expected_hash,
+                new_hash=new_hash,
+            )
+            os.replace(working_temporary, workbook_record.working_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+        working_temporary.unlink(missing_ok=True)
+
+    context.report_progress(1.0, "版本内容已就地更新")
+    return store.get_workbook(request.file_id)
+
+
+def update_version_in_place_task(request: TaskRequest, context: TaskContext) -> object:
+    return run_update_version_in_place_task(request, context)
+
+
 def save_manual_edits_task(request: TaskRequest, context: TaskContext) -> object:
     return run_save_manual_edits_task(request, context)
 
@@ -519,6 +610,7 @@ def apply_version_handlers() -> dict[str, TaskHandler]:
         APPLY_TRIM_PREVIEW_OPERATION: apply_trim_preview_task,
         APPLY_FIND_REPLACE_PREVIEW_OPERATION: apply_find_replace_preview_task,
         APPLY_CHAINED_PREVIEW_OPERATION: apply_chained_preview_task,
+        UPDATE_VERSION_IN_PLACE_OPERATION: update_version_in_place_task,
         SAVE_MANUAL_EDITS_OPERATION: save_manual_edits_task,
     }
 
