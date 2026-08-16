@@ -6,6 +6,9 @@ from typing import Any
 import pythoncom  # type: ignore[import-untyped]
 from win32com.client import DispatchEx  # type: ignore[import-untyped]
 
+# PyInstaller 冻结后无法用 `python -m`，主 exe 以该参数转投 COM 子进程入口。
+COM_WORKER_FLAG = "--hyacinth-com-worker"
+
 
 def main(arguments: Sequence[str] | None = None) -> int:
     args = list(arguments if arguments is not None else sys.argv[1:])

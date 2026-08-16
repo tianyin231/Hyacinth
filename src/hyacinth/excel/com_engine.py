@@ -8,6 +8,7 @@ from typing import Protocol, cast
 
 from win32com.client import DispatchEx  # type: ignore[import-untyped]
 
+from hyacinth.excel.com_worker import COM_WORKER_FLAG
 from hyacinth.excel.contracts import (
     ConversionProgress,
     ConversionResult,
@@ -67,9 +68,15 @@ class ComExcelEngine:
         return ConversionResult(engine=self.name, output_path=destination)
 
 
+def _worker_command(*arguments: str) -> list[str]:
+    if getattr(sys, "frozen", False):
+        return [sys.executable, COM_WORKER_FLAG, *arguments]
+    return [sys.executable, "-m", "hyacinth.excel.com_worker", *arguments]
+
+
 def _run_worker(*arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-m", "hyacinth.excel.com_worker", *arguments],
+        _worker_command(*arguments),
         capture_output=True,
         text=True,
         check=False,
