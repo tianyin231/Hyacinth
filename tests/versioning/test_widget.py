@@ -146,7 +146,8 @@ def test_version_tree_renders_child_to_right_with_edge_and_head(
     assert view.viewport().rect().contains(view.mapFromScene(root_rect.bottomRight()))
     root_head = cards["导入原始文件"].widget().findChild(QLabel, "root-version-head")
     child_head = cards["多列排序"].widget().findChild(QLabel, "root-version-head")
-    assert root_head is not None and root_head.isHidden()
+    # 非 HEAD 的根节点也要有独立的“根版本”标记（需求第 47 节）
+    assert root_head is not None and root_head.text() == "根版本" and not root_head.isHidden()
     assert child_head is not None and child_head.text() == "HEAD" and not child_head.isHidden()
 
 

@@ -380,6 +380,8 @@ def test_editor_bar_sort_and_entry(qtbot: QtBot, tmp_path: Path) -> None:
     assert isinstance(sort_keys, list) and isinstance(sort_keys[0], dict)
     assert sort_keys[0]["column_index"] == 0
     assert sort_keys[0]["direction"] == "asc"
+    # 需求第 19.1 节：单列排序明确提示按该列排序完整数据行
+    assert "按 A 列排序完整数据行" in _child(window, QLabel, "banner-message").text()
     # 处理预览进行中当前预览被清空，功能区条入口应禁用，避免误触发错误提示
     assert not _child(window, QPushButton, "bar-find-replace-button").isEnabled()
 

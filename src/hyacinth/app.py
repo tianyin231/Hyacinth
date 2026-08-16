@@ -594,10 +594,12 @@ class HyacinthMainWindow(QMainWindow):
         if sheet_name is None:
             self._error_presenter(self, "请先选择文件再使用排序")
             return
+        # 需求第 19.1 节：单列排序时明确提示按该列排序完整数据行。
+        column_letter = get_column_letter(column + 1)
         self._submit_processing_preview(
             operation=SORT_PREVIEW_OPERATION,
             task_name="生成排序预览",
-            busy_message="正在生成排序结果…",
+            busy_message=f"正在按 {column_letter} 列排序完整数据行…",
             sheet_name=sheet_name,
             parameters={"sort_keys": [{"column_index": column, "direction": direction}]},
         )
@@ -1246,6 +1248,12 @@ class HyacinthMainWindow(QMainWindow):
         elif isinstance(result, FindReplacePreviewResult):
             summary = f"共替换 {len(result.changes)} 处"
             can_details = True
+        elif isinstance(result, SortPreviewResult):
+            columns_text = "、".join(
+                get_column_letter(key.column_index + 1) for key in result.sort_keys
+            )
+            summary = f"已按 {columns_text} 列排序完整数据行（表头不参与）"
+            can_details = False
         else:
             summary = ""
             can_details = False

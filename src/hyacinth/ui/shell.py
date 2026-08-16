@@ -1279,14 +1279,21 @@ class VersionTreePanel(QFrame):
             card,
         )
         metadata.setObjectName("root-version-meta")
-        head = QLabel("HEAD · 根版本" if is_root else "HEAD", card)
+        # 根版本标记独立于 HEAD：多根画布中非 HEAD 的根节点也要一眼可辨（需求第 47 节）。
+        if is_head and is_root:
+            badge_text = "HEAD · 根版本"
+        elif is_head:
+            badge_text = "HEAD"
+        else:
+            badge_text = "根版本"
+        head = QLabel(badge_text, card)
         head.setObjectName("root-version-head")
         head.setAlignment(Qt.AlignmentFlag.AlignCenter)
         head.setMaximumWidth(82)
         layout.addWidget(title)
         layout.addWidget(file_name)
         layout.addWidget(metadata)
-        head.setVisible(is_head)
+        head.setVisible(is_head or is_root)
         layout.addWidget(head)
         if is_deleted and version.deleted_at is not None:
             card.setToolTip(
