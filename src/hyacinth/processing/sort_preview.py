@@ -32,6 +32,27 @@ MAX_SORT_KEYS = 2
 PROGRESS_ROW_INTERVAL = 256
 
 
+def bake_pending_edits(
+    path: Path,
+    request: TaskRequest,
+    context: "SortPreviewTaskContext",
+) -> None:
+    """链式多步处理：把临时结果上未保存的单元格编辑烘焙进新临时文件。"""
+    from hyacinth.processing.cell_edits import parse_optional_edits, write_edits
+
+    edits = parse_optional_edits(request.payload.get("edits"))
+    if not edits:
+        return
+    write_edits(
+        path,
+        edits,
+        context,
+        progress_start=0.1,
+        progress_end=0.25,
+        progress_message="正在写入未保存编辑",
+    )
+
+
 class SortDirection(StrEnum):
     ASCENDING = "asc"
     DESCENDING = "desc"
@@ -87,6 +108,7 @@ def run_sort_preview_task(
         context.report_progress(None, "正在复制源工作簿")
         _copy_file(source_path, temporary_path, context)
         context.check_cancelled()
+        bake_pending_edits(temporary_path, request, context)
         context.report_progress(0.3, f"正在排序工作表 {sheet_name}")
         data_rows = _sort_copy(temporary_path, sheet_name, sort_keys, context)
         context.check_cancelled()

@@ -42,6 +42,7 @@ from hyacinth.preview import (
     preview_task_handlers,
 )
 from hyacinth.processing import (
+    APPLY_CHAINED_PREVIEW_OPERATION,
     APPLY_DEDUPLICATE_PREVIEW_OPERATION,
     APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION,
     APPLY_FILTER_PREVIEW_OPERATION,
@@ -91,6 +92,7 @@ from hyacinth.ui import (
     ProcessingDetailsDialog,
     RecycleBinDialog,
     RecycleEntry,
+    SortDialog,
     TrimDetailsModel,
     VersionStorageStatus,
     VersionTreePanel,
@@ -199,6 +201,13 @@ class HyacinthMainWindow(QMainWindow):
             | None
         ) = None
         self._temporary_preview: WorkbookPreview | None = None
+        # 链式多步处理：临时结果上可以继续叠加处理操作，应用时只生成一个节点。
+        self._processing_steps: list[dict[str, object]] = []
+        self._processing_base_version_id: str | None = None
+        self._processing_previous_path: Path | None = None
+        self._processing_edits_baked = False
+        self._processing_submitted_operation: str | None = None
+        self._processing_submitted_task_name: str | None = None
         self._apply_task_id: str | None = None
         self._apply_version_id: str | None = None
         self._manual_save_task_id: str | None = None
@@ -229,6 +238,7 @@ class HyacinthMainWindow(QMainWindow):
         self._command_bar.recycle_requested.connect(self._open_recycle_bin)
         self._filter_dialog: FilterDialog | None = None
         self._find_dialog: FindReplaceDialog | None = None
+        self._sort_dialog: SortDialog | None = None
         self._file_library = FileLibraryWidget(
             discover_imported_workbooks(library_root),
             workspace_root,
@@ -248,12 +258,14 @@ class HyacinthMainWindow(QMainWindow):
         self._workbook_preview.import_requested.connect(self._choose_import_file)
         self._workbook_preview.edit_state_changed.connect(self._apply_edit_state)
         self._workbook_preview.header_sort_requested.connect(self._quick_sort_from_table)
+        self._workbook_preview.header_multi_sort_requested.connect(self._open_sort_dialog)
         self._workbook_preview.header_filter_requested.connect(
             lambda _column: self._open_filter_dialog()
         )
         self._workbook_preview.processing_menu_requested.connect(self._one_step_processing)
         self._editor = WorkbookEditorFrame(self._workbook_preview, workspace_root)
         self._editor.sort_requested.connect(self._quick_sort_from_table)
+        self._editor.multi_sort_requested.connect(lambda: self._open_sort_dialog())
         self._editor.one_step_requested.connect(self._one_step_processing)
         self._editor.filter_requested.connect(self._open_filter_dialog)
         self._editor.find_replace_requested.connect(self._open_find_replace_dialog)
@@ -453,6 +465,10 @@ class HyacinthMainWindow(QMainWindow):
             if self._preview_is_temporary:
                 self._temporary_preview = event.result
                 self._editor.clear_banner()
+                # 链式提交时未保存编辑已烘焙进新临时文件，加载后清空会话避免重复叠加。
+                if self._processing_edits_baked:
+                    self._workbook_preview.clear_edits()
+                    self._processing_edits_baked = False
                 self._show_processing_preview_ready()
                 self._set_processing_navigation_enabled(True)
             else:
@@ -526,8 +542,7 @@ class HyacinthMainWindow(QMainWindow):
         )
 
     def _current_sheet_name(self) -> str | None:
-        preview = self._workbook_preview.current_preview()
-        return preview.sheets[0].title if preview is not None and preview.sheets else None
+        return self._workbook_preview.current_sheet_name
 
     def _current_sheet_columns(self) -> tuple[tuple[str, ...], str | None]:
         headers, sheet = self._headers_for_current_sheet()
@@ -537,7 +552,12 @@ class HyacinthMainWindow(QMainWindow):
         preview = self._workbook_preview.current_preview()
         if preview is None or not preview.sheets:
             return (), None
-        sheet = preview.sheets[0]
+        # 查找、筛选、排序都应作用于用户正在查看的工作表，而不是第一个工作表。
+        current_name = self._workbook_preview.current_sheet_name
+        sheet = next(
+            (item for item in preview.sheets if item.title == current_name),
+            preview.sheets[0],
+        )
         source = SqliteGridDataSource(preview.index_path, sheet)
         try:
             headers = tuple(
@@ -553,11 +573,13 @@ class HyacinthMainWindow(QMainWindow):
         if sheet is None:
             self._error_presenter(self, "请先选择文件再使用筛选")
             return
-        if self._filter_dialog is None:
-            self._filter_dialog = FilterDialog(sheet, headers, self)
-            self._filter_dialog.params_submitted.connect(self._submit_filter_params)
-        self._filter_dialog.raise_()
+        # 每次按当前工作表重建：切表后列头与目标表必须同步。
+        if self._filter_dialog is not None:
+            self._filter_dialog.deleteLater()
+        self._filter_dialog = FilterDialog(sheet, headers, self)
+        self._filter_dialog.params_submitted.connect(self._submit_filter_params)
         self._filter_dialog.show()
+        self._filter_dialog.raise_()
         self._filter_dialog.activateWindow()
 
     def _submit_filter_params(self, payload: object) -> None:
@@ -584,6 +606,9 @@ class HyacinthMainWindow(QMainWindow):
         if self._find_dialog is None:
             self._find_dialog = FindReplaceDialog(sheet, self)
             self._find_dialog.params_submitted.connect(self._submit_find_replace_preview)
+            self._find_dialog.replace_selected_requested.connect(self._apply_single_find_replace)
+        else:
+            self._find_dialog.set_sheet(sheet)
         self._find_dialog.show()
         self._find_dialog.raise_()
         self._find_dialog.activateWindow()
@@ -608,13 +633,77 @@ class HyacinthMainWindow(QMainWindow):
             self._editor.set_error("查找替换参数无效，请重新输入")
             return
         replace_all = bool(parameters.get("replace_all"))
+        # 范围为"当前工作表"时，以提交瞬间正在显示的工作表为准。
+        target_sheet = sheet_name
+        if not parameters.get("all_sheets"):
+            target_sheet = self._current_sheet_name() or sheet_name
         self._submit_processing_preview(
             operation=FIND_REPLACE_PREVIEW_OPERATION,
             task_name="全部替换" if replace_all else "只查找",
             busy_message="正在替换匹配内容…" if replace_all else "正在查找匹配内容…",
-            sheet_name=sheet_name,
+            sheet_name=target_sheet,
             parameters=parameters,
         )
+
+    def _open_sort_dialog(self, initial_column: int = 0) -> None:
+        headers, sheet = self._headers_for_current_sheet()
+        if sheet is None:
+            self._error_presenter(self, "请先选择文件再使用多列排序")
+            return
+        if self._sort_dialog is None:
+            self._sort_dialog = SortDialog(sheet, self)
+            self._sort_dialog.params_submitted.connect(self._submit_multi_sort)
+        self._sort_dialog.set_sheet(sheet)
+        self._sort_dialog.set_columns(headers, initial_column)
+        self._sort_dialog.show()
+        self._sort_dialog.raise_()
+        self._sort_dialog.activateWindow()
+
+    def _submit_multi_sort(self, parameters: object) -> None:
+        if not isinstance(parameters, dict):
+            return
+        sheet_name = parameters.get("sheet_name")
+        if not isinstance(sheet_name, str):
+            return
+        keys = parameters.get("sort_keys")
+        if not isinstance(keys, list) or not keys:
+            return
+        letters = "、".join(
+            get_column_letter(int(key["column_index"]) + 1)
+            for key in keys
+            if isinstance(key, dict) and isinstance(key.get("column_index"), int)
+        )
+        self._submit_processing_preview(
+            operation=SORT_PREVIEW_OPERATION,
+            task_name="生成多列排序预览",
+            busy_message=f"正在按 {letters} 列排序完整数据行…",
+            sheet_name=sheet_name,
+            parameters={"sort_keys": keys},
+        )
+
+    def _apply_single_find_replace(self, row: int) -> None:
+        """需求第 19.4 节：逐项替换把选中匹配写入当前编辑会话。"""
+        dialog = self._find_dialog
+        if dialog is None:
+            return
+        change = dialog.match_at(row)
+        if change is None:
+            return
+        if self._processing_result is not None:
+            dialog.set_status("临时结果上暂不支持逐项替换，请先应用或取消临时预览", True)
+            return
+        if not self._workbook_preview.is_editable:
+            dialog.set_status("当前为只读预览，请先从此版本继续后再逐项替换", True)
+            return
+        sheet_name, row_number, column_number, before, after = change
+        self._workbook_preview.apply_cell_edit(
+            sheet_name,
+            row_number - 1,
+            column_number - 1,
+            base_value=before,
+            new_value=after,
+        )
+        dialog.mark_replaced(row)
 
     def _submit_processing_preview(
         self,
@@ -630,12 +719,45 @@ class HyacinthMainWindow(QMainWindow):
         if workbook is None or parent is None:
             self._editor.set_error("当前文件尚未建立可处理的根版本")
             return
-        self._discard_processing_result()
+        # 已有临时结果时进入链式模式：新操作以临时结果为源，可继续叠加，
+        # 未保存的单元格编辑随任务烘焙进新的临时文件（需求第 17 节扩展）。
+        chained = self._processing_result is not None
+        if not chained:
+            self._discard_processing_result()
+        source_path = (
+            self._processing_result.preview_path
+            if chained and self._processing_result is not None
+            else parent.snapshot_path
+        )
+        pending_edits = (
+            [
+                {
+                    "sheet_name": edit.sheet_name,
+                    "row": edit.row,
+                    "column": edit.column,
+                    "value": edit.value,
+                }
+                for edit in self._workbook_preview.pending_edits()
+            ]
+            if chained
+            else []
+        )
+        base_version_id = (
+            self._processing_base_version_id if chained else parent.version_id
+        ) or parent.version_id
         task_id = uuid4().hex
         preview_id = uuid4().hex
         preview_path = (
             workbook.working_path.parent.parent / ".previews" / preview_id / "result.xlsx"
         )
+        self._processing_previous_path = (
+            self._processing_result.preview_path
+            if chained and self._processing_result is not None
+            else None
+        )
+        self._processing_edits_baked = bool(pending_edits)
+        self._processing_submitted_operation = operation
+        self._processing_submitted_task_name = task_name
         self._processing_task_id = task_id
         self._editor.hide_params_bar()
         self._editor.set_busy(busy_message)
@@ -648,10 +770,11 @@ class HyacinthMainWindow(QMainWindow):
                 engine=None,
                 operation=operation,
                 payload={
-                    "source_path": str(parent.snapshot_path),
+                    "source_path": str(source_path),
                     "preview_path": str(preview_path),
-                    "parent_version_id": parent.version_id,
+                    "parent_version_id": base_version_id,
                     "sheet_name": sheet_name,
+                    "edits": pending_edits,
                     **parameters,
                 },
             )
@@ -670,9 +793,15 @@ class HyacinthMainWindow(QMainWindow):
         ):
             self._processing_task_id = None
             self._set_processing_navigation_enabled(True)
+            # 只查找不产生新临时文件：链式状态保持不变，也不清理旧临时目录。
+            self._processing_previous_path = None
+            self._processing_edits_baked = False
             if self._find_dialog is not None:
-                self._find_dialog.set_status(
-                    f"找到 {len(event.result.changes)} 处匹配（未修改文件）", True
+                self._find_dialog.set_matches(
+                    tuple(
+                        (change.sheet_name, change.row, change.column, change.before, change.after)
+                        for change in event.result.changes
+                    )
                 )
             self._editor.clear_banner()
         elif event.state is TaskState.SUCCEEDED and isinstance(
@@ -692,13 +821,30 @@ class HyacinthMainWindow(QMainWindow):
                 self._current_workbook.display_name if self._current_workbook else "临时结果"
             )
             if event.result.preview_path is not None:
+                if self._processing_base_version_id is None:
+                    self._processing_base_version_id = event.result.parent_version_id
+                self._processing_steps.append(
+                    {
+                        "operation": self._processing_submitted_operation or "",
+                        "label": self._processing_submitted_task_name or "",
+                        "sheet": event.result.sheet_name,
+                    }
+                )
                 self._load_preview(event.result.preview_path, display_name, temporary=True)
+                # set_loading 已同步释放旧临时文件的 SQLite 源，可安全清理上一环。
+                if self._processing_previous_path is not None:
+                    shutil.rmtree(self._processing_previous_path.parent, ignore_errors=True)
+                    self._processing_previous_path = None
         elif event.state is TaskState.FAILED:
             self._processing_task_id = None
+            self._processing_previous_path = None
+            self._processing_edits_baked = False
             self._set_processing_navigation_enabled(True)
             self._editor.set_error(event.message or "处理预览生成失败")
         elif event.state is TaskState.CANCELLED:
             self._processing_task_id = None
+            self._processing_previous_path = None
+            self._processing_edits_baked = False
             self._set_processing_navigation_enabled(True)
             workbook = self._current_workbook
             self._discard_processing_result()
@@ -718,10 +864,15 @@ class HyacinthMainWindow(QMainWindow):
         self._workbook_preview.clear_preview("正在应用临时结果…")
         self._editor.set_busy("正在创建不可变子版本…")
         self._set_processing_navigation_enabled(False)
-        if isinstance(result, SortPreviewResult):
+        if len(self._processing_steps) > 1:
+            # 链式多步处理：一个节点承载全部步骤，参数记录每一步。
+            operation = APPLY_CHAINED_PREVIEW_OPERATION
+            task_name = "应用多步处理结果"
+            parameters: dict[str, object] = {"steps": list(self._processing_steps)}
+        elif isinstance(result, SortPreviewResult):
             operation = APPLY_SORT_PREVIEW_OPERATION
             task_name = "应用排序结果"
-            parameters: dict[str, object] = {
+            parameters = {
                 "sort_keys": [
                     {"column_index": key.column_index, "direction": key.direction.value}
                     for key in result.sort_keys
@@ -1257,7 +1408,16 @@ class HyacinthMainWindow(QMainWindow):
         else:
             summary = ""
             can_details = False
-        text = f"{message} · {summary}" if message else f"临时结果 · {summary} · 尚未生成版本"
+        chain_text = (
+            f"已连续 {len(self._processing_steps)} 步处理"
+            if len(self._processing_steps) > 1
+            else ""
+        )
+        if message:
+            parts = [message, chain_text, summary]
+        else:
+            parts = ["临时结果", chain_text, summary, "尚未生成版本"]
+        text = " · ".join(part for part in parts if part)
         self._editor.set_preview_ready(text, can_details=can_details)
 
     def _show_processing_details(self) -> None:
@@ -1320,14 +1480,21 @@ class HyacinthMainWindow(QMainWindow):
 
     def _discard_processing_result(self) -> None:
         # 临时结果连同其上的未提交编辑一起废弃，避免残留编辑污染下一次预览。
+        # 没有临时结果时（如只查找）不动网格，避免把数据预览误清成导入空状态。
+        had_temporary = self._processing_result is not None
         self._workbook_preview.clear_edits()
-        self._workbook_preview.clear_preview()
+        if had_temporary:
+            self._workbook_preview.clear_preview("正在处理…")
         self._editor.clear_banner()
         preview_path = getattr(self._processing_result, "preview_path", None)
-        if self._processing_result is not None and preview_path is not None:
+        if had_temporary and preview_path is not None:
             shutil.rmtree(preview_path.parent, ignore_errors=True)
         self._processing_result = None
         self._temporary_preview = None
+        self._processing_steps = []
+        self._processing_base_version_id = None
+        self._processing_previous_path = None
+        self._processing_edits_baked = False
 
     def _refresh_version_canvas(
         self,

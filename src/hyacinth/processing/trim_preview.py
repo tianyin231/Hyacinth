@@ -16,6 +16,7 @@ from hyacinth.processing.sort_preview import (
     _payload_path,
     _payload_string,
     _validate_preview_workbook,
+    bake_pending_edits,
 )
 from hyacinth.tasks import TaskRequest
 from hyacinth.tasks.worker import TaskContext, TaskHandler
@@ -80,6 +81,7 @@ def run_trim_preview_task(
         context.report_progress(None, "正在复制源工作簿")
         _copy_file(source_path, temporary_path, context)
         context.check_cancelled()
+        bake_pending_edits(temporary_path, request, context)
         context.report_progress(0.3, f"正在清理工作表 {sheet_name} 的文本空格")
         trimmed = _trim_worksheet(
             temporary_path,

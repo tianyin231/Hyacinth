@@ -1814,15 +1814,202 @@ class FilterDialog(QDialog):
         }
 
 
+class _FindMatchModel(QAbstractTableModel):
+    """查找替换对话框内嵌匹配列表：位置、修改前后与逐项替换状态。"""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._matches: tuple[tuple[str, int, int, str, str], ...] = ()
+        self._replaced: set[int] = set()
+
+    def set_matches(self, changes: tuple[tuple[str, int, int, str, str], ...]) -> None:
+        self.beginResetModel()
+        self._matches = changes
+        self._replaced.clear()
+        self.endResetModel()
+
+    def match_at(self, row: int) -> tuple[str, int, int, str, str] | None:
+        if 0 <= row < len(self._matches):
+            return self._matches[row]
+        return None
+
+    def mark_replaced(self, row: int) -> None:
+        if 0 <= row < len(self._matches) and row not in self._replaced:
+            self._replaced.add(row)
+            top_left = self.index(row, 3)
+            self.dataChanged.emit(top_left, top_left, [Qt.ItemDataRole.DisplayRole])
+
+    def next_unreplaced(self, after: int) -> int:
+        total = len(self._matches)
+        for offset in range(1, total + 1):
+            candidate = (after + offset) % total
+            if candidate not in self._replaced:
+                return candidate
+        return -1
+
+    @property
+    def replaced_count(self) -> int:
+        return len(self._replaced)
+
+    @property
+    def total(self) -> int:
+        return len(self._matches)
+
+    def rowCount(self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()) -> int:
+        return 0 if parent.isValid() else len(self._matches)
+
+    def columnCount(self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()) -> int:
+        return 0 if parent.isValid() else 4
+
+    def data(
+        self,
+        index: QModelIndex | QPersistentModelIndex,
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> object | None:
+        if not index.isValid() or role != Qt.ItemDataRole.DisplayRole:
+            return None
+        sheet, row, column, before, after = self._matches[index.row()]
+        if index.column() == 0:
+            return f"{sheet}!R{row}C{column}"
+        if index.column() == 1:
+            return before
+        if index.column() == 2:
+            return after
+        return "已替换" if index.row() in self._replaced else "待替换"
+
+    def headerData(
+        self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole
+    ) -> object | None:
+        if orientation is not Qt.Orientation.Horizontal or role != Qt.ItemDataRole.DisplayRole:
+            return None
+        return ("位置", "当前内容", "替换为", "状态")[section]
+
+
+class SortDialog(QDialog):
+    """多列排序参数对话框（需求第 19.1 节：最多两个排序键，各自升序/降序）。"""
+
+    params_submitted = Signal(dict)
+
+    def __init__(self, sheet_name: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("sort-dialog")
+        self.setWindowTitle("多列排序")
+        self.setModal(False)
+        self.setMinimumWidth(380)
+        self._sheet_name = sheet_name
+        self._columns: tuple[str, ...] = ()
+
+        form = QGridLayout(self)
+        form.setContentsMargins(16, 16, 16, 12)
+        form.setHorizontalSpacing(8)
+        form.setVerticalSpacing(8)
+
+        key_label = QLabel("主要关键字", self)
+        key_label.setProperty("class", "form-label")
+        self._key1_column = QComboBox(self)
+        self._key1_column.setProperty("class", "field-control")
+        self._key1_direction = QComboBox(self)
+        self._key1_direction.setProperty("class", "field-control")
+        self._key1_direction.addItem("升序", "asc")
+        self._key1_direction.addItem("降序", "desc")
+        form.addWidget(key_label, 0, 0)
+        form.addWidget(self._key1_column, 0, 1)
+        form.addWidget(self._key1_direction, 0, 2)
+
+        self._second = QCheckBox("使用次要关键字", self)
+        secondary_label = QLabel("次要关键字", self)
+        secondary_label.setProperty("class", "form-label")
+        self._key2_column = QComboBox(self)
+        self._key2_column.setProperty("class", "field-control")
+        self._key2_direction = QComboBox(self)
+        self._key2_direction.setProperty("class", "field-control")
+        self._key2_direction.addItem("升序", "asc")
+        self._key2_direction.addItem("降序", "desc")
+        self._key2_column.setEnabled(False)
+        self._key2_direction.setEnabled(False)
+        self._second.toggled.connect(self._update_secondary_state)
+        form.addWidget(self._second, 1, 0)
+        form.addWidget(secondary_label, 2, 0)
+        form.addWidget(self._key2_column, 2, 1)
+        form.addWidget(self._key2_direction, 2, 2)
+
+        hint = QLabel("排序始终移动完整数据行，表头不参与排序", self)
+        hint.setProperty("class", "hint-label")
+        form.addWidget(hint, 3, 0, 1, 3)
+
+        self._status = QLabel("", self)
+        self._status.setObjectName("sort-dialog-status")
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, self)
+        buttons.rejected.connect(self.reject)
+        submit_button = QPushButton("生成排序预览", self)
+        submit_button.setObjectName("sort-submit-button")
+        submit_button.setProperty("class", "ribbon-button")
+        submit_button.clicked.connect(self._submit)
+        row = QHBoxLayout()
+        row.addWidget(submit_button)
+        row.addStretch()
+        row.addWidget(buttons)
+        form.addWidget(self._status, 4, 0, 1, 3)
+        form.addLayout(row, 5, 0, 1, 3)
+
+    def set_sheet(self, sheet_name: str) -> None:
+        """每次打开时对齐用户当前正在查看的工作表。"""
+        self._sheet_name = sheet_name
+
+    def set_columns(self, columns: tuple[str, ...], initial_column: int = 0) -> None:
+        """每次打开时刷新可选列并保持与当前选中列一致。"""
+        self._columns = columns
+        for combo in (self._key1_column, self._key2_column):
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItems(list(columns))
+            combo.blockSignals(False)
+        if columns:
+            clamped = max(0, min(initial_column, len(columns) - 1))
+            self._key1_column.setCurrentIndex(clamped)
+            if clamped + 1 < len(columns):
+                self._key2_column.setCurrentIndex(clamped + 1)
+
+    def _update_secondary_state(self, checked: bool) -> None:
+        self._key2_column.setEnabled(checked)
+        self._key2_direction.setEnabled(checked)
+
+    def _submit(self) -> None:
+        if not self._columns:
+            self._status.setText("当前工作表没有可排序的列")
+            return
+        keys: list[dict[str, object]] = [
+            {
+                "column_index": self._key1_column.currentIndex(),
+                "direction": self._key1_direction.currentData(),
+            }
+        ]
+        if self._second.isChecked():
+            if self._key2_column.currentIndex() == self._key1_column.currentIndex():
+                self._status.setText("次要关键字不能与主要关键字相同")
+                return
+            keys.append(
+                {
+                    "column_index": self._key2_column.currentIndex(),
+                    "direction": self._key2_direction.currentData(),
+                }
+            )
+        self._status.setText("")
+        self.params_submitted.emit(
+            {"sheet_name": self._sheet_name, "sort_keys": keys, "multi_column": len(keys) > 1}
+        )
+
+
 class FindReplaceDialog(QDialog):
     params_submitted = Signal(str, object)
+    replace_selected_requested = Signal(int)
 
     def __init__(self, sheet_name: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("find-replace-dialog")
         self.setWindowTitle("查找和替换")
         self.setModal(False)
-        self.resize(430, 300)
+        self.resize(480, 460)
         self._sheet_name = sheet_name
 
         form = QGridLayout(self)
@@ -1867,29 +2054,98 @@ class FindReplaceDialog(QDialog):
 
         self._status = QLabel("", self)
         self._status.setObjectName("find-dialog-status")
-        self._details_button = QPushButton("匹配明细", self)
-        self._details_button.setProperty("class", "ribbon-button")
-        self._details_button.setEnabled(False)
+        self._match_model = _FindMatchModel(self)
+        self._matches_table = QTableView(self)
+        self._matches_table.setObjectName("find-matches-table")
+        self._matches_table.setAccessibleName("查找匹配列表")
+        self._matches_table.setModel(self._match_model)
+        self._matches_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._matches_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._matches_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._matches_table.horizontalHeader().setStretchLastSection(True)
+        self._matches_table.verticalHeader().setVisible(False)
+        self._matches_table.setMinimumHeight(120)
+        selection_model = self._matches_table.selectionModel()
+        if selection_model is not None:
+            selection_model.currentRowChanged.connect(
+                lambda _current, _previous: self._update_replace_state()
+            )
+        self._mode.currentIndexChanged.connect(lambda _index: self._update_replace_state())
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, self)
         buttons.rejected.connect(self.reject)
         find_button = QPushButton("查找全部", self)
         find_button.setProperty("class", "ribbon-button")
         find_button.clicked.connect(lambda: self._submit(replace_all=False))
+        self._replace_one = QPushButton("替换选中项", self)
+        self._replace_one.setObjectName("find-replace-one-button")
+        self._replace_one.setProperty("class", "ribbon-button")
+        self._replace_one.setEnabled(False)
+        self._replace_one.setToolTip("把选中匹配写入当前编辑会话，逐项决定是否替换")
+        self._replace_one.clicked.connect(self._emit_replace_selected)
         replace_button = QPushButton("全部替换", self)
         replace_button.setObjectName("find-replace-all-button")
         replace_button.setProperty("class", "ribbon-button")
         replace_button.clicked.connect(lambda: self._submit(replace_all=True))
         row = QHBoxLayout()
         row.addWidget(find_button)
+        row.addWidget(self._replace_one)
         row.addWidget(replace_button)
         row.addStretch()
         row.addWidget(buttons)
         form.addWidget(self._status, 5, 0, 1, 2)
-        form.addLayout(row, 6, 0, 1, 2)
+        form.addWidget(self._matches_table, 6, 0, 1, 2)
+        form.addLayout(row, 7, 0, 1, 2)
+
+    def set_sheet(self, sheet_name: str) -> None:
+        """每次打开时对齐用户当前正在查看的工作表。"""
+        self._sheet_name = sheet_name
 
     def set_status(self, message: str, has_details: bool) -> None:
         self._status.setText(message)
-        self._details_button.setEnabled(has_details)
+        if not has_details:
+            self._match_model.set_matches(())
+        self._update_replace_state()
+
+    def set_matches(self, changes: tuple[tuple[str, int, int, str, str], ...]) -> None:
+        """需求第 19.4 节：只查找后列出匹配，供逐项替换选择。"""
+        self._match_model.set_matches(changes)
+        if changes:
+            self._matches_table.resizeColumnsToContents()
+            self._matches_table.selectRow(0)
+            self._status.setText(f"找到 {len(changes)} 处匹配，可选中后逐项替换")
+        self._update_replace_state()
+
+    def mark_replaced(self, row: int) -> None:
+        self._match_model.mark_replaced(row)
+        replaced = self._match_model.replaced_count
+        total = self._match_model.total
+        self._status.setText(f"已替换 {replaced}/{total} 处，继续选择下一处或直接保存为新版本")
+        following = self._match_model.next_unreplaced(row)
+        if following >= 0:
+            self._matches_table.selectRow(following)
+        self._update_replace_state()
+
+    def match_at(self, row: int) -> tuple[str, int, int, str, str] | None:
+        return self._match_model.match_at(row)
+
+    def _emit_replace_selected(self) -> None:
+        selection_model = self._matches_table.selectionModel()
+        row = selection_model.currentIndex().row() if selection_model is not None else -1
+        if row >= 0:
+            self.replace_selected_requested.emit(row)
+
+    def _update_replace_state(self) -> None:
+        selection_model = self._matches_table.selectionModel()
+        selected = selection_model is not None and selection_model.currentIndex().row() >= 0
+        values_mode = self._mode.currentData() == "values"
+        has_row = (
+            self._match_model.match_at(
+                selection_model.currentIndex().row() if selection_model is not None else -1
+            )
+            is not None
+        )
+        self._replace_one.setEnabled(selected and has_row and values_mode)
 
     def _submit(self, *, replace_all: bool) -> None:
         if not self._find_text.text():
@@ -1912,6 +2168,7 @@ class FindReplaceDialog(QDialog):
 
 class WorkbookEditorFrame(QFrame):
     sort_requested = Signal(int, str)
+    multi_sort_requested = Signal()
     one_step_requested = Signal(str, list)
     filter_requested = Signal()
     find_replace_requested = Signal()
@@ -1938,9 +2195,11 @@ class WorkbookEditorFrame(QFrame):
         sort_group = _RibbonGroup("排序和筛选", ribbon)
         self._sort_asc = sort_group.add_button("升序 A→Z", "bar-sort-asc-button")
         self._sort_desc = sort_group.add_button("降序 Z→A", "bar-sort-desc-button")
+        self._multi_sort = sort_group.add_button("多列排序…", "bar-sort-multi-button")
         self._filter = sort_group.add_button("筛选", "bar-filter-button")
         self._sort_asc.clicked.connect(lambda: self._emit_sort("asc"))
         self._sort_desc.clicked.connect(lambda: self._emit_sort("desc"))
+        self._multi_sort.clicked.connect(self.multi_sort_requested)
         self._filter.clicked.connect(self.filter_requested)
 
         data_group = _RibbonGroup("数据工具", ribbon)
@@ -2048,6 +2307,7 @@ class WorkbookEditorFrame(QFrame):
         for button in (
             self._sort_asc,
             self._sort_desc,
+            self._multi_sort,
             self._filter,
             self._deduplicate,
             self._blank_rows,

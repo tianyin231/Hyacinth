@@ -22,6 +22,7 @@ from hyacinth.processing.sort_preview import (
     _read_used_rows,
     _validate_preview_workbook,
     _write_data_rows,
+    bake_pending_edits,
 )
 from hyacinth.tasks import TaskRequest
 from hyacinth.tasks.worker import TaskContext, TaskHandler
@@ -93,6 +94,7 @@ def run_deduplicate_preview_task(
         context.report_progress(None, "正在复制源工作簿")
         _copy_file(source_path, temporary_path, context)
         context.check_cancelled()
+        bake_pending_edits(temporary_path, request, context)
         context.report_progress(0.3, f"正在检查工作表 {sheet_name} 的重复行")
         groups, deleted_rows, data_rows = _deduplicate_copy(
             temporary_path,

@@ -17,6 +17,7 @@ from hyacinth.processing.sort_preview import (
     _payload_path,
     _payload_string,
     _validate_preview_workbook,
+    bake_pending_edits,
 )
 from hyacinth.tasks import TaskRequest
 from hyacinth.tasks.worker import TaskContext, TaskHandler
@@ -118,6 +119,7 @@ def run_find_replace_preview_task(
             target_sheets,
             mode,
             find_text,
+            replace_text,
             match_case,
             whole_cell,
             trim_whitespace,
@@ -152,6 +154,7 @@ def run_find_replace_preview_task(
         context.report_progress(None, "正在复制源工作簿")
         _copy_file(source_path, temporary_path, context)
         context.check_cancelled()
+        bake_pending_edits(temporary_path, request, context)
         context.report_progress(0.3, "正在执行全部替换")
         changes = _replace_all(
             temporary_path,
@@ -219,6 +222,7 @@ def _find_only(
     sheets: tuple[str, ...],
     mode: FindReplaceMode,
     find_text: str,
+    replace_text: str,
     match_case: bool,
     whole_cell: bool,
     trim_whitespace: bool,
@@ -229,7 +233,7 @@ def _find_only(
         sheets,
         mode,
         find_text,
-        "",
+        replace_text,
         match_case,
         whole_cell,
         trim_whitespace,
@@ -249,14 +253,23 @@ def _matches(
     whole_cell: bool,
     trim_whitespace: bool,
 ) -> bool:
-    if not isinstance(value, str) or not value:
-        return False
-    if mode is FindReplaceMode.FORMULAS:
-        if not value.startswith("="):
+    if isinstance(value, str):
+        if not value:
             return False
-    elif value.startswith("="):
+        if mode is FindReplaceMode.FORMULAS:
+            if not value.startswith("="):
+                return False
+        elif value.startswith("="):
+            return False
+        text = value
+    elif mode is FindReplaceMode.FORMULAS or value is None or isinstance(value, bool):
+        # 公式模式只匹配公式文本；空值与逻辑值不参与值与文本匹配。
         return False
-    haystack = value if match_case else value.lower()
+    else:
+        # 值与文本模式：数字、日期等标量按显示文本参与匹配（对齐 Excel 查找习惯）。
+        # 命中并替换时单元格会转为文本，与 Excel 替换行为一致。
+        text = str(value)
+    haystack = text if match_case else text.lower()
     if trim_whitespace:
         haystack = haystack.strip(_TRIM_CHARS)
     if whole_cell:
@@ -277,10 +290,11 @@ def _apply_replace(
         return value.replace(find_text, replace_text)
     # 不区分大小写：按小写定位逐段替换，其余内容保持原文。
     lowered = value.lower()
+    needle = find_text.lower()
     pieces: list[str] = []
     start = 0
     while True:
-        index = lowered.find(find_text, start)
+        index = lowered.find(needle, start)
         if index < 0:
             pieces.append(value[start:])
             break

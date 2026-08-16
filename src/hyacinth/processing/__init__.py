@@ -1,4 +1,5 @@
 from hyacinth.processing.apply_version import (
+    APPLY_CHAINED_PREVIEW_OPERATION,
     APPLY_DEDUPLICATE_PREVIEW_OPERATION,
     APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION,
     APPLY_FILTER_PREVIEW_OPERATION,
@@ -6,6 +7,7 @@ from hyacinth.processing.apply_version import (
     APPLY_SORT_PREVIEW_OPERATION,
     APPLY_TRIM_PREVIEW_OPERATION,
     SAVE_MANUAL_EDITS_OPERATION,
+    apply_chained_preview_task,
     apply_deduplicate_preview_task,
     apply_delete_blank_rows_preview_task,
     apply_filter_preview_task,
@@ -13,6 +15,7 @@ from hyacinth.processing.apply_version import (
     apply_sort_preview_task,
     apply_trim_preview_task,
     apply_version_handlers,
+    run_apply_chained_preview_task,
     run_apply_deduplicate_preview_task,
     run_apply_delete_blank_rows_preview_task,
     run_apply_filter_preview_task,
@@ -77,6 +80,7 @@ from hyacinth.processing.trim_preview import (
 )
 
 __all__ = [
+    "APPLY_CHAINED_PREVIEW_OPERATION",
     "APPLY_DEDUPLICATE_PREVIEW_OPERATION",
     "APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION",
     "APPLY_FILTER_PREVIEW_OPERATION",
@@ -108,6 +112,7 @@ __all__ = [
     "FindReplaceMode",
     "FindReplacePreviewResult",
     "apply_deduplicate_preview_task",
+    "apply_chained_preview_task",
     "apply_delete_blank_rows_preview_task",
     "apply_filter_preview_task",
     "apply_sort_preview_task",
@@ -116,6 +121,7 @@ __all__ = [
     "find_replace_preview_handlers",
     "find_replace_preview_task",
     "run_apply_find_replace_preview_task",
+    "run_apply_chained_preview_task",
     "run_apply_trim_preview_task",
     "run_find_replace_preview_task",
     "run_trim_preview_task",

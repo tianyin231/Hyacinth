@@ -11,6 +11,7 @@ from openpyxl import Workbook, load_workbook
 
 from hyacinth.excel.contracts import EngineName
 from hyacinth.processing import (
+    APPLY_CHAINED_PREVIEW_OPERATION,
     APPLY_DEDUPLICATE_PREVIEW_OPERATION,
     APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION,
     APPLY_FILTER_PREVIEW_OPERATION,
@@ -18,6 +19,7 @@ from hyacinth.processing import (
     APPLY_SORT_PREVIEW_OPERATION,
     APPLY_TRIM_PREVIEW_OPERATION,
     SAVE_MANUAL_EDITS_OPERATION,
+    apply_chained_preview_task,
     apply_deduplicate_preview_task,
     apply_delete_blank_rows_preview_task,
     apply_filter_preview_task,
@@ -203,6 +205,7 @@ def _filter_request(root: Path, preview: Path) -> TaskRequest:
 
 def test_apply_handler_is_registered() -> None:
     assert apply_version_handlers() == {
+        APPLY_CHAINED_PREVIEW_OPERATION: apply_chained_preview_task,
         APPLY_SORT_PREVIEW_OPERATION: apply_sort_preview_task,
         APPLY_DEDUPLICATE_PREVIEW_OPERATION: apply_deduplicate_preview_task,
         APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION: apply_delete_blank_rows_preview_task,

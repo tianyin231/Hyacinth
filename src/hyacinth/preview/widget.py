@@ -81,6 +81,7 @@ class WorkbookPreviewWidget(QFrame):
     import_requested = Signal()
     edit_state_changed = Signal(bool, bool, bool)
     header_sort_requested = Signal(int, str)
+    header_multi_sort_requested = Signal(int)
     header_filter_requested = Signal(int)
     processing_menu_requested = Signal(str, list)
 
@@ -185,6 +186,7 @@ class WorkbookPreviewWidget(QFrame):
         menu = QMenu(self._table)
         sort_asc = menu.addAction("升序")
         sort_desc = menu.addAction("降序")
+        multi_sort = menu.addAction("多列排序…")
         menu.addSeparator()
         filter_action = menu.addAction("按此列筛选…")
         chosen = menu.exec(QCursor.pos())
@@ -192,6 +194,8 @@ class WorkbookPreviewWidget(QFrame):
             self.header_sort_requested.emit(column, "asc")
         elif chosen is sort_desc:
             self.header_sort_requested.emit(column, "desc")
+        elif chosen is multi_sort:
+            self.header_multi_sort_requested.emit(column)
         elif chosen is filter_action:
             self.header_filter_requested.emit(column)
 
@@ -244,6 +248,17 @@ class WorkbookPreviewWidget(QFrame):
     def current_preview(self) -> WorkbookPreview | None:
         return self._preview
 
+    @property
+    def current_sheet_name(self) -> str | None:
+        """当前显示的工作表名；查找、筛选、排序等入口必须以此为准。"""
+        preview = self._preview
+        if preview is None or not preview.sheets:
+            return None
+        index = self._tabs.currentIndex()
+        if 0 <= index < len(preview.sheets):
+            return preview.sheets[index].title
+        return preview.sheets[0].title
+
     def set_loading(self, display_name: str) -> None:
         self._close_source()
         self._preview = None
@@ -262,6 +277,11 @@ class WorkbookPreviewWidget(QFrame):
         self._stack.setCurrentIndex(0)
 
     def show_preview(self, preview: WorkbookPreview, *, editable: bool = False) -> None:
+        # 重建标签前记住用户正在查看的工作表，重载后保持在同一张表。
+        # 注意：加载中 _preview 已被清空，必须从标签栏自身取名字，不能依赖 current_sheet_name。
+        previous_sheet = (
+            self._tabs.tabText(self._tabs.currentIndex()) if self._tabs.count() else None
+        )
         self._close_source()
         self._preview = preview
         self._set_editable(editable)
@@ -270,10 +290,16 @@ class WorkbookPreviewWidget(QFrame):
             self._tabs.removeTab(0)
         for sheet in preview.sheets:
             self._tabs.addTab(sheet.title)
+        restore_index = 0
+        if previous_sheet is not None:
+            for index, sheet in enumerate(preview.sheets):
+                if sheet.title == previous_sheet:
+                    restore_index = index
+                    break
         self._tabs.blockSignals(False)
         self._stack.setCurrentIndex(1)
-        self._tabs.setCurrentIndex(0)
-        self._show_sheet(0)
+        self._tabs.setCurrentIndex(restore_index)
+        self._show_sheet(restore_index)
 
     def clear_preview(self, message: str = "选择一个文件查看工作表") -> None:
         self._close_source()
@@ -310,6 +336,34 @@ class WorkbookPreviewWidget(QFrame):
 
     def pending_edits(self) -> tuple[CellEdit, ...]:
         return self._edit_session.edits()
+
+    @property
+    def is_editable(self) -> bool:
+        return self._editable
+
+    def apply_cell_edit(
+        self,
+        sheet_name: str,
+        row: int,
+        column: int,
+        *,
+        base_value: object,
+        new_value: object,
+    ) -> None:
+        """以源行坐标写入一次程序化单元格编辑（查找替换逐项替换）。
+
+        坐标为 0 起始的物理行/列，与编辑会话键一致；跨工作表也无需
+        切换当前显示页，cell_changed 会按需刷新可见单元格。
+        """
+        current = self._edit_session.value_at(sheet_name, row, column, base_value)
+        self._edit_session.set_value(
+            sheet_name,
+            row,
+            column,
+            base_value=base_value,
+            current_value=current,
+            new_value=new_value,
+        )
 
     def undo(self) -> None:
         self._edit_session.undo()

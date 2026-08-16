@@ -1,10 +1,9 @@
 import json
 import os
-import re
 import shutil
 from collections.abc import Callable
 from contextlib import AbstractContextManager
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Protocol
@@ -12,6 +11,11 @@ from typing import Protocol
 from openpyxl import load_workbook
 
 from hyacinth.excel.contracts import EngineName
+from hyacinth.processing.cell_edits import (
+    excel_edit_value,
+    parse_edits,
+    parse_optional_edits,
+)
 from hyacinth.tasks import TaskRequest
 from hyacinth.tasks.worker import TaskContext, TaskHandler
 from hyacinth.versioning import (
@@ -27,6 +31,7 @@ APPLY_DELETE_BLANK_ROWS_PREVIEW_OPERATION = "apply-delete-blank-rows-preview"
 APPLY_FILTER_PREVIEW_OPERATION = "apply-filter-preview"
 APPLY_TRIM_PREVIEW_OPERATION = "apply-trim-preview"
 APPLY_FIND_REPLACE_PREVIEW_OPERATION = "apply-find-replace-preview"
+APPLY_CHAINED_PREVIEW_OPERATION = "apply-chained-preview"
 SAVE_MANUAL_EDITS_OPERATION = "save-manual-edits"
 COPY_CHUNK_SIZE = 1024 * 1024
 
@@ -262,7 +267,7 @@ def _apply_edits_to_workbook_file(
             if sheet_name not in workbook.sheetnames:
                 raise ValueError(f"找不到工作表：{sheet_name}")
             cell = workbook[sheet_name].cell(row=row + 1, column=column + 1)
-            cell.value = _excel_edit_value(value)  # type: ignore[assignment]
+            cell.value = excel_edit_value(value)  # type: ignore[assignment]
             context.report_progress(
                 0.1 + 0.35 * ((index + 1) / len(edits)),
                 f"正在修改 {sheet_name}!{row + 1}",
@@ -474,6 +479,33 @@ def apply_find_replace_preview_task(request: TaskRequest, context: TaskContext) 
     return run_apply_find_replace_preview_task(request, context)
 
 
+def run_apply_chained_preview_task(
+    request: TaskRequest,
+    context: ApplyVersionTaskContext,
+    *,
+    metadata_store_factory: MetadataStoreFactory = MetadataStore,
+) -> ImportedWorkbook:
+    """链式多步处理的应用：把临时结果升级为基线版本的一个“多步处理”子节点。"""
+    steps = request.payload.get("steps")
+    if not isinstance(steps, list) or not steps:
+        raise ValueError("任务参数缺少处理步骤：steps")
+    for step in steps:
+        if not isinstance(step, dict) or not isinstance(step.get("operation"), str):
+            raise ValueError("处理步骤必须是包含 operation 的对象")
+    return _run_apply_preview_task(
+        request,
+        context,
+        metadata_store_factory=metadata_store_factory,
+        version_name=f"多步处理（{len(steps)} 项操作）",
+        operation="multi-step",
+        parameters={"steps": steps},
+    )
+
+
+def apply_chained_preview_task(request: TaskRequest, context: TaskContext) -> object:
+    return run_apply_chained_preview_task(request, context)
+
+
 def save_manual_edits_task(request: TaskRequest, context: TaskContext) -> object:
     return run_save_manual_edits_task(request, context)
 
@@ -486,6 +518,7 @@ def apply_version_handlers() -> dict[str, TaskHandler]:
         APPLY_FILTER_PREVIEW_OPERATION: apply_filter_preview_task,
         APPLY_TRIM_PREVIEW_OPERATION: apply_trim_preview_task,
         APPLY_FIND_REPLACE_PREVIEW_OPERATION: apply_find_replace_preview_task,
+        APPLY_CHAINED_PREVIEW_OPERATION: apply_chained_preview_task,
         SAVE_MANUAL_EDITS_OPERATION: save_manual_edits_task,
     }
 
@@ -524,59 +557,14 @@ def _payload_string(request: TaskRequest, key: str) -> str:
 
 
 def _optional_manual_edits(value: object) -> list[tuple[str, int, int, object]]:
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        raise ValueError("任务参数 edits 必须是数组")
-    return _manual_edits(value) if value else []
+    return parse_optional_edits(value)
 
 
 def _manual_edits(value: object) -> list[tuple[str, int, int, object]]:
     if not isinstance(value, list) or not value:
         raise ValueError("任务参数 edits 必须是非空数组")
-    edits: list[tuple[str, int, int, object]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            raise ValueError("单元格修改必须是对象")
-        sheet_name = item.get("sheet_name")
-        row = item.get("row")
-        column = item.get("column")
-        cell_value = item.get("value")
-        if not isinstance(sheet_name, str) or not sheet_name:
-            raise ValueError("单元格修改缺少工作表名称")
-        if not isinstance(row, int) or isinstance(row, bool) or row < 0:
-            raise ValueError("单元格行号必须是非负整数")
-        if not isinstance(column, int) or isinstance(column, bool) or column < 0:
-            raise ValueError("单元格列号必须是非负整数")
+    edits = parse_edits(value)
+    for _sheet, _row, _column, cell_value in edits:
         if cell_value is not None and not isinstance(cell_value, (str, int, float, bool)):
             raise ValueError("单元格值必须是文本、数字、布尔值或空值")
-        edits.append((sheet_name, row, column, cell_value))
     return edits
-
-
-_INTEGER_PATTERN = re.compile(r"[-+]?(?:0|[1-9]\d*)")
-_NUMBER_PATTERN = re.compile(r"[-+]?(?:0|[1-9]\d*)\.\d+(?:[eE][-+]?\d+)?")
-_DATE_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}")
-
-
-def _excel_edit_value(value: object) -> object:
-    if not isinstance(value, str):
-        return value
-    if value == "":
-        return None
-    if value.startswith("="):
-        return value
-    if _INTEGER_PATTERN.fullmatch(value):
-        return int(value)
-    if _NUMBER_PATTERN.fullmatch(value):
-        return float(value)
-    if _DATE_PATTERN.fullmatch(value):
-        try:
-            return date.fromisoformat(value)
-        except ValueError:
-            return value
-    if value.upper() == "TRUE":
-        return True
-    if value.upper() == "FALSE":
-        return False
-    return value
