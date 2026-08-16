@@ -1388,6 +1388,7 @@ class HyacinthMainWindow(QMainWindow):
             return
         for workbook in workbooks:
             store.clear_version_layouts(workbook.file_id)
+        self._version_tree.clear_remembered_layouts()
         self._refresh_version_canvas()
 
     def _request_purge_version(self, file_id: str, version_id: str) -> None:

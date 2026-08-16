@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-16T16:27:57+08:00"
+updated_at: "2026-08-16T16:40:52+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -273,6 +273,7 @@ last_completed:
   - "版本树标题栏新增画布模式切换按钮：仅看当前文件 ⇄ 查看全部文件，切换时按当前文件泳道相对位置恢复视口（DEC-20260816-031）"
   - "用户复验反馈三项：模式切换重置画布、专注下快速切换卡死、从此继续后画布乱；修复为模式切换只显隐泳道不重建场景，视口零位移，退役场景保留上限 3 个"
   - "修复固定中间节点导致自动排布 KeyError：以最近固定祖先为边界独立排布自动子树，该问题曾使真实文件库启动即崩溃"
+  - "新增画布布局记忆：重建画布时已有节点沿用上次位置，新节点按树形算法插入并避让，泳道宽高按实际占用计算；从此继续/新增分支不再推动未固定节点，只有手动重整布局才整体重排（DEC-20260816-032）"
 
 next_actions:
   - "用户实机复验六项修复：泳道强调随文件切换、泳道点击切换、已删节点拖动与永久删除、重整布局确认、树形排布"
@@ -370,6 +371,13 @@ blockers:
     summary: "当前 COM 转换整段视为安全关键阶段，取消会等待完成；后续需要结构化子进程阶段事件，仅在 SaveAs 时禁止强制终止"
 
 recent_decisions:
+  - id: "DEC-20260816-032"
+    date: "2026-08-16"
+    status: "approved-and-implemented"
+    summary: "画布新增布局记忆：重建时已有节点保持原位、新节点树形插入并避让、泳道宽高按实际占用；只有手动重整布局才清空记忆整体重排"
+    source: "用户实机反馈从此继续后未拖动节点被重排、泳道宽度逐次缩小"
+    supersedes: "none"
+    impact: "需求讨论记录第 47 节补充、VersionTreePanel 位置记忆与 _lane_positions、重整布局同时清空存储布局与记忆"
   - id: "DEC-20260816-031"
     date: "2026-08-16"
     status: "approved-and-implemented"
@@ -391,13 +399,6 @@ recent_decisions:
     source: "用户实机反馈提出方向并确认推荐方案"
     supersedes: "第 26、38 节中版本树仅显示当前单文件版本的设计"
     impact: "需求讨论记录第 47 节、VersionTreePanel 泳道渲染与带 file_id 的节点信号、跨文件预览/继续/删除/恢复/导出接线、文件列表聚焦、专注模式锚点保持与全部相关测试"
-  - id: "DEC-20260816-028"
-    date: "2026-08-16"
-    status: "approved"
-    summary: "追加需求并入：处理触发统一归并到左侧参数面板执行按钮（两阶段提交，等价客户'开始处理按钮'方案）；新增右下角状态栏显示工作格式后缀、版本树总占用与当前预览节点占用"
-    source: "用户当前会话指示将追加需求.txt 并入需求讨论记录.md"
-    supersedes: "none"
-    impact: "需求讨论记录.md 新增第 46 节与待复核清单第 43 条；右下角状态栏为待实现功能，占用统计需与第 40 节文件属性共用来源"
   - id: "DEC-20260816-027"
     date: "2026-08-16"
     status: "approved"
@@ -466,7 +467,7 @@ changed_files:
 verification:
   status: "passed-awaiting-real-machine-validation"
   commands:
-    - "uv run pytest：229 passed（模式切换测试改为显隐语义：代理对象不变、视口零位移、连续切换 8 次退役场景不增长）"
+    - "uv run pytest：230 passed（布局记忆回归新增 1 项：加入新分支后既有节点位置逐一保持、新节点避让不重叠，手动清空记忆后回到树形默认）"
     - "uv run ruff check .；uv run ruff format --check .；uv run mypy；uv lock --check；uv build；git diff --check：全部通过"
     - "uv run python scripts/capture_ui_states.py --output output/playwright：8 张截图全部生成"
     - "本轮需求记录变更仅文档更新，无代码影响；完成度评估基于对 app.py、ui/shell.py、versioning/store.py、library/widget.py、preview/edit_session.py、tasks/status_widget.py 的逐文件阅读与 git log 核对"

@@ -1608,6 +1608,9 @@ class VersionTreePanel(QFrame):
         self._lane_content_tops: dict[str, float] = {}
         self._single_file_mode = False
         self._items_by_file: dict[str, list[QGraphicsItem]] = {}
+        # 已渲染节点的泳道相对位置记忆：重建画布时已有节点保持原位，
+        # 只有新节点按树形算法插入并避让；手动“重整布局”才整体重排。
+        self._remembered_lane_positions: dict[tuple[str, str], tuple[float, float]] = {}
         self._last_trees: tuple[FileVersionTree, ...] = ()
         self._last_current_file_id: str | None = None
         self._records: dict[tuple[str, str], VersionRecord] = {}
@@ -1711,11 +1714,12 @@ class VersionTreePanel(QFrame):
         focus_proxy: QGraphicsProxyWidget | None = None
         first_proxy: QGraphicsProxyWidget | None = None
         for tree in render_trees:
-            local_positions, max_depth = self._layout_lane(tree)
-            lane_width = 28.0 + (max_depth + 1) * NODE_DX + 24.0
+            lane_positions = self._lane_positions(tree)
+            max_x = max((x for x, _ in lane_positions.values()), default=0.0)
             lane_rows = 1
-            for _, local_y in local_positions.values():
+            for _, local_y in lane_positions.values():
                 lane_rows = max(lane_rows, int(local_y // NODE_DY) + 1)
+            lane_width = 28.0 + max_x + VERSION_NODE_WIDTH + 52.0
             lane_height = LANE_HEADER_HEIGHT + lane_rows * NODE_DY + 10.0
             is_current = tree.file_id == current_file_id
             lane_items = self._render_lane_header(
@@ -1724,15 +1728,8 @@ class VersionTreePanel(QFrame):
             self._items_by_file[tree.file_id] = list(lane_items)
             self._lane_content_tops[tree.file_id] = lane_top + LANE_HEADER_HEIGHT
             for version in tree.versions:
-                layout = tree.layouts.get(version.version_id)
-                if layout is not None and layout.fixed:
-                    position = (
-                        layout.x,
-                        self._lane_content_tops[tree.file_id] + layout.y,
-                    )
-                else:
-                    local_x, local_y = local_positions[version.version_id]
-                    position = (28.0 + local_x, lane_top + LANE_HEADER_HEIGHT + local_y)
+                local_x, local_y = lane_positions[version.version_id]
+                position = (local_x, lane_top + LANE_HEADER_HEIGHT + local_y)
                 bounded = self._bounded_position(*position)
                 key = (tree.file_id, version.version_id)
                 card = self._version_card(
@@ -1798,6 +1795,39 @@ class VersionTreePanel(QFrame):
         # 只保留少量退役场景防止长会话累积拖垮内存；隔多轮再销毁
         # 可避开 QGraphicsProxyWidget 延迟销毁的原生竞态窗口。
         del self._retired_scenes[:-3]
+
+    def _lane_positions(self, tree: FileVersionTree) -> dict[str, tuple[float, float]]:
+        """解析泳道内每个版本的（绝对 x, 泳道相对 y）。
+
+        固定布局与位置记忆优先；新节点按树形算法定位并对已占区域避让。
+        """
+        tree_positions, _ = self._layout_lane(tree)
+        occupied: list[QRectF] = []
+        lane_positions: dict[str, tuple[float, float]] = {}
+        for version in tree.versions:
+            key = (tree.file_id, version.version_id)
+            layout = tree.layouts.get(version.version_id)
+            if layout is not None and layout.fixed:
+                position = (layout.x, layout.y)
+            elif key in self._remembered_lane_positions:
+                position = self._remembered_lane_positions[key]
+            else:
+                tree_x, tree_y = tree_positions[version.version_id]
+                tree_x = 28.0 + tree_x
+                candidate = QRectF(tree_x, tree_y, VERSION_NODE_WIDTH, VERSION_NODE_HEIGHT)
+                while any(candidate.adjusted(-8, -8, 8, 8).intersects(rect) for rect in occupied):
+                    tree_y += NODE_DY
+                    candidate.moveTop(tree_y)
+                position = (tree_x, tree_y)
+            occupied.append(
+                QRectF(position[0], position[1], VERSION_NODE_WIDTH, VERSION_NODE_HEIGHT)
+            )
+            lane_positions[version.version_id] = position
+            self._remembered_lane_positions[key] = position
+        return lane_positions
+
+    def clear_remembered_layouts(self) -> None:
+        self._remembered_lane_positions.clear()
 
     def _render_lane_header(
         self,

@@ -984,3 +984,64 @@ def test_view_mode_toggle_filters_current_file_and_keeps_position(
     assert len(panel._retired_scenes) == retired_before
     assert visible_file_ids() == {"file-a", "file-b"}
     assert mode_button.text() == "仅看当前文件"
+
+
+def test_canvas_refresh_keeps_existing_nodes_until_manual_reset(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    from hyacinth.ui import FileVersionTree, VersionTreePanel
+
+    root = _record("root", None, "导入原始文件", 8, tmp_path / "r.xlsx")
+    branch_a = _record("branch-a", "root", "分支A", 9, tmp_path / "a.xlsx")
+    branch_b = _record("branch-b", "root", "分支B", 10, tmp_path / "b.xlsx")
+    branch_c = _record("branch-c", "root", "分支C", 11, tmp_path / "c.xlsx")
+    panel = VersionTreePanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    view = panel.findChild(QGraphicsView, "version-tree-view")
+    assert view is not None
+
+    def positions(trees: tuple[FileVersionTree, ...]) -> dict[str, tuple[float, float]]:
+        panel.set_workbooks(trees, current_file_id="file-1")
+        return {
+            str(proxy.widget().property("version-id")): (proxy.pos().x(), proxy.pos().y())
+            for proxy in view.scene().items()
+            if isinstance(proxy, QGraphicsProxyWidget) and proxy.widget() is not None
+        }
+
+    before = positions(
+        (FileVersionTree("file-1", "销售.xlsx", (root, branch_a, branch_b), "branch-b", {}),)
+    )
+
+    # 模拟“从此继续”等触发的新版本节点加入后的画布刷新
+    after = positions(
+        (
+            FileVersionTree(
+                "file-1", "销售.xlsx", (root, branch_a, branch_b, branch_c), "branch-c", {}
+            ),
+        )
+    )
+
+    for version_id in ("root", "branch-a", "branch-b"):
+        assert after[version_id] == before[version_id]
+
+    def overlaps(a: tuple[float, float], b: tuple[float, float]) -> bool:
+        return abs(a[0] - b[0]) < 230.0 and abs(a[1] - b[1]) < 108.0
+
+    assert not any(
+        overlaps(after["branch-c"], after[vid]) for vid in ("root", "branch-a", "branch-b")
+    )
+
+    # 手动重整布局后全部节点回到树形默认排布
+    panel.clear_remembered_layouts()
+    reset = positions(
+        (
+            FileVersionTree(
+                "file-1", "销售.xlsx", (root, branch_a, branch_b, branch_c), "branch-c", {}
+            ),
+        )
+    )
+    assert reset["branch-a"] == (28.0 + 260.0, 42.0 + 40.0)
+    assert reset["branch-c"][1] == before["branch-b"][1] + 126.0
+    assert reset["root"][1] == (reset["branch-a"][1] + reset["branch-c"][1]) / 2
