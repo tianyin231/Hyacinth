@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-08-16T17:01:39+08:00"
+updated_at: "2026-08-16T17:10:00+08:00"
 updated_by: "codex-sol"
 
 project:
@@ -35,9 +35,9 @@ delivery:
   next_milestone: "用户实机复验版本图谱全向平移、节点边界和专注模式"
 
 current_task:
-  id: "GLOBAL-CANVAS-REAL-MACHINE-FIXES-001"
-  status: "implementation-completed-awaiting-real-machine-validation"
-  goal: "按 DEC-20260816-030 修复全局画布实机反馈（六项+泳道背景消失回归）"
+  id: "NEXT-PRIORITIES-ANALYSIS-001"
+  status: "analysis-delivered-awaiting-direction-confirmation"
+  goal: "全局画布多轮实机反馈全部闭环；分析下一步开发方向并等待用户确认"
   owner: "codex-sol"
 
 last_completed:
@@ -281,7 +281,8 @@ last_completed:
   - "节点布局改为画布绝对坐标钉定（DEC-20260816-034）：固定与记忆位置永不再动，新节点树形定位并对全画布已定位节点避让；把 A 文件节点拖到 B 文件旁后任何重建都不再移动它，也不再自动调整 B 文件节点"
 
 next_actions:
-  - "用户实机复验六项修复：泳道强调随文件切换、泳道点击切换、已删节点拖动与永久删除、重整布局确认、树形排布"
+  - "与用户确认下一切片方向（推荐顺序：查找与替换 → 清除首尾空格 → 文件/功能搜索 → 编辑区复制粘贴与右键菜单 → 自动列宽与调整列 → 版本差异对比 → 设置体系）"
+  - "下次画布改动时给所有根节点加独立于 HEAD 的'根版本'标记（需求第 47 节待实施项）"
   - "用户实机运行 uv run hyacinth，复验全局画布：多文件泳道显示、跨文件节点点击切换、文件列表点击定位 HEAD、专注模式位置保持"
   - "用户实机运行 uv run hyacinth，复验专注模式进入/退出画布位置保持"
   - "用户实机运行 uv run hyacinth，复验文件删除、回收站恢复与永久删除流程"
